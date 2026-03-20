@@ -1,0 +1,29 @@
+# Config with secrets
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# uv
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp work files
+tmp/
+*.srt
+*.vtt
+
+# CC local settings (personal overrides)
+.claude/settings.local.json

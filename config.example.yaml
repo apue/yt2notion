@@ -1,0 +1,47 @@
+# yt2notion 配置文件
+# 复制为 config.yaml 并填入你的实际值
+
+model:
+  # 可选: claude_code | anthropic_api | openai_api
+  backend: claude_code
+  summarize_model: sonnet    # 结构化总结（英文处理强）
+  translate_model: opus      # 中文化润色（中文质量高）
+
+storage:
+  # 可选: notion | obsidian | markdown
+  backend: notion
+  notion:
+    token: ""                 # Notion integration token
+    database_id: ""           # 目标 database ID
+    # 目录路由规则：根据关键词自动归类
+    directory_rules:
+      - match: ["muscle", "stretch", "rehab", "训练", "健身", "拉伸"]
+        parent: "健身/训练笔记"
+      - match: ["AI", "LLM", "agent", "model", "coding", "程序"]
+        parent: "技术/AI"
+      - match: ["travel", "food", "旅行", "美食"]
+        parent: "生活/旅行"
+      - default: "收件箱"
+
+extract:
+  # 字幕优先级（从左到右尝试）
+  subtitle_priority:
+    - "zh-Hans"
+    - "zh-Hant"
+    - "en"
+  # 自动字幕作为 fallback
+  auto_subtitle_fallback: true
+  auto_subtitle_lang: "en"
+  # 从 Chrome 读取 cookies（访问会员/年龄限制内容）
+  cookies_from: chrome
+
+credit:
+  # 始终在输出中包含来源信息
+  always_include: true
+  format: "来源：{channel} 「{title}」\n链接：{url}"
+
+output:
+  # chunk 分段长度（秒），用于时间戳关联
+  chunk_duration_seconds: 120
+  # 最终输出语言
+  target_language: "zh-CN"
