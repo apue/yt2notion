@@ -11,8 +11,9 @@ storage:
   # 可选: notion | obsidian | markdown
   backend: notion
   notion:
-    token: ""                 # Notion integration token
-    database_id: ""           # 目标 database ID
+    token: ""                 # Notion integration token (CLI 模式需要)
+    database_id: ""           # 目标 database ID (CLI 模式)
+    parent_page_id: ""        # Notion 父页面 ID (slash command 模式，MCP 免 token)
     # 目录路由规则：根据关键词自动归类
     directory_rules:
       - match: ["muscle", "stretch", "rehab", "训练", "健身", "拉伸"]
