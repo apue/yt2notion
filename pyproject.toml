@@ -48,6 +48,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
+ignore = ["TCH003"]  # Path etc. used at runtime, not just type hints
 
 [tool.ruff.format]
 quote-style = "double"

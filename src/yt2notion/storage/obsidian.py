@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from yt2notion.models.base import ChineseContent, VideoMeta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yt2notion.models.base import ChineseContent, VideoMeta
 
 
 class ObsidianStorage:

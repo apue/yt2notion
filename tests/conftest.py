@@ -6,7 +6,6 @@ import pytest
 
 from yt2notion.models.base import VideoMeta
 
-
 SAMPLE_SRT = """\
 1
 00:00:01,000 --> 00:00:05,500

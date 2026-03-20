@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from yt2notion.models.base import ChineseContent, VideoMeta
+if TYPE_CHECKING:
+    from yt2notion.models.base import ChineseContent, VideoMeta
 
 
 class Storage(Protocol):
