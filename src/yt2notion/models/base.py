@@ -32,6 +32,10 @@ class VideoMeta:
     url: str = ""
     duration_seconds: int = 0
     chapters: list[Chapter] = field(default_factory=list)
+    description: str = ""
+    language: str = ""
+    subtitles_available: bool = False
+    series: str = ""  # podcast series name (fallback for channel)
 
 
 @dataclass
@@ -93,6 +97,18 @@ class Summary:
 
 
 @dataclass
+class ChunkSummary:
+    """Summary of a single segment from the map phase."""
+
+    segment_title: str
+    timestamp: str  # MM:SS
+    timestamp_seconds: int
+    summary: str
+    key_points: list[dict] = field(default_factory=list)  # [{timestamp, timestamp_seconds, point}]
+    key_terms: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ChineseContent:
     """Final Chinese content ready for publishing."""
 
@@ -100,6 +116,7 @@ class ChineseContent:
     key_points: list[dict]  # [{timestamp, title, summary}]
     tags: list[str]
     raw_markdown: str  # 完整的 markdown 输出
+    mindmap: str = ""  # Markmap 格式思维导图，长内容时生成
 
 
 class Summarizer(Protocol):
@@ -113,4 +130,16 @@ class Summarizer(Protocol):
 
     def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:
         """Rewrite summary in natural Chinese."""
+        ...
+
+    def summarize_chunk(
+        self, chunk_transcript: str, metadata: VideoMeta, segment_info: dict
+    ) -> ChunkSummary:
+        """Map phase: summarize a single segment of long content."""
+        ...
+
+    def synthesize(
+        self, chunk_summaries: list[ChunkSummary], metadata: VideoMeta
+    ) -> ChineseContent:
+        """Reduce phase: synthesize all chunk summaries into final Chinese output."""
         ...

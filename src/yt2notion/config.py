@@ -20,6 +20,7 @@ DEFAULTS: dict = {
         "backend": "claude_code",
         "summarize_model": "sonnet",
         "translate_model": "opus",
+        "review_model": "haiku",
     },
     "storage": {
         "backend": "notion",
@@ -30,6 +31,10 @@ DEFAULTS: dict = {
         "auto_subtitle_fallback": True,
         "auto_subtitle_lang": "en",
         "cookies_from": "chrome",
+        "asr": {
+            "backend": "remote",
+            "endpoint": "",
+        },
     },
     "credit": {
         "always_include": True,
@@ -38,6 +43,11 @@ DEFAULTS: dict = {
     "output": {
         "chunk_duration_seconds": 120,
         "target_language": "zh-CN",
+        "long_content_threshold_seconds": 1800,
+        "max_segment_seconds": 900,
+    },
+    "workspace": {
+        "base_dir": "./workspace",
     },
 }
 
@@ -51,6 +61,7 @@ class AppConfig:
     extract: dict = field(default_factory=lambda: dict(DEFAULTS["extract"]))
     credit: dict = field(default_factory=lambda: dict(DEFAULTS["credit"]))
     output: dict = field(default_factory=lambda: dict(DEFAULTS["output"]))
+    workspace: dict = field(default_factory=lambda: dict(DEFAULTS["workspace"]))
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -99,4 +110,5 @@ def load_config(path: str) -> AppConfig:
         extract=merged["extract"],
         credit=merged["credit"],
         output=merged["output"],
+        workspace=merged.get("workspace", DEFAULTS["workspace"]),
     )

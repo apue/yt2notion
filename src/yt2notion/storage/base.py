@@ -11,6 +11,12 @@ if TYPE_CHECKING:
 class Storage(Protocol):
     """Protocol for storage backends that persist processed content."""
 
-    def save(self, content: ChineseContent, metadata: VideoMeta) -> str:
+    def save(
+        self,
+        content: ChineseContent,
+        metadata: VideoMeta,
+        *,
+        transcript_segments: list[dict] | None = None,
+    ) -> str:
         """Save content and return a URL or path to the created resource."""
         ...

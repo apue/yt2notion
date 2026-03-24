@@ -34,8 +34,18 @@ class NotionStorage:
         self.directory_rules = directory_rules or []
         self.credit_format = credit_format
 
-    def save(self, content: ChineseContent, metadata: VideoMeta) -> str:
-        """Create a Notion page and return its URL."""
+    def save(
+        self,
+        content: ChineseContent,
+        metadata: VideoMeta,
+        *,
+        transcript_segments: list[dict] | None = None,
+    ) -> str:
+        """Create a Notion page and return its URL.
+
+        If transcript_segments is provided, also creates a child page
+        with the full transcript organized by segments.
+        """
         properties = self._build_page_properties(content, metadata)
         blocks = self._build_blocks(content, metadata)
 
@@ -45,7 +55,13 @@ class NotionStorage:
                 properties=properties,
                 children=blocks,
             )
-            return page.get("url", "")
+            page_url = page.get("url", "")
+
+            # Create transcript sub-page if segments provided
+            if transcript_segments:
+                self._create_transcript_page(page["id"], metadata, transcript_segments)
+
+            return page_url
         except Exception as e:
             raise NotionStorageError(f"Failed to create Notion page: {e}") from e
 
@@ -102,6 +118,18 @@ class NotionStorage:
             ]
             blocks.append({"bulleted_list_item": {"rich_text": rich_text}})
 
+        # Mindmap section (long content only)
+        if content.mindmap:
+            blocks.append({"heading_2": {"rich_text": [{"text": {"content": "思维导图"}}]}})
+            blocks.append(
+                {
+                    "code": {
+                        "rich_text": [{"text": {"content": content.mindmap}}],
+                        "language": "markdown",
+                    }
+                }
+            )
+
         # Tags section
         if content.tags:
             blocks.append({"heading_2": {"rich_text": [{"text": {"content": "标签"}}]}})
@@ -123,6 +151,66 @@ class NotionStorage:
                 "rich_text": [{"text": {"content": credit_text}}],
             }
         }
+
+    def _create_transcript_page(
+        self,
+        parent_page_id: str,
+        metadata: VideoMeta,
+        transcript_segments: list[dict],
+    ) -> None:
+        """Create a child page with the full transcript."""
+        blocks: list[dict] = []
+
+        # Credit callout
+        blocks.append(self._make_credit_block(metadata))
+
+        for seg in transcript_segments:
+            title = seg.get("title", "")
+            start = seg.get("start_seconds", 0)
+            ts_display = f"{start // 3600}:{(start % 3600) // 60:02d}:{start % 60:02d}"
+            ts_link = f"https://youtu.be/{metadata.video_id}?t={start}"
+
+            # Segment heading with timestamp link
+            blocks.append(
+                {
+                    "heading_3": {
+                        "rich_text": [
+                            {
+                                "text": {"content": f"[{ts_display}] ", "link": {"url": ts_link}},
+                                "annotations": {"bold": True, "color": "blue"},
+                            },
+                            {"text": {"content": title}},
+                        ]
+                    }
+                }
+            )
+
+            # Segment text (split for Notion 2000-char limit)
+            text = seg.get("text", "")
+            for chunk in _split_text(text, 2000):
+                blocks.append({"paragraph": {"rich_text": [{"text": {"content": chunk}}]}})
+
+        # Notion API limits children to 100 blocks per request
+        # Send in batches if needed
+        page_blocks = blocks[:100]
+        remaining = blocks[100:]
+
+        page = self.client.pages.create(
+            parent={"page_id": parent_page_id},
+            properties={
+                "title": {"title": [{"text": {"content": f"逐字稿：{metadata.title[:80]}"}}]}
+            },
+            children=page_blocks,
+        )
+
+        # Append remaining blocks in batches
+        while remaining:
+            batch = remaining[:100]
+            remaining = remaining[100:]
+            self.client.blocks.children.append(
+                block_id=page["id"],
+                children=batch,
+            )
 
     def route_directory(self, tags: list[str], title: str) -> str:
         """Match content to a directory based on rules."""

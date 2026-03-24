@@ -25,6 +25,9 @@ tmp/
 *.srt
 *.vtt
 
+# Workspace (large audio files + intermediate artifacts)
+workspace/
+
 # Coverage
 .coverage
 htmlcov/

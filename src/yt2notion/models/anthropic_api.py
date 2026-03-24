@@ -8,7 +8,7 @@ from yt2notion.models._parsers import parse_chinese_markdown, parse_summary_json
 from yt2notion.prompts import load_prompt
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, Summary, VideoMeta
+    from yt2notion.models.base import ChineseContent, ChunkSummary, Summary, VideoMeta
 
 try:
     import anthropic as _anthropic
@@ -62,6 +62,58 @@ class AnthropicAPIModel:
         user_prompt = summary.to_text()
         raw = self._call_api(system_prompt, user_prompt, self.translate_model)
         return parse_chinese_markdown(raw)
+
+    def summarize_chunk(
+        self, chunk_transcript: str, metadata: VideoMeta, segment_info: dict
+    ) -> ChunkSummary:
+        """Map phase: summarize a single segment of long content."""
+
+        from yt2notion.models._parsers import parse_chunk_summary_json
+        from yt2notion.prompts import render_prompt
+
+        system_prompt = render_prompt("summarize_chunk", **segment_info)
+        user_prompt = (
+            f"Video: {metadata.title} by {metadata.channel}\n"
+            f"URL: {metadata.url}\n\n{chunk_transcript}"
+        )
+        raw = self._call_api(system_prompt, user_prompt, self.summarize_model)
+        return parse_chunk_summary_json(raw)
+
+    def synthesize(
+        self, chunk_summaries: list[ChunkSummary], metadata: VideoMeta
+    ) -> ChineseContent:
+        """Reduce phase: synthesize all chunk summaries into final Chinese output."""
+        import json
+
+        from yt2notion.models._parsers import parse_synthesized_markdown
+        from yt2notion.process import seconds_to_display
+        from yt2notion.prompts import render_prompt
+
+        duration_display = seconds_to_display(metadata.duration_seconds)
+        system_prompt = render_prompt(
+            "synthesize",
+            title=metadata.title,
+            channel=metadata.channel,
+            duration=duration_display,
+            url=metadata.url,
+        )
+        user_prompt = json.dumps(
+            [
+                {
+                    "segment_title": cs.segment_title,
+                    "timestamp": cs.timestamp,
+                    "timestamp_seconds": cs.timestamp_seconds,
+                    "summary": cs.summary,
+                    "key_points": cs.key_points,
+                    "key_terms": cs.key_terms,
+                }
+                for cs in chunk_summaries
+            ],
+            ensure_ascii=False,
+            indent=2,
+        )
+        raw = self._call_api(system_prompt, user_prompt, self.translate_model)
+        return parse_synthesized_markdown(raw)
 
     def _call_api(self, system_prompt: str, user_prompt: str, model: str) -> str:
         """Call Anthropic messages API and return response text."""

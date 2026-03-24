@@ -17,6 +17,12 @@ def _load_fixture(name: str) -> str:
     return (FIXTURES_DIR / name).read_text(encoding="utf-8")
 
 
+def _make_config(tmp_path: Path) -> AppConfig:
+    config = AppConfig()
+    config.workspace = {"base_dir": str(tmp_path / "workspace")}
+    return config
+
+
 @patch("yt2notion.pipeline.create_storage")
 @patch("yt2notion.models.claude_code.subprocess.run")
 @patch("yt2notion.pipeline.extract_subtitles")
@@ -68,7 +74,7 @@ def test_full_pipeline_with_fixtures(
     mock_create_storage.return_value = mock_storage
 
     # 4. Run pipeline
-    config = AppConfig()
+    config = _make_config(tmp_path)
     result = run_pipeline(
         "https://www.youtube.com/watch?v=abc123",
         config,
@@ -103,6 +109,7 @@ def test_dry_run_includes_credit(
     mock_extract_meta,
     mock_extract_subs,
     mock_claude_run,
+    tmp_path,
     sample_srt,
     sample_meta,
 ):
@@ -134,7 +141,7 @@ def test_dry_run_includes_credit(
 
     mock_claude_run.side_effect = claude_side_effect
 
-    config = AppConfig()
+    config = _make_config(tmp_path)
     result = run_pipeline(
         "https://www.youtube.com/watch?v=abc123",
         config,

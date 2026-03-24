@@ -43,14 +43,24 @@ def extract_metadata(url: str) -> VideoMeta:
         for ch in data.get("chapters") or []
     ]
 
+    # Check subtitle availability from metadata (avoids wasted yt-dlp calls)
+    subtitles_available = bool(data.get("subtitles")) or bool(data.get("automatic_captions"))
+
+    # Channel fallback chain: channel → uploader → series (Apple Podcasts)
+    channel = data.get("channel") or data.get("uploader") or data.get("series", "")
+
     return VideoMeta(
         video_id=data.get("id", ""),
         title=data.get("title", ""),
-        channel=data.get("channel", data.get("uploader", "")),
+        channel=channel,
         upload_date=data.get("upload_date", ""),
         url=data.get("webpage_url", url),
-        duration_seconds=int(data.get("duration", 0)),
+        duration_seconds=int(data.get("duration") or 0),
         chapters=chapters,
+        description=data.get("description", ""),
+        language=data.get("language", ""),
+        subtitles_available=subtitles_available,
+        series=data.get("series", ""),
     )
 
 
@@ -126,6 +136,39 @@ def extract_subtitles(url: str, config: dict, output_dir: Path, *, video_id: str
         f"No subtitles found for {url}. "
         f"Tried languages: {priority}" + (f" + auto ({auto_lang})" if auto_fallback else "")
     )
+
+
+def extract_audio(
+    url: str,
+    output_dir: Path,
+    *,
+    video_id: str = "",
+    cookies_from: str | None = None,
+) -> Path:
+    """Download audio using yt-dlp -x --audio-format mp3.
+
+    Returns the path to the downloaded audio file.
+    """
+    args = [
+        "-x",
+        "--audio-format",
+        "mp3",
+        "-o",
+        str(output_dir / "%(id)s.%(ext)s"),
+    ]
+    if cookies_from:
+        args.extend(["--cookies-from-browser", cookies_from])
+    args.append(url)
+    _run_ytdlp(args)
+
+    # Find the downloaded audio file
+    audio_extensions = (".mp3", ".m4a", ".wav", ".opus", ".webm", ".ogg")
+    pattern = f"{video_id}*" if video_id else "*"
+    for candidate in sorted(output_dir.glob(pattern), key=lambda p: p.stat().st_size, reverse=True):
+        if candidate.suffix in audio_extensions:
+            return candidate
+
+    raise ExtractionError(f"Audio download succeeded but file not found in {output_dir}")
 
 
 def _find_subtitle_file(output_dir: Path, video_id: str) -> Path | None:
