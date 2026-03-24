@@ -66,4 +66,6 @@ def sample_meta():
         url="https://www.youtube.com/watch?v=abc123",
         upload_date="20260319",
         video_id="abc123",
+        duration_seconds=300,
+        subtitles_available=True,
     )

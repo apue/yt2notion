@@ -6,6 +6,7 @@ model:
   backend: claude_code
   summarize_model: sonnet    # 结构化总结（英文处理强）
   translate_model: opus      # 中文化润色（中文质量高）
+  review_model: haiku        # 章节提取 + 转录校对（轻量任务）
 
 storage:
   # 可选: notion | obsidian | markdown
@@ -35,6 +36,10 @@ extract:
   auto_subtitle_lang: "en"
   # 从 Chrome 读取 cookies（访问会员/年龄限制内容）
   cookies_from: chrome
+  # ASR 语音识别 fallback（无字幕时自动启用）
+  asr:
+    backend: remote              # 可选: remote
+    endpoint: ""                 # ASR 服务地址，或设置 ASR_ENDPOINT 环境变量
 
 credit:
   # 始终在输出中包含来源信息
@@ -46,3 +51,11 @@ output:
   chunk_duration_seconds: 120
   # 最终输出语言
   target_language: "zh-CN"
+  # 长内容阈值（秒），超过此值使用 map-reduce 分层总结
+  long_content_threshold_seconds: 1800
+  # 单个 segment 最大长度（秒），超过会按句子边界细分
+  max_segment_seconds: 900
+
+workspace:
+  # 工作目录，保存中间产物用于 resume
+  base_dir: "./workspace"

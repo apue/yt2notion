@@ -16,8 +16,12 @@ def load_prompt(name: str) -> str:
 
 
 def render_prompt(name: str, **kwargs: str) -> str:
-    """Load and render a prompt template with variable substitution."""
+    """Load and render a prompt template with variable substitution.
+
+    Uses manual replacement instead of str.format() to avoid conflicts
+    with literal braces in JSON examples within prompt templates.
+    """
     template = load_prompt(name)
-    if kwargs:
-        template = template.format(**kwargs)
+    for key, value in kwargs.items():
+        template = template.replace(f"{{{key}}}", value)
     return template

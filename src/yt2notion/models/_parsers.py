@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 import re
+from typing import TYPE_CHECKING
 
 from yt2notion.models.base import ChineseContent, Section, Summary
+
+if TYPE_CHECKING:
+    from yt2notion.models.base import ChunkSummary
 
 
 class ParseError(Exception):
@@ -91,3 +95,37 @@ def parse_chinese_markdown(text: str) -> ChineseContent:
         tags=tags,
         raw_markdown=text,
     )
+
+
+def parse_chunk_summary_json(text: str) -> ChunkSummary:
+    """Parse map-phase LLM output into a ChunkSummary."""
+    from yt2notion.models.base import ChunkSummary
+
+    fence_match = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+    json_str = fence_match.group(1) if fence_match else text
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ParseError(f"Failed to parse chunk summary JSON: {e}\nRaw text: {text[:200]}") from e
+
+    return ChunkSummary(
+        segment_title=data.get("segment_title", ""),
+        timestamp=data.get("timestamp", "0:00"),
+        timestamp_seconds=int(data.get("timestamp_seconds", 0)),
+        summary=data.get("summary", ""),
+        key_points=data.get("key_points", []),
+        key_terms=data.get("key_terms", []),
+    )
+
+
+def parse_synthesized_markdown(text: str) -> ChineseContent:
+    """Parse synthesize-phase output (includes mindmap section)."""
+    content = parse_chinese_markdown(text)
+
+    # Additionally extract mindmap
+    mindmap_match = re.search(r"```markmap\s*\n(.*?)```", text, re.DOTALL)
+    if mindmap_match:
+        content.mindmap = mindmap_match.group(1).strip()
+
+    return content

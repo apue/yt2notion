@@ -20,6 +20,7 @@ def mock_meta():
         url="https://www.youtube.com/watch?v=abc123",
         upload_date="20260319",
         duration_seconds=600,
+        subtitles_available=True,
     )
 
 
@@ -47,8 +48,10 @@ def mock_chinese():
 
 
 @pytest.fixture
-def config():
-    return AppConfig()
+def config(tmp_path):
+    cfg = AppConfig()
+    cfg.workspace = {"base_dir": str(tmp_path / "workspace")}
+    return cfg
 
 
 @patch("yt2notion.pipeline.create_storage")
