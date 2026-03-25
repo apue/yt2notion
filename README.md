@@ -1,14 +1,17 @@
 # yt2notion
 
-Extract YouTube subtitles, summarize with LLM, publish to Notion — in one command.
+Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to Notion — in one command.
 
 ## Features
 
 - **Smart subtitle extraction**: prioritizes Chinese subs > English subs > auto-generated captions
-- **Two-stage LLM processing**: Sonnet for structural summarization, Opus for natural Chinese output
-- **Timestamped key points**: clickable YouTube timestamp links in your notes
+- **Podcast ASR support**: local Qwen3-ASR on Apple Silicon, no cloud API needed
+- **Multi-stage LLM pipeline**: Haiku (review/segment) → Sonnet (map) → Opus (reduce)
+- **Topic-aware segmentation**: LLM finds natural topic boundaries for long content
+- **Timestamped key points**: clickable timestamp links in your notes
 - **Always credits the source**: channel name, video title, and URL included automatically
-- **Pluggable backends**: swap LLM providers (Claude Code / Anthropic API / OpenAI) and storage (Notion / Obsidian)
+- **Pluggable backends**: swap LLM providers and storage (Notion / Obsidian)
+- **Workspace persistence**: resume interrupted pipelines from any step
 - **Zero API cost option**: use your existing Claude Code subscription via `claude -p`
 
 ## Quick Start
@@ -62,13 +65,21 @@ See [config.example.yaml](config.example.yaml) for all options.
 ## How It Works
 
 ```
-YouTube URL
+YouTube / Podcast URL
     │
-    ├─ yt-dlp: extract subtitles + metadata
-    ├─ process: clean SRT → timestamped chunks
-    ├─ Sonnet: structured summary with timestamps
-    ├─ Opus: natural Chinese rewrite
-    └─ Notion API: create page with tags & links
+    1. DOWNLOAD ─── yt-dlp: metadata + subtitles or audio
+    │
+    2. SEGMENT ──── chapters → LLM extract from description → N/A
+    │
+    3. TRANSCRIBE ─ subtitle assignment or per-segment ASR
+    │       │
+    │       └── 3.5 TOPIC SEGMENT ── Haiku splits oversized segments
+    │
+    4. REVIEW ───── Haiku cleans ASR errors, fixes proper nouns
+    │
+    5. SUMMARIZE ── Sonnet map (per-segment) + Opus reduce (global)
+    │
+    └── Notion API: summary page + transcript sub-page
 ```
 
 ## Development

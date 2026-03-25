@@ -18,6 +18,7 @@ from yt2notion.process import (
     seconds_to_display,
 )
 from yt2notion.storage import create_storage
+from yt2notion.topic_segment import segment_transcript
 from yt2notion.workspace import STEPS, Workspace
 
 if TYPE_CHECKING:
@@ -118,6 +119,16 @@ def run_pipeline(
         transcripts = ws.load_transcripts()
         if transcripts is None:
             raise ValueError("Cannot resume: no transcripts.json in workspace")
+
+    # --- Step 3.5: TOPIC SEGMENTATION (refine coarse segments) ---
+    if start_idx <= 2:
+        max_seg_sec = raw_config.get("output", {}).get("max_segment_seconds", 600)
+        original_count = len(transcripts)
+        transcripts = segment_transcript(transcripts, metadata, raw_config, max_seg_sec)
+        if len(transcripts) != original_count:
+            ws.save_transcripts(transcripts)
+            if verbose:
+                typer.echo(f"  Topic segmentation: {original_count} → {len(transcripts)} segments")
 
     # --- Step 4: REVIEW ---
     if start_idx <= 3:

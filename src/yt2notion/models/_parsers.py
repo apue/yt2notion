@@ -16,6 +16,24 @@ class ParseError(Exception):
     """Raised when LLM output cannot be parsed."""
 
 
+def extract_json_array(raw: str) -> list:
+    """Extract a JSON array from LLM output, stripping markdown fences."""
+    text = raw.strip()
+    if "```" in text:
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        if m:
+            text = m.group(0)
+    start = text.find("[")
+    end = text.rfind("]")
+    if start < 0 or end <= start:
+        return []
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
+
+
 def parse_summary_json(text: str) -> Summary:
     """Parse LLM output into a Summary object.
 
