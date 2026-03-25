@@ -23,14 +23,18 @@ class NotionStorage:
     def __init__(
         self,
         token: str,
-        database_id: str,
+        database_id: str = "",
+        parent_page_id: str = "",
         directory_rules: list[dict] | None = None,
         credit_format: str = "来源：{channel} 「{title}」\n链接：{url}",
     ) -> None:
         if _NotionClient is None:
             raise NotionStorageError("notion-client not installed. Run: uv sync --extra notion")
+        if not database_id and not parent_page_id:
+            raise NotionStorageError("Either database_id or parent_page_id is required")
         self.client = _NotionClient(auth=token)
         self.database_id = database_id
+        self.parent_page_id = parent_page_id
         self.directory_rules = directory_rules or []
         self.credit_format = credit_format
 
@@ -46,15 +50,23 @@ class NotionStorage:
         If transcript_segments is provided, also creates a child page
         with the full transcript organized by segments.
         """
-        properties = self._build_page_properties(content, metadata)
         blocks = self._build_blocks(content, metadata)
 
         try:
-            page = self.client.pages.create(
-                parent={"database_id": self.database_id},
-                properties=properties,
-                children=blocks,
-            )
+            if self.database_id:
+                properties = self._build_page_properties(content, metadata)
+                page = self.client.pages.create(
+                    parent={"database_id": self.database_id},
+                    properties=properties,
+                    children=blocks[:100],
+                )
+                self._append_blocks(page["id"], blocks[100:])
+            else:
+                title = (
+                    content.overview.split("\n")[0][:100] if content.overview else metadata.title
+                )
+                page = self._create_child_page(self.parent_page_id, title, blocks)
+
             page_url = page.get("url", "")
 
             # Create transcript sub-page if segments provided
@@ -62,6 +74,8 @@ class NotionStorage:
                 self._create_transcript_page(page["id"], metadata, transcript_segments)
 
             return page_url
+        except NotionStorageError:
+            raise
         except Exception as e:
             raise NotionStorageError(f"Failed to create Notion page: {e}") from e
 
@@ -190,26 +204,28 @@ class NotionStorage:
             for chunk in _split_text(text, 2000):
                 blocks.append({"paragraph": {"rich_text": [{"text": {"content": chunk}}]}})
 
-        # Notion API limits children to 100 blocks per request
-        # Send in batches if needed
-        page_blocks = blocks[:100]
-        remaining = blocks[100:]
-
-        page = self.client.pages.create(
-            parent={"page_id": parent_page_id},
-            properties={
-                "title": {"title": [{"text": {"content": f"逐字稿：{metadata.title[:80]}"}}]}
-            },
-            children=page_blocks,
+        self._create_child_page(
+            parent_page_id,
+            f"逐字稿：{metadata.title[:80]}",
+            blocks,
         )
 
-        # Append remaining blocks in batches
-        while remaining:
-            batch = remaining[:100]
-            remaining = remaining[100:]
+    def _create_child_page(self, parent_page_id: str, title: str, blocks: list[dict]) -> dict:
+        """Create a child page under a parent, handling Notion's 100-block limit."""
+        page = self.client.pages.create(
+            parent={"page_id": parent_page_id},
+            properties={"title": {"title": [{"text": {"content": title}}]}},
+            children=blocks[:100],
+        )
+        self._append_blocks(page["id"], blocks[100:])
+        return page
+
+    def _append_blocks(self, page_id: str, blocks: list[dict]) -> None:
+        """Append blocks in 100-block batches."""
+        for i in range(0, len(blocks), 100):
             self.client.blocks.children.append(
-                block_id=page["id"],
-                children=batch,
+                block_id=page_id,
+                children=blocks[i : i + 100],
             )
 
     def route_directory(self, tags: list[str], title: str) -> str:
@@ -228,8 +244,10 @@ class NotionStorage:
 
 
 def _timestamp_to_seconds(ts: str) -> int:
-    """Convert M:SS or MM:SS to seconds."""
+    """Convert M:SS, MM:SS, or H:MM:SS to seconds."""
     parts = ts.split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
     if len(parts) == 2:
         return int(parts[0]) * 60 + int(parts[1])
     return 0

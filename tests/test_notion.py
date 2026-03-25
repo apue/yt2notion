@@ -103,7 +103,7 @@ def test_timestamp_to_seconds():
 def test_save_calls_api(mock_client_cls, content, meta):
     mock_client = MagicMock()
     mock_client_cls.return_value = mock_client
-    mock_client.pages.create.return_value = {"url": "https://notion.so/page123"}
+    mock_client.pages.create.return_value = {"id": "page123", "url": "https://notion.so/page123"}
 
     storage = NotionStorage(token="test", database_id="db123")
     url = storage.save(content, meta)

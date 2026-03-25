@@ -20,11 +20,13 @@ def create_storage(config: dict) -> Any:
         notion_cfg = storage_config.get("notion", {})
         token = notion_cfg.get("token", "")
         database_id = notion_cfg.get("database_id", "")
+        parent_page_id = notion_cfg.get("parent_page_id", "")
         directory_rules = notion_cfg.get("directory_rules", [])
         credit_format = credit_config.get("format", "来源：{channel} 「{title}」\n链接：{url}")
         return NotionStorage(
             token=token,
             database_id=database_id,
+            parent_page_id=parent_page_id,
             directory_rules=directory_rules,
             credit_format=credit_format,
         )
