@@ -100,5 +100,6 @@ URL
 
 ## Project References
 
+- @PROJECT_MAP.md 项目导航地图（config↔code 映射、扩展 checklist、数据契约、依赖关系）
 - @README.md 项目介绍和使用说明
 - @config.example.yaml 配置文件模板
