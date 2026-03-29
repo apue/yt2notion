@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,7 +24,8 @@ from yt2notion.workspace import STEPS, Workspace
 
 if TYPE_CHECKING:
     from yt2notion.config import AppConfig
-    from yt2notion.models.base import ChineseContent, VideoMeta
+    from yt2notion.models.base import ChineseContent, Summarizer, VideoMeta
+    from yt2notion.storage.base import Storage
 
 
 def run_pipeline(
@@ -130,10 +132,16 @@ def run_pipeline(
             if verbose:
                 typer.echo(f"  Topic segmentation: {original_count} → {len(transcripts)} segments")
 
-    # --- Step 4: REVIEW ---
-    if start_idx <= 3:
+    # --- Step 4: REVIEW (short content only; long content defers to async) ---
+    is_long = _is_long_content(metadata, transcripts, raw_config)
+    if is_long:
+        # Long content: skip blocking review, pass raw transcripts to summarize
+        reviewed = transcripts
+        if verbose:
+            typer.echo("Skipping blocking review (long content — will review async)")
+    elif start_idx <= 3:
         reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
-        ws.save_reviewed(reviewed)  # Final save
+        ws.save_reviewed(reviewed)
     else:
         reviewed = ws.load_reviewed()
         if reviewed is None:
@@ -166,9 +174,28 @@ def run_pipeline(
     if verbose:
         typer.echo(f"Publishing to {config.storage['backend']}...")
     storage = create_storage(raw_config)
-    result_url = storage.save(chinese_content, metadata, transcript_segments=reviewed)
+    # For long content, publish summary first without transcript sub-page
+    result_url = storage.save(
+        chinese_content,
+        metadata,
+        transcript_segments=None if is_long else reviewed,
+    )
     if verbose:
         typer.echo(f"  Published: {result_url}")
+
+    # --- Step 6: ASYNC TRANSCRIPT REVIEW (long content only) ---
+    if is_long and not dry_run:
+        _step_deferred_review(
+            transcripts,
+            chinese_content,
+            metadata,
+            raw_config,
+            storage,
+            result_url,
+            ws,
+            verbose,
+        )
+
     return result_url
 
 
@@ -497,20 +524,17 @@ def _step_summarize(
         typer.echo("Summarizing...")
 
     summarizer = create_summarizer(config)
-    threshold = config.get("output", {}).get("long_content_threshold_seconds", 1800)
 
-    # Short content with few segments: use single-pass pipeline
-    if metadata.duration_seconds < threshold and len(reviewed) <= 3:
+    if not _is_long_content(metadata, reviewed, config):
         return _summarize_short(reviewed, metadata, summarizer, config, verbose)
 
-    # Long content: map-reduce
     return _summarize_long(reviewed, metadata, summarizer, verbose)
 
 
 def _summarize_short(
     reviewed: list[dict],
     metadata: VideoMeta,
-    summarizer: object,
+    summarizer: Summarizer,
     config: dict,
     verbose: bool,
 ) -> ChineseContent:
@@ -543,29 +567,204 @@ def _summarize_short(
 def _summarize_long(
     reviewed: list[dict],
     metadata: VideoMeta,
-    summarizer: object,
+    summarizer: Summarizer,
     verbose: bool,
 ) -> ChineseContent:
-    """Map-reduce summarization for long content."""
-    if verbose:
-        typer.echo(f"  Long content — map-reduce ({len(reviewed)} segments)")
+    """Map-reduce summarization for long content.
 
-    # Map phase
+    Merges fine-grained segments into ~8-12 groups before the map phase
+    to reduce the number of LLM calls (e.g. 89 segments → 9 groups).
+    """
+    groups = _merge_segments_into_groups(reviewed)
+    if verbose:
+        typer.echo(f"  Long content — map-reduce ({len(reviewed)} segments → {len(groups)} groups)")
+
+    # Map phase: one Sonnet call per group
     chunk_summaries = []
-    for i, seg in enumerate(reviewed):
+    for i, group in enumerate(groups):
         segment_info = {
-            "segment_title": seg.get("title", f"Part {i + 1}"),
-            "start_time": seconds_to_display(seg["start_seconds"]),
-            "end_time": seconds_to_display(seg["end_seconds"]),
+            "segment_title": group["title"],
+            "start_time": seconds_to_display(group["start_seconds"]),
+            "end_time": seconds_to_display(group["end_seconds"]),
             "segment_index": str(i + 1),
-            "total_segments": str(len(reviewed)),
+            "total_segments": str(len(groups)),
         }
-        cs = summarizer.summarize_chunk(seg["text"], metadata, segment_info)
+        cs = summarizer.summarize_chunk(group["text"], metadata, segment_info)
         chunk_summaries.append(cs)
         if verbose:
-            typer.echo(f"  Map [{i + 1}/{len(reviewed)}] {cs.segment_title}")
+            typer.echo(f"  Map [{i + 1}/{len(groups)}] {cs.segment_title}")
 
     # Reduce phase
     if verbose:
         typer.echo("  Reduce: synthesizing global summary...")
     return summarizer.synthesize(chunk_summaries, metadata)
+
+
+def _is_long_content(metadata: VideoMeta, transcripts: list[dict], config: dict) -> bool:
+    """Determine if content should use the long (map-reduce) path."""
+    threshold = config.get("output", {}).get("long_content_threshold_seconds", 1800)
+    return metadata.duration_seconds >= threshold or len(transcripts) > 3
+
+
+def _merge_segments_into_groups(segments: list[dict]) -> list[dict]:
+    """Merge fine-grained segments into larger groups for efficient map-reduce.
+
+    Target: ~8-12 groups. Each group concatenates text from adjacent segments,
+    preserving the first segment's start time and last segment's end time.
+    """
+    n = len(segments)
+    if n <= 12:
+        return segments  # Already few enough, no merging needed
+
+    target_groups = min(max(n // 10, 4), 12)
+    group_size = n / target_groups  # float for even distribution
+
+    groups: list[dict] = []
+    for g in range(target_groups):
+        start_idx = int(g * group_size)
+        end_idx = int((g + 1) * group_size) if g < target_groups - 1 else n
+        batch = segments[start_idx:end_idx]
+
+        titles = [s.get("title", "") for s in batch if s.get("title")]
+        combined_title = titles[0] if len(titles) == 1 else f"{titles[0]} — {titles[-1]}"
+
+        groups.append(
+            {
+                "title": combined_title,
+                "start_seconds": batch[0]["start_seconds"],
+                "end_seconds": batch[-1]["end_seconds"],
+                "text": "\n\n".join(s.get("text", "") for s in batch),
+                "source": batch[0].get("source", "asr"),
+            }
+        )
+
+    return groups
+
+
+def _step_deferred_review(
+    transcripts: list[dict],
+    chinese_content: ChineseContent,
+    metadata: VideoMeta,
+    config: dict,
+    storage: Storage,
+    summary_page_url: str,
+    ws: Workspace,
+    verbose: bool,
+) -> None:
+    """Step 6: Context-aware transcript review using completed summary, then add sub-page.
+
+    Runs after summary is published. Uses summary's overview, key_points, and tags
+    as terminology anchors for higher-quality ASR correction.
+    """
+    # Skip review for subtitle-sourced content
+    source = transcripts[0].get("source", "subtitle") if transcripts else "subtitle"
+    if source == "subtitle":
+        if verbose:
+            typer.echo("  Subtitle source — skipping async review")
+        return
+
+    if verbose:
+        typer.echo("Async review: context-aware transcript cleanup...")
+
+    from yt2notion.review import review_segment
+
+    # Build context reference from completed summary
+    review_context = _build_review_context(chinese_content)
+
+    # Merge into groups for efficient review (same grouping as map phase)
+    groups = _merge_segments_into_groups(transcripts)
+    reviewed_groups: list[str] = []
+
+    for i, group in enumerate(groups):
+        if verbose:
+            typer.echo(f"  Review [{i + 1}/{len(groups)}] {group.get('title', '')}")
+        cleaned = review_segment(group["text"], metadata, config, review_context)
+        reviewed_groups.append(cleaned)
+
+    # Split reviewed text back to original segment granularity
+    reviewed = _redistribute_reviewed_text(transcripts, groups, reviewed_groups)
+    ws.save_reviewed(reviewed)
+
+    # Add transcript sub-page to existing summary page
+    if verbose:
+        typer.echo("  Adding transcript sub-page...")
+    page_id = _extract_page_id(summary_page_url)
+    if page_id:
+        storage.add_transcript_subpage(page_id, reviewed, metadata)
+        if verbose:
+            typer.echo("  Transcript sub-page added.")
+
+
+def _build_review_context(chinese_content: ChineseContent) -> dict[str, str]:
+    """Extract review context from completed summary."""
+    key_terms: list[str] = []
+    for kp in chinese_content.key_points:
+        title = kp.get("title", "")
+        if title:
+            key_terms.append(title)
+
+    return {
+        "overview": chinese_content.overview,
+        "key_terms": ", ".join(key_terms),
+        "tags": ", ".join(chinese_content.tags),
+    }
+
+
+def _redistribute_reviewed_text(
+    original_segments: list[dict],
+    groups: list[dict],
+    reviewed_texts: list[str],
+) -> list[dict]:
+    """Map reviewed group text back to original segment granularity.
+
+    Uses character-length ratio to split reviewed text proportionally.
+    """
+    result: list[dict] = []
+    n = len(original_segments)
+    target_groups = len(groups)
+    group_size = n / target_groups
+
+    for g in range(target_groups):
+        start_idx = int(g * group_size)
+        end_idx = int((g + 1) * group_size) if g < target_groups - 1 else n
+        batch = original_segments[start_idx:end_idx]
+        reviewed_text = reviewed_texts[g]
+
+        if len(batch) == 1:
+            result.append({**batch[0], "text": reviewed_text})
+            continue
+
+        # Split proportionally by original text length
+        orig_lengths = [len(s.get("text", "")) for s in batch]
+        total_orig = sum(orig_lengths)
+        if total_orig == 0:
+            for seg in batch:
+                result.append({**seg, "text": ""})
+            continue
+
+        # Split reviewed text by paragraph boundaries (\n\n) matching original proportions
+        pos = 0
+        for j, seg in enumerate(batch):
+            ratio = orig_lengths[j] / total_orig
+            if j == len(batch) - 1:
+                chunk = reviewed_text[pos:]
+            else:
+                target_end = pos + int(len(reviewed_text) * ratio)
+                # Find nearest paragraph break
+                break_pos = reviewed_text.find("\n\n", target_end - 50, target_end + 200)
+                if break_pos == -1:
+                    break_pos = target_end
+                else:
+                    break_pos += 2  # Include the \n\n
+                chunk = reviewed_text[pos:break_pos]
+                pos = break_pos
+            result.append({**seg, "text": chunk.strip()})
+
+    return result
+
+
+def _extract_page_id(url: str) -> str | None:
+    """Extract Notion page ID from URL."""
+
+    match = re.search(r"([a-f0-9]{32})", url.replace("-", ""))
+    return match.group(1) if match else None

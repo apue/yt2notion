@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -132,6 +133,21 @@ class NotionStorage:
             ]
             blocks.append({"bulleted_list_item": {"rich_text": rich_text}})
 
+        # Fun facts section
+        if content.fun_facts:
+            from yt2notion.models.base import FUN_FACTS_CATEGORIES
+
+            blocks.append({"heading_2": {"rich_text": [{"text": {"content": "有趣发现"}}]}})
+
+            for cat_key, cat_label in FUN_FACTS_CATEGORIES.items():
+                items = content.fun_facts.get(cat_key, [])
+                if not items:
+                    continue
+                blocks.append({"heading_3": {"rich_text": [{"text": {"content": cat_label}}]}})
+                for item in items:
+                    rich_text = _markdown_links_to_rich_text(item)
+                    blocks.append({"bulleted_list_item": {"rich_text": rich_text}})
+
         # Mindmap section (long content only)
         if content.mindmap:
             blocks.append({"heading_2": {"rich_text": [{"text": {"content": "思维导图"}}]}})
@@ -228,6 +244,18 @@ class NotionStorage:
                 children=blocks[i : i + 100],
             )
 
+    def add_transcript_subpage(
+        self,
+        parent_page_id: str,
+        transcript_segments: list[dict],
+        metadata: VideoMeta,
+    ) -> None:
+        """Add a transcript child page to an existing summary page."""
+        try:
+            self._create_transcript_page(parent_page_id, metadata, transcript_segments)
+        except Exception as e:
+            raise NotionStorageError(f"Failed to add transcript sub-page: {e}") from e
+
     def route_directory(self, tags: list[str], title: str) -> str:
         """Match content to a directory based on rules."""
         search_text = " ".join(tags + [title]).lower()
@@ -251,6 +279,29 @@ def _timestamp_to_seconds(ts: str) -> int:
     if len(parts) == 2:
         return int(parts[0]) * 60 + int(parts[1])
     return 0
+
+
+def _markdown_links_to_rich_text(text: str) -> list[dict]:
+    """Convert markdown text with [label](url) links into Notion rich_text array."""
+
+    parts: list[dict] = []
+    last_end = 0
+
+    for m in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", text):
+        # Text before the link
+        before = text[last_end : m.start()]
+        if before:
+            parts.append({"text": {"content": before}})
+        # The link itself
+        parts.append({"text": {"content": m.group(1), "link": {"url": m.group(2)}}})
+        last_end = m.end()
+
+    # Remaining text after last link
+    after = text[last_end:]
+    if after:
+        parts.append({"text": {"content": after}})
+
+    return parts or [{"text": {"content": text}}]
 
 
 def _split_text(text: str, max_len: int) -> list[str]:
