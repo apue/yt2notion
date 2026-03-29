@@ -36,3 +36,4 @@ Rules:
 - Output in English (translation happens in a later step)
 - Do not reference other segments — treat this as self-contained
 - If the transcript is in Chinese, still output in English
+- The input may be raw ASR (speech-to-text) output with errors — infer correct terms from context and ignore obvious recognition mistakes
