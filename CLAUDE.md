@@ -38,7 +38,7 @@ uv run ruff format src/        # format
 Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 - `models/base.py` → `Summarizer` Protocol：多步 LLM 总结 + 中文化（Sonnet map / Opus reduce）
 - `models/llm.py` → `LLMCaller` Protocol：轻量一次性 LLM 调用（章节提取 / 转录校对 / 话题分段）
-- `storage/base.py` → `Storage` Protocol：保存到 Notion / Obsidian / ...
+- `storage/base.py` → `Storage` Protocol：保存到 Notion / Obsidian（已实现） / ...
 
 实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` 仅有 `ClaudeCodeCaller` 实现。
 

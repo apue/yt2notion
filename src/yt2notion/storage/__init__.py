@@ -36,7 +36,8 @@ def create_storage(config: dict) -> Any:
         obsidian_cfg = storage_config.get("obsidian", {})
         return ObsidianStorage(
             vault_path=obsidian_cfg.get("vault_path", ""),
-            folder=obsidian_cfg.get("folder", "YouTube Notes"),
+            summaries_dir=obsidian_cfg.get("summaries_dir", "yt2notion/summaries"),
+            transcripts_dir=obsidian_cfg.get("transcripts_dir", "yt2notion/transcripts"),
         )
     else:
         raise ValueError(f"Unknown storage backend: {backend!r}")

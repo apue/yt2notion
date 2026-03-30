@@ -25,6 +25,11 @@ DEFAULTS: dict = {
     "storage": {
         "backend": "notion",
         "notion": {"token": "", "database_id": "", "directory_rules": []},
+        "obsidian": {
+            "vault_path": "",
+            "summaries_dir": "yt2notion/summaries",
+            "transcripts_dir": "yt2notion/transcripts",
+        },
     },
     "extract": {
         "subtitle_priority": ["zh-Hans", "zh-Hant", "en"],
@@ -103,6 +108,15 @@ def load_config(path: str) -> AppConfig:
             f"Invalid storage backend: {storage_backend!r}. "
             f"Must be one of: {', '.join(sorted(VALID_STORAGE_BACKENDS))}"
         )
+
+    # Validate obsidian vault_path when backend is obsidian
+    if storage_backend == "obsidian":
+        vault_path = merged.get("storage", {}).get("obsidian", {}).get("vault_path", "")
+        if not vault_path:
+            raise ConfigError("storage.obsidian.vault_path is required when backend is 'obsidian'")
+        vault = Path(vault_path)
+        if not vault.is_dir():
+            raise ConfigError(f"Obsidian vault path does not exist: {vault_path}")
 
     return AppConfig(
         model=merged["model"],

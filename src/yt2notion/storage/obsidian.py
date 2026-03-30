@@ -2,21 +2,276 @@
 
 from __future__ import annotations
 
+import re
+from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+import yaml
+
+from yt2notion.process import display_to_seconds, seconds_to_display
 
 if TYPE_CHECKING:
     from yt2notion.models.base import ChineseContent, VideoMeta
 
 
+class ObsidianStorageError(Exception):
+    """Raised when Obsidian vault operations fail."""
+
+
+# Characters not allowed in file names across OS
+_INVALID_FILENAME_CHARS = re.compile(r'[/\\:*?"<>|]')
+_MAX_TITLE_LEN = 100
+
+
+def _sanitize_title(title: str) -> str:
+    """Remove filesystem-unsafe characters and truncate."""
+    clean = _INVALID_FILENAME_CHARS.sub("", title).strip()
+    if not clean:
+        clean = "Untitled"
+    if len(clean) > _MAX_TITLE_LEN:
+        clean = clean[:_MAX_TITLE_LEN].rstrip()
+    return clean
+
+
+def _resolve_unique_path(path: Path) -> Path:
+    """If path exists, append -2, -3, etc. until unique."""
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    counter = 2
+    while True:
+        candidate = parent / f"{stem}-{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _format_duration(seconds: int) -> str:
+    """Format seconds as HH:MM:SS or MM:SS."""
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def _make_timestamp_link(timestamp: str, url: str) -> str:
+    """Create a clickable timestamp link for YouTube, plain text for others."""
+    secs = display_to_seconds(timestamp)
+    if "youtube.com" in url or "youtu.be" in url:
+        # Normalize to watch URL with time param
+        video_id = ""
+        if "youtu.be/" in url:
+            video_id = url.split("youtu.be/")[1].split("?")[0]
+        elif "v=" in url:
+            video_id = url.split("v=")[1].split("&")[0]
+        if video_id:
+            return f"[{timestamp}](https://youtube.com/watch?v={video_id}&t={secs})"
+    # Non-YouTube (podcast etc.): plain timestamp
+    return f"[{timestamp}]"
+
+
+def _detect_media_type(url: str) -> str:
+    """Infer media type from URL."""
+    if "youtube.com" in url or "youtu.be" in url:
+        return "youtube"
+    return "podcast"
+
+
 class ObsidianStorage:
-    """Obsidian vault storage. Not yet implemented — PRs welcome!"""
+    """Storage backend that writes markdown files to an Obsidian vault."""
 
-    def __init__(self, vault_path: str, folder: str = "YouTube Notes") -> None:
-        self.vault_path = vault_path
-        self.folder = folder
+    def __init__(
+        self,
+        vault_path: str,
+        summaries_dir: str = "yt2notion/summaries",
+        transcripts_dir: str = "yt2notion/transcripts",
+    ) -> None:
+        self.vault_path = Path(vault_path)
+        self.summaries_dir = summaries_dir
+        self.transcripts_dir = transcripts_dir
 
-    def save(self, content: ChineseContent, metadata: VideoMeta) -> str:
-        raise NotImplementedError(
-            "Obsidian storage is not yet implemented. "
-            "See src/yt2notion/storage/base.py for the Protocol. PRs welcome!"
+        if not self.vault_path.is_dir():
+            raise ObsidianStorageError(
+                f"Vault path does not exist or is not a directory: {vault_path}"
+            )
+
+    def _resolve_transcript_path(self, metadata: VideoMeta) -> Path:
+        """Create transcripts dir and return a unique transcript file path."""
+        today = date.today().isoformat()
+        sanitized = _sanitize_title(metadata.title)
+        transcripts_path = self.vault_path / self.transcripts_dir
+        transcripts_path.mkdir(parents=True, exist_ok=True)
+        return _resolve_unique_path(transcripts_path / f"T-{today} {sanitized}.md")
+
+    def save(
+        self,
+        content: ChineseContent,
+        metadata: VideoMeta,
+        *,
+        transcript_segments: list[dict] | None = None,
+    ) -> str:
+        """Write summary + transcript files to vault. Return summary path."""
+        today = date.today().isoformat()
+        sanitized = _sanitize_title(metadata.title)
+
+        summaries_path = self.vault_path / self.summaries_dir
+        summaries_path.mkdir(parents=True, exist_ok=True)
+        summary_file = _resolve_unique_path(summaries_path / f"{today} {sanitized}.md")
+
+        transcript_file = self._resolve_transcript_path(metadata)
+        transcript_stem = transcript_file.stem
+
+        summary_md = self._render_summary(content, metadata, transcript_stem, today)
+        summary_file.write_text(summary_md, encoding="utf-8")
+
+        if transcript_segments:
+            transcript_md = self._render_transcript(
+                metadata, transcript_segments, summary_file.stem
+            )
+            transcript_file.write_text(transcript_md, encoding="utf-8")
+
+        return str(summary_file)
+
+    def add_transcript_subpage(
+        self,
+        summary_path: str,
+        transcript_segments: list[dict],
+        metadata: VideoMeta,
+    ) -> None:
+        """Write transcript file for deferred long-content scenario.
+
+        summary_path is the summary file path returned by save().
+        """
+        summary_file = Path(summary_path)
+        transcript_file = self._resolve_transcript_path(metadata)
+
+        transcript_md = self._render_transcript(metadata, transcript_segments, summary_file.stem)
+        transcript_file.write_text(transcript_md, encoding="utf-8")
+
+        # Update summary frontmatter to add transcript wikilink
+        try:
+            text = summary_file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return
+        placeholder = 'transcript: ""'
+        replacement = f'transcript: "[[{transcript_file.stem}]]"'
+        if placeholder in text:
+            summary_file.write_text(text.replace(placeholder, replacement), encoding="utf-8")
+
+    def _render_summary(
+        self,
+        content: ChineseContent,
+        metadata: VideoMeta,
+        transcript_stem: str,
+        today: str,
+    ) -> str:
+        """Render the summary markdown file."""
+        url = metadata.url
+        channel = metadata.channel or metadata.series or "Unknown"
+        duration = _format_duration(metadata.duration_seconds)
+        media_type = _detect_media_type(url)
+
+        # Frontmatter
+        fm: dict = {
+            "source_url": url,
+            "channel": channel,
+            "title": metadata.title,
+            "media_type": media_type,
+            "duration": duration,
+        }
+        if metadata.upload_date:
+            # Convert YYYYMMDD to YYYY-MM-DD
+            ud = metadata.upload_date
+            if len(ud) == 8:
+                fm["date_published"] = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}"
+        fm["date_processed"] = today
+        fm["tags"] = content.tags
+        fm["transcript"] = f"[[{transcript_stem}]]"
+
+        frontmatter = (
+            "---\n"
+            + yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False).rstrip()
+            + "\n---"
         )
+
+        # Body
+        lines = [
+            frontmatter,
+            "",
+            f"# {metadata.title}",
+            "",
+            f"> **{channel}** \u00b7 {duration} \u00b7 [\u539f\u59cb\u89c6\u9891]({url})",
+            "",
+            "## \u6982\u8ff0",
+            "",
+            content.overview,
+            "",
+            "## \u8981\u70b9",
+            "",
+        ]
+
+        for kp in content.key_points:
+            ts = kp.get("timestamp", "")
+            title = kp.get("title", "")
+            summary = kp.get("summary", "")
+            ts_link = _make_timestamp_link(ts, url) if ts else ""
+            lines.append(f"- {ts_link} **{title}**\uff1a{summary}")
+
+        lines.append("")
+        lines.append("## \u6807\u7b7e")
+        lines.append("")
+        lines.append(" ".join(f"#{tag}" for tag in content.tags))
+        lines.append("")
+
+        return "\n".join(lines)
+
+    def _render_transcript(
+        self,
+        metadata: VideoMeta,
+        segments: list[dict],
+        summary_stem: str,
+    ) -> str:
+        """Render the transcript markdown file."""
+        url = metadata.url
+
+        # Frontmatter
+        fm = {
+            "parent": f"[[{summary_stem}]]",
+            "source_url": url,
+            "type": "transcript",
+        }
+        frontmatter = (
+            "---\n"
+            + yaml.dump(fm, allow_unicode=True, default_flow_style=False, sort_keys=False).rstrip()
+            + "\n---"
+        )
+
+        lines = [
+            frontmatter,
+            "",
+            f"# Transcript: {metadata.title}",
+            "",
+        ]
+
+        for seg in segments:
+            title = seg.get("title", "")
+            start = seg.get("start_seconds", 0)
+            end = seg.get("end_seconds", 0)
+            text = seg.get("text", "")
+
+            start_display = seconds_to_display(start)
+            end_display = seconds_to_display(end)
+            ts_link = _make_timestamp_link(start_display, url)
+
+            lines.append(f"## {title} ({start_display}-{end_display})")
+            lines.append("")
+            lines.append(ts_link)
+            lines.append("")
+            lines.append(text)
+            lines.append("")
+
+        return "\n".join(lines)
