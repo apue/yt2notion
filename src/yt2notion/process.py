@@ -17,6 +17,16 @@ def seconds_to_display(s: int | float) -> str:
     return f"{minutes}:{secs:02d}"
 
 
+def display_to_seconds(ts: str) -> int:
+    """Convert M:SS, MM:SS, or H:MM:SS to seconds. Inverse of seconds_to_display."""
+    parts = ts.split(":")
+    if len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    return 0
+
+
 @dataclass
 class SubtitleEntry:
     """A single subtitle entry with timing."""

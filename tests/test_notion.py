@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from yt2notion.models.base import ChineseContent, VideoMeta
-from yt2notion.storage.notion import NotionStorage, _split_text, _timestamp_to_seconds
+from yt2notion.storage.notion import NotionStorage, _split_text
 
 
 @pytest.fixture
@@ -93,10 +93,12 @@ def test_long_block_split():
     assert "".join(chunks) == text
 
 
-def test_timestamp_to_seconds():
-    assert _timestamp_to_seconds("0:00") == 0
-    assert _timestamp_to_seconds("2:04") == 124
-    assert _timestamp_to_seconds("10:30") == 630
+def test_display_to_seconds():
+    from yt2notion.process import display_to_seconds
+
+    assert display_to_seconds("0:00") == 0
+    assert display_to_seconds("2:04") == 124
+    assert display_to_seconds("10:30") == 630
 
 
 @patch("yt2notion.storage.notion._NotionClient")

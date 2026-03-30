@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from yt2notion.process import display_to_seconds
+
 if TYPE_CHECKING:
     from yt2notion.models.base import ChineseContent, VideoMeta
 
@@ -120,7 +122,7 @@ class NotionStorage:
             summary = point.get("summary", "")
 
             # Convert timestamp to YouTube link
-            ts_link = f"https://youtu.be/{metadata.video_id}?t={_timestamp_to_seconds(ts)}"
+            ts_link = f"https://youtu.be/{metadata.video_id}?t={display_to_seconds(ts)}"
 
             rich_text = [
                 {
@@ -241,16 +243,6 @@ class NotionStorage:
                 return rule["default"]
 
         return "收件箱"
-
-
-def _timestamp_to_seconds(ts: str) -> int:
-    """Convert M:SS, MM:SS, or H:MM:SS to seconds."""
-    parts = ts.split(":")
-    if len(parts) == 3:
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-    if len(parts) == 2:
-        return int(parts[0]) * 60 + int(parts[1])
-    return 0
 
 
 def _split_text(text: str, max_len: int) -> list[str]:

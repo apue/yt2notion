@@ -55,7 +55,7 @@ uv run yt2notion "https://www.youtube.com/watch?v=VIDEO_ID"
 | Backend | Config value | Status |
 |---------|-------------|--------|
 | Notion | `notion` | ✅ Implemented |
-| Obsidian | `obsidian` | 🚧 PRs welcome |
+| Obsidian | `obsidian` | ✅ Implemented |
 | Markdown files | `markdown` | 🚧 PRs welcome |
 
 ## Configuration

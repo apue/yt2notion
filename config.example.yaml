@@ -9,8 +9,10 @@ model:
   review_model: haiku        # 章节提取 + 转录校对（轻量任务）
 
 storage:
-  # 可选: notion | obsidian | markdown
+  # Choose one backend: notion | obsidian | markdown
   backend: notion
+
+  # --- Notion ---
   notion:
     token: ""                 # Notion integration token (CLI 模式需要)
     database_id: ""           # 目标 database ID (CLI 模式)
@@ -24,6 +26,12 @@ storage:
       - match: ["travel", "food", "旅行", "美食"]
         parent: "生活/旅行"
       - default: "收件箱"
+
+  # --- Obsidian ---
+  # obsidian:
+  #   vault_path: "/path/to/your/vault"
+  #   summaries_dir: "yt2notion/summaries"       # optional, default as shown
+  #   transcripts_dir: "yt2notion/transcripts"   # optional, default as shown
 
 extract:
   # 字幕优先级（从左到右尝试）

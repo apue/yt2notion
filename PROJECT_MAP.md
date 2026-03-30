@@ -19,6 +19,7 @@ pyproject.toml 注册入口：`yt2notion = "yt2notion.cli:app"`
 | `model.review_model` | `models/llm.py:create_llm_caller()` | Haiku 做章节提取/校对/分段 |
 | `storage.backend` | `storage/__init__.py:create_storage()` | 选择 Storage 实现 |
 | `storage.notion.*` | `storage/notion.py:NotionStorage.__init__()` | token / database_id / parent_page_id / directory_rules |
+| `storage.obsidian.*` | `storage/obsidian.py:ObsidianStorage.__init__()` | vault_path / summaries_dir / transcripts_dir |
 | `extract.subtitle_priority` | `extract.py:extract_subtitles()` | 字幕语言优先级 |
 | `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | 选择 ASR 实现 |
 | `extract.asr.endpoint` | `transcribe/remote.py:RemoteTranscriber` | ASR 服务地址（或 `ASR_ENDPOINT` 环境变量） |
@@ -36,7 +37,7 @@ config 加载：`config.py:load_config()` → 读 YAML → deep merge with DEFAU
 | Factory | 位置 | config 字段 | 当前实现 |
 |---|---|---|---|
 | `create_summarizer(config)` | `models/__init__.py` | `model.backend` | `claude_code` → ClaudeCodeModel, `anthropic_api` → AnthropicAPIModel |
-| `create_storage(config)` | `storage/__init__.py` | `storage.backend` | `notion` → NotionStorage, `obsidian` → ObsidianStorage(stub) |
+| `create_storage(config)` | `storage/__init__.py` | `storage.backend` | `notion` → NotionStorage, `obsidian` → ObsidianStorage |
 | `create_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.backend` | `remote` → RemoteTranscriber |
 | `create_llm_caller(config, model_key=)` | `models/llm.py` | `model.backend` + `model.{model_key}` | `claude_code` → ClaudeCodeCaller |
 

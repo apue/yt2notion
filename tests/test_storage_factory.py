@@ -18,8 +18,8 @@ def test_create_notion(mock_client):
     assert isinstance(storage, NotionStorage)
 
 
-def test_create_obsidian():
-    config = {"storage": {"backend": "obsidian", "obsidian": {"vault_path": "/tmp/vault"}}}
+def test_create_obsidian(tmp_path):
+    config = {"storage": {"backend": "obsidian", "obsidian": {"vault_path": str(tmp_path)}}}
     storage = create_storage(config)
     from yt2notion.storage.obsidian import ObsidianStorage
 
