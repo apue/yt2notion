@@ -117,6 +117,14 @@ class ChineseContent:
     tags: list[str]
     raw_markdown: str  # 完整的 markdown 输出
     mindmap: str = ""  # Markmap 格式思维导图，长内容时生成
+    fun_facts: dict[str, list[str]] = field(default_factory=dict)
+
+
+FUN_FACTS_CATEGORIES: dict[str, str] = {
+    "hot_takes": "🔥 犀利观点",
+    "nerd_stats": "🤓 极客冷知识",
+    "media_mentions": "📚 作品提及",
+}
 
 
 class Summarizer(Protocol):

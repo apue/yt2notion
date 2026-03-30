@@ -20,3 +20,12 @@ class Storage(Protocol):
     ) -> str:
         """Save content and return a URL or path to the created resource."""
         ...
+
+    def add_transcript_subpage(
+        self,
+        parent_page_id: str,
+        transcript_segments: list[dict],
+        metadata: VideoMeta,
+    ) -> None:
+        """Add transcript child page to an existing summary page (optional)."""
+        ...
