@@ -248,15 +248,24 @@ class NotionStorage:
 
     def add_transcript_subpage(
         self,
-        parent_page_id: str,
+        summary_ref: str,
         transcript_segments: list[dict],
         metadata: VideoMeta,
     ) -> None:
         """Add a transcript child page to an existing summary page."""
+        page_id = self._extract_page_id(summary_ref)
+        if not page_id:
+            raise NotionStorageError(f"Cannot extract page ID from: {summary_ref}")
         try:
-            self._create_transcript_page(parent_page_id, metadata, transcript_segments)
+            self._create_transcript_page(page_id, metadata, transcript_segments)
         except Exception as e:
             raise NotionStorageError(f"Failed to add transcript sub-page: {e}") from e
+
+    @staticmethod
+    def _extract_page_id(url: str) -> str | None:
+        """Extract Notion page ID from URL."""
+        match = re.search(r"([a-f0-9]{32})", url.replace("-", ""))
+        return match.group(1) if match else None
 
     def route_directory(self, tags: list[str], title: str) -> str:
         """Match content to a directory based on rules."""

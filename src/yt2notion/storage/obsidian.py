@@ -50,15 +50,6 @@ def _resolve_unique_path(path: Path) -> Path:
         counter += 1
 
 
-def _format_duration(seconds: int) -> str:
-    """Format seconds as HH:MM:SS or MM:SS."""
-    hours, remainder = divmod(seconds, 3600)
-    minutes, secs = divmod(remainder, 60)
-    if hours:
-        return f"{hours}:{minutes:02d}:{secs:02d}"
-    return f"{minutes}:{secs:02d}"
-
-
 def _make_timestamp_link(timestamp: str, url: str) -> str:
     """Create a clickable timestamp link for YouTube, plain text for others."""
     secs = display_to_seconds(timestamp)
@@ -153,16 +144,6 @@ class ObsidianStorage:
         transcript_md = self._render_transcript(metadata, transcript_segments, summary_file.stem)
         transcript_file.write_text(transcript_md, encoding="utf-8")
 
-        # Update summary frontmatter to add transcript wikilink
-        try:
-            text = summary_file.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return
-        placeholder = 'transcript: ""'
-        replacement = f'transcript: "[[{transcript_file.stem}]]"'
-        if placeholder in text:
-            summary_file.write_text(text.replace(placeholder, replacement), encoding="utf-8")
-
     def _render_summary(
         self,
         content: ChineseContent,
@@ -173,7 +154,7 @@ class ObsidianStorage:
         """Render the summary markdown file."""
         url = metadata.url
         channel = metadata.channel or metadata.series or "Unknown"
-        duration = _format_duration(metadata.duration_seconds)
+        duration = seconds_to_display(metadata.duration_seconds)
         media_type = _detect_media_type(url)
 
         # Frontmatter

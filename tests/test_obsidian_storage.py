@@ -11,7 +11,6 @@ from yt2notion.models.base import ChineseContent, VideoMeta
 from yt2notion.storage.obsidian import (
     ObsidianStorage,
     ObsidianStorageError,
-    _format_duration,
     _make_timestamp_link,
     _sanitize_title,
 )
@@ -92,17 +91,6 @@ class TestSanitizeTitle:
 
 
 # --- format_duration ---
-
-
-class TestFormatDuration:
-    def test_short(self):
-        assert _format_duration(300) == "5:00"
-
-    def test_with_hours(self):
-        assert _format_duration(3661) == "1:01:01"
-
-    def test_zero(self):
-        assert _format_duration(0) == "0:00"
 
 
 # --- timestamp_link ---

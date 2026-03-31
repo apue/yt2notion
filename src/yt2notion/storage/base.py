@@ -23,9 +23,9 @@ class Storage(Protocol):
 
     def add_transcript_subpage(
         self,
-        parent_page_id: str,
+        summary_ref: str,
         transcript_segments: list[dict],
         metadata: VideoMeta,
     ) -> None:
-        """Add transcript child page to an existing summary page (optional)."""
+        """Add transcript as child of summary. summary_ref is the value returned by save()."""
         ...
