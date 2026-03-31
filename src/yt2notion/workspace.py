@@ -140,6 +140,7 @@ class Workspace:
             "overview": content.overview,
             "key_points": content.key_points,
             "tags": content.tags,
+            "fun_facts": content.fun_facts,
             "raw_markdown": content.raw_markdown,
             "mindmap": content.mindmap,
         }

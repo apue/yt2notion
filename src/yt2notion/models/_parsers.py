@@ -85,7 +85,6 @@ def _fix_google_search_urls(text: str) -> str:
     )
 
 
-
 # Build reverse lookup: emoji label → slug key (also match without emoji)
 _FUN_FACTS_LABEL_TO_KEY: dict[str, str] = {}
 for _key, _label in FUN_FACTS_CATEGORIES.items():
@@ -179,8 +178,7 @@ def parse_chinese_markdown(text: str) -> ChineseContent:
                 }
             )
 
-    # Extract tags
-    tags_match = re.search(r"##\s*标签\s*\n(.*?)(?=##|\Z)", text, re.DOTALL)
+    tags_match = re.search(r"##\s*标签\s*\n(.*?)(?=\n##|\n---|\Z)", text, re.DOTALL)
     if tags_match:
         tags_text = tags_match.group(1).strip()
         tags = [t.strip() for t in tags_text.split(",") if t.strip()]
