@@ -36,8 +36,6 @@ class ClaudeCodeCaller:
             "1",
             "--output-format",
             "json",
-            "--max-tokens",
-            str(max_tokens),
         ]
         try:
             result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, check=True)

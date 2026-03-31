@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
+from yt2notion.models.base import FUN_FACTS_CATEGORIES
 from yt2notion.process import display_to_seconds, seconds_to_display
 
 if TYPE_CHECKING:
@@ -221,8 +222,21 @@ class ObsidianStorage:
             ts_link = _make_timestamp_link(ts, url) if ts else ""
             lines.append(f"- {ts_link} **{title}**\uff1a{summary}")
 
+        # Fun facts
+        if content.fun_facts:
+            lines.append("")
+            lines.append("## 有趣发现")
+            for cat_key, cat_label in FUN_FACTS_CATEGORIES.items():
+                items = content.fun_facts.get(cat_key, [])
+                if not items:
+                    continue
+                lines.append("")
+                lines.append(f"### {cat_label}")
+                for item in items:
+                    lines.append(f"- {item}")
+
         lines.append("")
-        lines.append("## \u6807\u7b7e")
+        lines.append("## 标签")
         lines.append("")
         lines.append(" ".join(f"#{tag}" for tag in content.tags))
         lines.append("")
