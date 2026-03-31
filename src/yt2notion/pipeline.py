@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -675,24 +674,26 @@ def _step_deferred_review(
     groups = _merge_segments_into_groups(transcripts)
     reviewed_groups: list[str] = []
 
-    for i, group in enumerate(groups):
-        if verbose:
-            typer.echo(f"  Review [{i + 1}/{len(groups)}] {group.get('title', '')}")
-        cleaned = review_segment(group["text"], metadata, config, review_context)
-        reviewed_groups.append(cleaned)
+    try:
+        for i, group in enumerate(groups):
+            if verbose:
+                typer.echo(f"  Review [{i + 1}/{len(groups)}] {group.get('title', '')}")
+            cleaned = review_segment(group["text"], metadata, config, review_context)
+            reviewed_groups.append(cleaned)
 
-    # Split reviewed text back to original segment granularity
-    reviewed = _redistribute_reviewed_text(transcripts, groups, reviewed_groups)
-    ws.save_reviewed(reviewed)
+        # Split reviewed text back to original segment granularity
+        reviewed = _redistribute_reviewed_text(transcripts, groups, reviewed_groups)
+        ws.save_reviewed(reviewed)
+    except Exception as e:
+        typer.echo(f"  Warning: review failed ({e}), using unreviewed transcript")
+        reviewed = transcripts
 
     # Add transcript sub-page to existing summary page
     if verbose:
         typer.echo("  Adding transcript sub-page...")
-    page_id = _extract_page_id(summary_page_url)
-    if page_id:
-        storage.add_transcript_subpage(page_id, reviewed, metadata)
-        if verbose:
-            typer.echo("  Transcript sub-page added.")
+    storage.add_transcript_subpage(summary_page_url, reviewed, metadata)
+    if verbose:
+        typer.echo("  Transcript sub-page added.")
 
 
 def _build_review_context(chinese_content: ChineseContent) -> dict[str, str]:
@@ -761,10 +762,3 @@ def _redistribute_reviewed_text(
             result.append({**seg, "text": chunk.strip()})
 
     return result
-
-
-def _extract_page_id(url: str) -> str | None:
-    """Extract Notion page ID from URL."""
-
-    match = re.search(r"([a-f0-9]{32})", url.replace("-", ""))
-    return match.group(1) if match else None
