@@ -42,7 +42,7 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 
 实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` 仅有 `ClaudeCodeCaller` 实现。
 
-### 管道流程（5-step metadata-driven）
+### 管道流程（7-step metadata-driven）
 
 ```
 URL
@@ -57,11 +57,13 @@ URL
  ↓
 4. REVIEW       → reviewed.json  (Haiku 校对 ASR 错误)
  ↓
-5. SUMMARIZE    → summary.json   (Sonnet map × N + Opus reduce → Storage)
- ↓                    ↓
- │              5.5 DEFERRED REVIEW  (长内容：总结后再校对 + 写入 transcript)
+5. EXTRACT      → entities.json  (Haiku 实体提取 + 关系识别)
  ↓
-6. PUBLISH      → Notion page / Obsidian note + transcript sub-page/文件
+6. SUMMARIZE    → summary.json   (Sonnet map × N + Opus reduce → Storage)
+ ↓                    ↓
+ │              6.5 DEFERRED REVIEW  (长内容：总结后再校对 + 写入 transcript)
+ ↓
+7. PUBLISH      → Notion page / Obsidian note + transcript sub-page/文件
 ```
 
 决策逻辑基于元数据信号（非 URL 模式匹配）：
@@ -75,6 +77,7 @@ URL
 | 步骤 | 模型 | 用途 |
 |------|------|------|
 | 章节提取 / 话题分段 / 转录校对 | Haiku | 轻量结构化任务 |
+| 实体提取 / 关系识别 | Haiku | 结构化实体抽取 |
 | 逐段摘要（Map） | Sonnet | 英文结构提取 |
 | 全局综合（Reduce） | Opus | 中文润色 + 全局连贯 |
 | ASR 转写 | Qwen3-ASR 1.7B 4-bit | 本地 Mac Mini |

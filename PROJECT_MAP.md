@@ -51,10 +51,11 @@ Step 2 → segments.json    : list[{title, start_seconds, end_seconds}]
 Step 3 → transcripts.json : list[{title, start_seconds, end_seconds, text, source}]
                             source = "subtitle" | "asr"
 Step 4 → reviewed.json    : 同 transcripts 结构，text 被 Haiku 校对过
-Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, title, summary}], tags, fun_facts, raw_markdown, ?mindmap}
+Step 5 → entities.json    : EntityResult {domain, is_entity_centric, entity_types, entities[{name, type, attributes, linkable}], relations}
+Step 6 → summary.json     : ChineseContent {overview, key_points[{timestamp, title, summary}], tags, fun_facts, raw_markdown, ?mindmap}
 ```
 
-所有数据模型定义在 `models/base.py`：VideoMeta, Chapter, Summary, ChunkSummary, ChineseContent, FUN_FACTS_CATEGORIES 等。
+所有数据模型定义在 `models/base.py`：VideoMeta, Chapter, Summary, ChunkSummary, ChineseContent, FUN_FACTS_CATEGORIES, Entity, EntityResult 等。
 
 ## Prompt 模板 ↔ 代码绑定
 
@@ -66,6 +67,8 @@ Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, t
 | `topic_segment.md` | `topic_segment.py` | Haiku | (无变量) |
 | `review.md` | `review.py` | Haiku | `{title}`, `{channel}` |
 | `review_with_context.md` | `review.py` (当有 review context 时) | Haiku | `{title}`, `{channel}` |
+| `extract_entities.md` | `entity_extract.py` map 阶段 | Haiku | (无变量) |
+| `reduce_entities.md` | `entity_extract.py` reduce 阶段 | Haiku | (无变量) |
 | `summarize.md` | Summarizer (短内容+有章节) | Sonnet | (无变量) |
 | `summarize_freeform.md` | Summarizer (短内容+无章节) | Sonnet | (无变量) |
 | `summarize_chunk.md` | Summarizer map 阶段 | Sonnet | `{segment_title}`, `{start_time}`, `{end_time}`, `{segment_index}`, `{total_segments}` |
@@ -109,9 +112,9 @@ Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, t
 ```
 cli.py → config.py, pipeline.py
 pipeline.py → extract.py, process.py, workspace.py,
-              chapter_extract.py, segment.py, topic_segment.py, review.py,
+              chapter_extract.py, segment.py, topic_segment.py, review.py, entity_extract.py,
               models/__init__.py, storage/__init__.py, transcribe/__init__.py
-chapter_extract.py, review.py, topic_segment.py → models/llm.py (LLMCaller), prompts/
+chapter_extract.py, review.py, topic_segment.py, entity_extract.py → models/llm.py (LLMCaller), prompts/
 models/claude_code.py, models/anthropic_api.py → prompts/, models/_parsers.py
 models/_parsers.py → models/base.py (data classes)
 storage/notion.py → notion_client (外部库)

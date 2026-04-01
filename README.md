@@ -10,6 +10,7 @@ Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to
 - **Topic-aware segmentation**: LLM finds natural topic boundaries for long content
 - **Timestamped key points**: clickable timestamp links in your notes
 - **Fun facts extraction**: hot takes, nerd stats, and media mentions pulled from content
+- **Entity extraction**: identifies people, places, tools, and their relationships — builds a knowledge graph via `[[wiki-links]]`
 - **Always credits the source**: channel name, video title, and URL included automatically
 - **Pluggable backends**: swap LLM providers and storage (Notion / Obsidian)
 - **Workspace persistence**: resume interrupted pipelines from any step
@@ -78,9 +79,11 @@ YouTube / Podcast URL
     │
     4. REVIEW ───── Haiku cleans ASR errors, fixes proper nouns
     │
-    5. SUMMARIZE ── Sonnet map (per-segment) + Opus reduce (global)
+    5. EXTRACT ──── Haiku identifies entities and relationships
+    │
+    6. SUMMARIZE ── Sonnet map (per-segment) + Opus reduce (global)
     │       │
-    │       └── 5.5 DEFERRED REVIEW ── for long content: review + transcript after summary
+    │       └── 6.5 DEFERRED REVIEW ── for long content: review + transcript after summary
     │
     └── Storage: summary + transcript (Notion page / Obsidian note)
 ```
