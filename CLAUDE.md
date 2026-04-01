@@ -1,6 +1,6 @@
 # yt2notion
 
-媒体内容（YouTube 视频、Podcast 等）→ 字幕/转写 → LLM 总结 → Notion 发布的 CLI 管道工具。
+媒体内容（YouTube 视频、Podcast 等）→ 字幕/转写 → LLM 总结 → Notion / Obsidian 发布的 CLI 管道工具。
 
 ## Working Style
 
@@ -57,7 +57,11 @@ URL
  ↓
 4. REVIEW       → reviewed.json  (Haiku 校对 ASR 错误)
  ↓
-5. SUMMARIZE    → summary.json   (Sonnet map × N + Opus reduce → Notion)
+5. SUMMARIZE    → summary.json   (Sonnet map × N + Opus reduce → Storage)
+ ↓                    ↓
+ │              5.5 DEFERRED REVIEW  (长内容：总结后再校对 + 写入 transcript)
+ ↓
+6. PUBLISH      → Notion page / Obsidian note + transcript sub-page/文件
 ```
 
 决策逻辑基于元数据信号（非 URL 模式匹配）：

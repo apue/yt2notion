@@ -51,7 +51,7 @@ Step 2 → segments.json    : list[{title, start_seconds, end_seconds}]
 Step 3 → transcripts.json : list[{title, start_seconds, end_seconds, text, source}]
                             source = "subtitle" | "asr"
 Step 4 → reviewed.json    : 同 transcripts 结构，text 被 Haiku 校对过
-Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, title, summary}], tags, raw_markdown, ?mindmap}
+Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, title, summary}], tags, fun_facts, raw_markdown, ?mindmap}
 ```
 
 所有数据模型定义在 `models/base.py`：VideoMeta, Chapter, Summary, ChunkSummary, ChineseContent 等。
