@@ -54,7 +54,7 @@ Step 4 → reviewed.json    : 同 transcripts 结构，text 被 Haiku 校对过
 Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, title, summary}], tags, fun_facts, raw_markdown, ?mindmap}
 ```
 
-所有数据模型定义在 `models/base.py`：VideoMeta, Chapter, Summary, ChunkSummary, ChineseContent 等。
+所有数据模型定义在 `models/base.py`：VideoMeta, Chapter, Summary, ChunkSummary, ChineseContent, FUN_FACTS_CATEGORIES 等。
 
 ## Prompt 模板 ↔ 代码绑定
 
@@ -65,6 +65,7 @@ Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, t
 | `extract_chapters.md` | `chapter_extract.py` | Haiku | `{total_duration}` |
 | `topic_segment.md` | `topic_segment.py` | Haiku | (无变量) |
 | `review.md` | `review.py` | Haiku | `{title}`, `{channel}` |
+| `review_with_context.md` | `review.py` (当有 review context 时) | Haiku | `{title}`, `{channel}` |
 | `summarize.md` | Summarizer (短内容+有章节) | Sonnet | (无变量) |
 | `summarize_freeform.md` | Summarizer (短内容+无章节) | Sonnet | (无变量) |
 | `summarize_chunk.md` | Summarizer map 阶段 | Sonnet | `{segment_title}`, `{start_time}`, `{end_time}`, `{segment_index}`, `{total_segments}` |
@@ -83,7 +84,7 @@ Step 5 → summary.json     : ChineseContent {overview, key_points[{timestamp, t
 
 ### 加新 storage backend（如 Obsidian）
 
-1. `src/yt2notion/storage/obsidian.py` — 实现 `Storage` protocol 的 `save()` 方法
+1. `src/yt2notion/storage/obsidian.py` — 实现 `Storage` protocol（`save()` 返回 summary_ref，`add_transcript_subpage(summary_ref, ...)` 添加转录子页面）
 2. `src/yt2notion/storage/__init__.py` — `create_storage()` 加 elif 分支
 3. `src/yt2notion/config.py` — `VALID_STORAGE_BACKENDS` 加新值（如果还没有）
 4. `config.example.yaml` — 加 obsidian section
@@ -114,6 +115,7 @@ chapter_extract.py, review.py, topic_segment.py → models/llm.py (LLMCaller), p
 models/claude_code.py, models/anthropic_api.py → prompts/, models/_parsers.py
 models/_parsers.py → models/base.py (data classes)
 storage/notion.py → notion_client (外部库)
+storage/obsidian.py → models/base.py (FUN_FACTS_CATEGORIES)
 transcribe/remote.py → httpx (外部库)
 extract.py → subprocess (yt-dlp CLI)
 audio.py → subprocess (ffmpeg/ffprobe CLI)
