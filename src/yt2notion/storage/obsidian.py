@@ -105,6 +105,7 @@ class ObsidianStorage:
         metadata: VideoMeta,
         *,
         transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
     ) -> str:
         """Write summary + transcript files to vault. Return summary path."""
         today = date.today().isoformat()

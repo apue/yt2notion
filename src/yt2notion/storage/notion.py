@@ -47,6 +47,7 @@ class NotionStorage:
         metadata: VideoMeta,
         *,
         transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
     ) -> str:
         """Create a Notion page and return its URL.
 

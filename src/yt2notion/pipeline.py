@@ -10,6 +10,7 @@ import typer
 
 from yt2notion.extract import ExtractionError, extract_audio, extract_metadata, extract_subtitles
 from yt2notion.models import create_summarizer
+from yt2notion.models.llm import create_llm_caller
 from yt2notion.process import (
     SubtitleEntry,
     format_chapters_transcript,
@@ -23,7 +24,7 @@ from yt2notion.workspace import STEPS, Workspace
 
 if TYPE_CHECKING:
     from yt2notion.config import AppConfig
-    from yt2notion.models.base import ChineseContent, Summarizer, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, Summarizer, VideoMeta
     from yt2notion.storage.base import Storage
 
 
@@ -146,7 +147,14 @@ def run_pipeline(
         if reviewed is None:
             raise ValueError("Cannot resume: no reviewed.json in workspace")
 
-    # --- Step 5: SUMMARIZE ---
+    # --- Step 5: EXTRACT ENTITIES ---
+    if start_idx <= 4:
+        entities = _step_extract(reviewed, raw_config, verbose)
+        ws.save_entities(entities)
+    else:
+        entities = ws.load_entities()
+
+    # --- Step 6: SUMMARIZE ---
     chinese_content = _step_summarize(reviewed, metadata, raw_config, verbose)
     ws.save_summary(chinese_content)
 
@@ -178,6 +186,7 @@ def run_pipeline(
         chinese_content,
         metadata,
         transcript_segments=None if is_long else reviewed,
+        entities=entities,
     )
     if verbose:
         typer.echo(f"  Published: {result_url}")
@@ -512,13 +521,33 @@ def _step_review(
     return reviewed
 
 
+def _step_extract(
+    reviewed: list[dict],
+    config: dict,
+    verbose: bool,
+) -> EntityResult:
+    """Step 5: Extract entities from reviewed transcripts."""
+    if verbose:
+        typer.echo("Extracting entities...")
+
+    from yt2notion.entity_extract import extract_entities
+
+    caller = create_llm_caller(config, model_key="review_model")
+    result = extract_entities(reviewed, caller)
+
+    if verbose:
+        typer.echo(f"  Found {len(result.entities)} entities ({result.domain})")
+
+    return result
+
+
 def _step_summarize(
     reviewed: list[dict],
     metadata: VideoMeta,
     config: dict,
     verbose: bool,
 ) -> ChineseContent:
-    """Step 5: Summarize reviewed transcripts."""
+    """Step 6: Summarize reviewed transcripts."""
     if verbose:
         typer.echo("Summarizing...")
 

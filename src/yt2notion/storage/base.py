@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
 
 
 class Storage(Protocol):
@@ -17,6 +17,7 @@ class Storage(Protocol):
         metadata: VideoMeta,
         *,
         transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
     ) -> str:
         """Save content and return a URL or path to the created resource."""
         ...
