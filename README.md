@@ -1,6 +1,6 @@
 # yt2notion
 
-Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to Notion — in one command.
+Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to Notion / Obsidian — in one command.
 
 ## Features
 
