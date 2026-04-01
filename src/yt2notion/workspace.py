@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
 
 # Step name → output artifact filename
 _STEP_ARTIFACTS: dict[str, str] = {
@@ -17,10 +17,11 @@ _STEP_ARTIFACTS: dict[str, str] = {
     "segment": "segments.json",
     "transcribe": "transcripts.json",
     "review": "reviewed.json",
+    "extract": "entities.json",
     "summarize": "summary.json",
 }
 
-STEPS = ("download", "segment", "transcribe", "review", "summarize")
+STEPS = ("download", "segment", "transcribe", "review", "extract", "summarize")
 
 
 class Workspace:
@@ -132,6 +133,36 @@ class Workspace:
 
     def load_reviewed(self) -> list[dict] | None:
         return self._read_json("reviewed.json")
+
+    # --- Entities ---
+
+    def save_entities(self, result: EntityResult) -> None:
+        from dataclasses import asdict
+
+        self._write_json("entities.json", asdict(result))
+
+    def load_entities(self) -> EntityResult | None:
+        d = self._read_json("entities.json")
+        if d is None:
+            return None
+        from yt2notion.models.base import Entity, EntityResult
+
+        entities = [
+            Entity(
+                name=e["name"],
+                type=e["type"],
+                attributes=e.get("attributes", {}),
+                linkable=e.get("linkable", True),
+            )
+            for e in d.get("entities", [])
+        ]
+        return EntityResult(
+            domain=d.get("domain", ""),
+            is_entity_centric=d.get("is_entity_centric", False),
+            entity_types=d.get("entity_types", []),
+            entities=entities,
+            relations=d.get("relations", []),
+        )
 
     # --- Summary ---
 
