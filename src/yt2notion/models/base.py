@@ -127,6 +127,27 @@ FUN_FACTS_CATEGORIES: dict[str, str] = {
 }
 
 
+@dataclass
+class Entity:
+    """A named entity extracted from content."""
+
+    name: str
+    type: str
+    attributes: dict[str, str] = field(default_factory=dict)
+    linkable: bool = True
+
+
+@dataclass
+class EntityResult:
+    """Complete entity extraction output."""
+
+    domain: str
+    is_entity_centric: bool
+    entity_types: list[str]
+    entities: list[Entity]
+    relations: list[dict]  # [{from, relation, to}]
+
+
 class Summarizer(Protocol):
     """Protocol for LLM summarization backends."""
 
