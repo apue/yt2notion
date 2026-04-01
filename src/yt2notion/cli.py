@@ -52,5 +52,59 @@ def process(
         raise typer.Exit(1) from None
 
 
+@app.command()
+def extract(
+    content_dir: str = typer.Argument(help="Workspace directory containing reviewed.json"),
+    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+) -> None:
+    """Extract entities from reviewed transcript in a workspace directory."""
+    from pathlib import Path
+
+    try:
+        config = load_config(config_path)
+    except ConfigError as e:
+        typer.echo(f"Configuration error: {e}", err=True)
+        raise typer.Exit(1) from None
+
+    from yt2notion.entity_extract import extract_entities
+    from yt2notion.models.llm import create_llm_caller
+
+    ws_dir = Path(content_dir)
+    reviewed_path = ws_dir / "reviewed.json"
+    if not reviewed_path.exists():
+        typer.echo(f"No reviewed.json found in {content_dir}", err=True)
+        raise typer.Exit(1) from None
+
+    import json
+
+    reviewed = json.loads(reviewed_path.read_text(encoding="utf-8"))
+
+    raw_config = {
+        "model": config.model,
+    }
+    caller = create_llm_caller(raw_config, model_key="review_model")
+
+    if verbose:
+        typer.echo(f"Extracting entities from {len(reviewed)} segments...")
+
+    result = extract_entities(reviewed, caller)
+
+    # Save to workspace
+    from dataclasses import asdict
+
+    output_path = ws_dir / "entities.json"
+    output_path.write_text(
+        json.dumps(asdict(result), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    if verbose:
+        typer.echo(f"  Domain: {result.domain}")
+        typer.echo(f"  Entity-centric: {result.is_entity_centric}")
+        typer.echo(f"  Entities: {len(result.entities)}")
+        typer.echo(f"  Relations: {len(result.relations)}")
+    typer.echo(f"Saved to {output_path}")
+
+
 if __name__ == "__main__":
     app()
