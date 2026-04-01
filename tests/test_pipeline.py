@@ -54,6 +54,7 @@ def config(tmp_path):
     return cfg
 
 
+@patch("yt2notion.pipeline.create_llm_caller")
 @patch("yt2notion.pipeline.create_storage")
 @patch("yt2notion.pipeline.create_summarizer")
 @patch("yt2notion.pipeline.extract_subtitles")
@@ -63,6 +64,7 @@ def test_pipeline_full_mock(
     mock_extract_subs,
     mock_create_summarizer,
     mock_create_storage,
+    mock_create_llm_caller,
     mock_meta,
     mock_summary,
     mock_chinese,
@@ -85,6 +87,12 @@ def test_pipeline_full_mock(
     mock_storage.save.return_value = "https://notion.so/page123"
     mock_create_storage.return_value = mock_storage
 
+    # Mock LLM caller for entity extraction
+    mock_caller = MagicMock()
+    # caller.call(system_prompt, user_prompt, max_tokens=4000) returns JSON string
+    mock_caller.call.return_value = '{"entities": [], "domain": "General", "is_entity_centric": false, "entity_types": [], "relations": []}'
+    mock_create_llm_caller.return_value = mock_caller
+
     from yt2notion.pipeline import run_pipeline
 
     result = run_pipeline(
@@ -100,6 +108,7 @@ def test_pipeline_full_mock(
     mock_storage.save.assert_called_once()
 
 
+@patch("yt2notion.pipeline.create_llm_caller")
 @patch("yt2notion.pipeline.create_summarizer")
 @patch("yt2notion.pipeline.extract_subtitles")
 @patch("yt2notion.pipeline.extract_metadata")
@@ -107,6 +116,7 @@ def test_pipeline_dry_run(
     mock_extract_meta,
     mock_extract_subs,
     mock_create_summarizer,
+    mock_create_llm_caller,
     mock_meta,
     mock_summary,
     mock_chinese,
@@ -123,6 +133,12 @@ def test_pipeline_dry_run(
     mock_summarizer.summarize.return_value = mock_summary
     mock_summarizer.to_chinese.return_value = mock_chinese
     mock_create_summarizer.return_value = mock_summarizer
+
+    # Mock LLM caller for entity extraction
+    mock_caller = MagicMock()
+    # caller.call(system_prompt, user_prompt, max_tokens=4000) returns JSON string
+    mock_caller.call.return_value = '{"entities": [], "domain": "General", "is_entity_centric": false, "entity_types": [], "relations": []}'
+    mock_create_llm_caller.return_value = mock_caller
 
     from yt2notion.pipeline import run_pipeline
 
