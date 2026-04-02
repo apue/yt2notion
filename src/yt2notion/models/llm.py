@@ -37,17 +37,42 @@ class ClaudeCodeCaller:
             "--output-format",
             "json",
         ]
+
+        from yt2notion.retry import RetryExhausted, retry
+
+        class _EmptyOutputError(Exception):
+            pass
+
+        def _run() -> str:
+            try:
+                result = subprocess.run(
+                    cmd, input=prompt, capture_output=True, text=True, check=True, timeout=120
+                )
+            except FileNotFoundError:
+                raise RuntimeError("'claude' CLI not found on PATH") from None
+            raw = result.stdout
+            if not raw or not raw.strip():
+                raise _EmptyOutputError("claude returned empty output")
+            try:
+                output = json.loads(raw)
+                return output.get("result", raw)
+            except json.JSONDecodeError:
+                return raw
+
         try:
-            result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, check=True)
-        except FileNotFoundError:
-            raise RuntimeError("'claude' CLI not found on PATH") from None
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"claude CLI failed (exit {e.returncode}): {e.stderr[:200]}") from e
-        try:
-            output = json.loads(result.stdout)
-            return output.get("result", result.stdout)
-        except json.JSONDecodeError:
-            return result.stdout
+            return retry(
+                _run,
+                max_retries=3,
+                base_delay=5.0,
+                retryable=(
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                    _EmptyOutputError,
+                ),
+                label=f"claude -p {self.model}",
+            )
+        except RetryExhausted:
+            raise
 
 
 def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCaller:
