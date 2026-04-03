@@ -4,11 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from yt2notion.models._parsers import parse_chinese_markdown, parse_summary_json
+from yt2notion.models._parsers import (
+    parse_chinese_markdown,
+    parse_review_summary_json,
+    parse_summary_json,
+)
 from yt2notion.prompts import load_prompt
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, ChunkSummary, Summary, VideoMeta
+    from yt2notion.models.base import (
+        ChineseContent,
+        ChunkSummary,
+        ReviewSummaryResult,
+        Summary,
+        VideoMeta,
+    )
 
 try:
     import anthropic as _anthropic
@@ -55,6 +65,21 @@ class AnthropicAPIModel:
         )
         raw = self._call_api(system_prompt, user_prompt, self.summarize_model)
         return parse_summary_json(raw)
+
+    def review_and_summarize(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "summarize_reviewed",
+    ) -> ReviewSummaryResult:
+        """Review raw ASR transcript and summarize it in one pass."""
+        system_prompt = load_prompt(prompt_name)
+        user_prompt = (
+            f"Video: {metadata.title} by {metadata.channel}\nURL: {metadata.url}\n\n{transcript}"
+        )
+        raw = self._call_api(system_prompt, user_prompt, self.summarize_model)
+        return parse_review_summary_json(raw)
 
     def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:
         """Rewrite summary in natural Chinese."""

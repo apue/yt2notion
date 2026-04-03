@@ -128,6 +128,22 @@ def test_summarize_integration(mock_run, meta):
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
+def test_review_and_summarize_integration(mock_run, meta):
+    combined = dict(SAMPLE_SUMMARY_JSON)
+    combined["reviewed_transcript"] = "[0:00] cleaned transcript"
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=json.dumps({"result": json.dumps(combined)}),
+        stderr="",
+    )
+    model = ClaudeCodeModel()
+    result = model.review_and_summarize("transcript text", meta)
+    assert result.reviewed_transcript == "[0:00] cleaned transcript"
+    assert result.summary.overall_summary
+
+
+@patch("yt2notion.models.claude_code.subprocess.run")
 def test_to_chinese_integration(mock_run, meta):
     mock_run.return_value = subprocess.CompletedProcess(
         args=[],

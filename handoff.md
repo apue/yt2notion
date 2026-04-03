@@ -4,74 +4,78 @@
 
 ## 当前任务卡
 
-- 任务：以 `PROJECT_MAP.md` 为锚点收敛文档 single source of truth，并采用 subagent 并行落地
+- 任务：完成三项需求落地并验证：summary/full mode、Codex backend、Codex slash command；补齐单测并跑通 Apple Podcasts 到 Obsidian 的端到端
 - 状态：`done`
 - 当前 owner：Codex
 - 上一执行者：User
 - 下一执行者：User
-- 来源：用户要求把 `PROJECT_MAP.md` 设为所有活跃文档共享的唯一锚点，并在完成后提交到当前分支
+- 来源：用户要求用 subagent 产出开发计划并完成改造，补充分测试后执行指定 Apple Podcasts 链接的端到端验证（默认 Obsidian）
 - 目标：
-  - 明确 `PROJECT_MAP.md` 是 pipeline / contract / extension truth 的 canonical anchor
-  - 让其他活跃文档只保留角色化摘要，不再竞争性复述完整流程真相
-  - 为未来把 `PROJECT_MAP.md` 拆成索引 + part 的模式预留治理规则
+  - 产出三项需求开发计划（里程碑 + 验收标准）
+  - 完成代码改造并补齐关键单测
+  - 跑通指定 URL 的端到端流程并落盘到 Obsidian
 - 非目标：
-  - 不改代码行为
-  - 不清理历史 plan/spec 文档
-  - 不触碰 `prompts/` 模板
+  - 不发布到 Notion
+  - 不做无关重构
 - 约束：
-  - 并行工作按文件边界切分，避免 worker 冲突
-  - 活跃文档必须明确 `PROJECT_MAP` 的权威性
-  - 摘要文档仍需保留各自面向的读者价值，不能只剩空链接
+  - 不回滚他人改动
+  - 只在本轮负责文件中做最小改动
+  - pipeline/contract 事实以 `PROJECT_MAP.md` 为准
 - 受影响文件：
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [AGENTS.md](./AGENTS.md)
-  - [CLAUDE.md](./CLAUDE.md)
-  - [.cursorrules](./.cursorrules)
-  - [README.md](./README.md)
-  - [handoff.md](./handoff.md)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [src/yt2notion/entity_extract.py](./src/yt2notion/entity_extract.py)
+  - [src/yt2notion/extract.py](./src/yt2notion/extract.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
+  - [tests/test_entity_extract.py](./tests/test_entity_extract.py)
+  - [tests/test_cli.py](./tests/test_cli.py)
+  - [tests/test_model_factory.py](./tests/test_model_factory.py)
+  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
+  - [tests/test_agent_commands.py](./tests/test_agent_commands.py)
 - 验收标准：
-  - `PROJECT_MAP.md` 明确声明自身为 canonical anchor，并定义未来拆分规则
-  - `AGENTS.md`、`CLAUDE.md`、`.cursorrules`、`README.md` 不再独立承载完整 pipeline truth
-  - `PROJECT_MAP.md` 的 pipeline、branch rules、artifact contracts 与当前实现对齐
-  - 改动已提交到当前分支
+  - 三项需求均已落地并有对应测试
+  - 全量测试通过
+  - 指定 URL 端到端成功写入 Obsidian
 - 建议命令：
-  - `git diff -- AGENTS.md CLAUDE.md PROJECT_MAP.md .cursorrules README.md handoff.md`
-  - `git status --short`
+  - `uv run pytest tests/ -q`
+  - `uv run yt2notion process '<url>' -c /tmp/yt2notion-e2e-gpt54mini-serial.yaml --no-confirm -v --workspace-dir <workspace>`
 - 未决问题：
-  - 本轮先不新建 `docs/project-map/`，只在 `PROJECT_MAP.md` 中约定未来拆分机制
+  - 无
 
 ## 当前执行记录
 
 - 已完成：
-  - 读取 `AGENTS.md`、`handoff.md`、`CLAUDE.md`、`PROJECT_MAP.md`、`.cursorrules` 并核对当前实现
-  - 确认问题本质不是“改一句文案”，而是消除多份活跃文档并行承载完整 pipeline 真相
-  - 启动 subagent 并按文件边界切分：`CLAUDE.md/.cursorrules` 与 `AGENTS.md/README.md`
-  - `PROJECT_MAP.md` 已升级为 canonical anchor，补齐 pipeline 顺序、branch rules、workspace artifacts、future split rule
-  - `CLAUDE.md` 与 `.cursorrules` 已改为保留开发约束与政策摘要，不再复述完整流程
-  - `AGENTS.md` 与 `README.md` 已改为显式指向 `PROJECT_MAP.md`
-  - 所有文档改动已提交到当前分支
+  - 三项需求实现完成：`summary/full mode`、`codex_cli backend`、`.codex` slash command 入口
+  - 补齐并扩展测试覆盖（pipeline/config/cli/model factory/codex backend/agent commands）
+  - 优化 E2E 稳定性：网页 transcript fallback、summary 模式下 subtitle-derived 内容跳过实体抽取、实体 map-reduce 批次优化
+  - 端到端成功：Apple Podcasts 指定 URL 完整跑通并写入 Obsidian
 - 当前阻塞：
   - 无
 - 已修改文件：
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [AGENTS.md](./AGENTS.md)
-  - [CLAUDE.md](./CLAUDE.md)
-  - [.cursorrules](./.cursorrules)
-  - [README.md](./README.md)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [src/yt2notion/entity_extract.py](./src/yt2notion/entity_extract.py)
+  - [src/yt2notion/extract.py](./src/yt2notion/extract.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
+  - [tests/test_entity_extract.py](./tests/test_entity_extract.py)
+  - [tests/test_cli.py](./tests/test_cli.py)
+  - [tests/test_config.py](./tests/test_config.py)
+  - [tests/test_model_factory.py](./tests/test_model_factory.py)
+  - [tests/test_agent_commands.py](./tests/test_agent_commands.py)
+  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `git status --short`
-  - `git log --oneline --decorate -n 8`
-  - `rg -n "Pipeline|pipeline|PROJECT_MAP|single truth|canonical|chapters >|Topic segmentation|7-step|5-step" AGENTS.md CLAUDE.md PROJECT_MAP.md .cursorrules README.md docs -S`
-  - `git diff -- AGENTS.md README.md`
-  - `git show --stat --summary --oneline ea7643b`
+  - `uv run pytest tests/test_pipeline.py tests/test_entity_extract.py tests/test_cli.py tests/test_codex_cli.py tests/test_config.py tests/test_model_factory.py tests/test_agent_commands.py -q` -> `65 passed`
+  - `uv run ruff check src/yt2notion/pipeline.py src/yt2notion/entity_extract.py tests/test_pipeline.py tests/test_entity_extract.py` -> `All checks passed`
+  - `uv run pytest tests/ -q` -> `227 passed`
+  - `uv run yt2notion process 'https://podcasts.apple.com/us/podcast/google-part-iii-the-ai-company/id1050462261?i=1000730326283' -c /tmp/yt2notion-e2e-gpt54mini-serial.yaml --no-confirm -v --workspace-dir /tmp/yt2notion-e2e-workspace-15` -> 成功发布到 Obsidian
 - 风险/回滚点：
-  - `PROJECT_MAP.md` 现在信息密度更高，后续如果继续扩张，应按本轮约定及时拆成 canonical parts
-  - 历史 spec / plan 文档仍可能保留旧表述，但它们不再是活跃真源
-  - 若后续改 pipeline 未同步 `PROJECT_MAP.md`，仍会再次漂移
+  - `codex exec` 真实运行时延迟仍可能波动，当前通过 summary 模式降载规避主要卡点
+  - slash-command 测试是文档契约级，不覆盖宿主端 UI 集成行为
 - 下一步：
-  - 新的 pipeline / contract 变更先改 `PROJECT_MAP.md`
-  - 等 `PROJECT_MAP.md` 超过可维护阈值时，再拆到 `docs/project-map/*.md`
+  - 用户在 Obsidian 校验产物内容与格式；如需 `full` 模式 transcript 页面产物，再补跑一次 `--mode full` 验证
 
 ## 接手检查清单
 
@@ -116,3 +120,4 @@
 |------|------|----|------|------|
 | 2026-04-03 | User | Codex | 生成 `AGENTS.md` / `handoff.md` / `config.toml` 初稿 | 完成 |
 | 2026-04-03 | User | Codex | 把工作流接入 Claude 入口并修正交接机制 | 完成 |
+| 2026-04-03 | User | Codex | 审计三项需求测试覆盖并补测，输出开发计划 | 完成 |

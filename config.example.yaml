@@ -2,11 +2,15 @@
 # 复制为 config.yaml 并填入你的实际值
 
 model:
-  # 可选: claude_code | anthropic_api | openai_api
+  # 可选: claude_code | anthropic_api | codex_cli | openai_api
   backend: claude_code
   summarize_model: sonnet    # 结构化总结（英文处理强）
   translate_model: opus      # 中文化润色（中文质量高）
   review_model: haiku        # 章节提取 + 转录校对（轻量任务）
+  # 使用 codex_cli 时建议改为:
+  # summarize_model: gpt-5.2
+  # translate_model: gpt-5.2
+  # review_model: gpt-5.2
 
 storage:
   # Choose one backend: notion | obsidian | markdown
@@ -55,6 +59,8 @@ credit:
   format: "来源：{channel} 「{title}」\n链接：{url}"
 
 output:
+  # 输出模式：summary 只输出总结；full 输出总结 + 校对后的逐字稿
+  mode: summary
   # chunk 分段长度（秒），用于时间戳关联
   chunk_duration_seconds: 120
   # 最终输出语言

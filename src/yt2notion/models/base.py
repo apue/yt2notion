@@ -97,6 +97,14 @@ class Summary:
 
 
 @dataclass
+class ReviewSummaryResult:
+    """Result of a combined transcript review + summary pass."""
+
+    reviewed_transcript: str
+    summary: Summary
+
+
+@dataclass
 class ChunkSummary:
     """Summary of a single segment from the map phase."""
 
@@ -155,6 +163,16 @@ class Summarizer(Protocol):
         self, transcript: str, metadata: VideoMeta, *, prompt_name: str = "summarize"
     ) -> Summary:
         """Produce a structured summary with timestamps."""
+        ...
+
+    def review_and_summarize(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "summarize_reviewed",
+    ) -> ReviewSummaryResult:
+        """Review an ASR transcript and summarize it in a single LLM call."""
         ...
 
     def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:

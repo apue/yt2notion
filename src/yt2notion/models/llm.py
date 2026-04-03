@@ -85,8 +85,16 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
     model_cfg = config.get("model", {})
     backend = model_cfg.get("backend", "claude_code")
     model = model_cfg.get(model_key, "haiku")
+    reasoning_effort = model_cfg.get("reasoning_effort", "low")
 
     if backend == "claude_code":
         return ClaudeCodeCaller(model=model)
+    if backend in {"codex_cli", "openai_api"}:
+        from yt2notion.models.codex_cli import CodexCLICaller
+
+        return CodexCLICaller(
+            model=model or "gpt-5.2",
+            reasoning_effort=reasoning_effort,
+        )
 
     raise ValueError(f"Unknown LLM backend: {backend!r}")

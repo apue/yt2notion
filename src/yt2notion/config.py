@@ -12,7 +12,7 @@ class ConfigError(Exception):
     """Raised when configuration is invalid or missing."""
 
 
-VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "openai_api"}
+VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "codex_cli", "openai_api"}
 VALID_STORAGE_BACKENDS = {"notion", "obsidian", "markdown"}
 
 DEFAULTS: dict = {
@@ -21,6 +21,7 @@ DEFAULTS: dict = {
         "summarize_model": "sonnet",
         "translate_model": "opus",
         "review_model": "haiku",
+        "reasoning_effort": "low",
     },
     "storage": {
         "backend": "notion",
@@ -46,6 +47,7 @@ DEFAULTS: dict = {
         "format": "来源：{channel} 「{title}」\n链接：{url}",
     },
     "output": {
+        "mode": "summary",
         "chunk_duration_seconds": 120,
         "target_language": "zh-CN",
         "long_content_threshold_seconds": 1800,
@@ -108,6 +110,10 @@ def load_config(path: str) -> AppConfig:
             f"Invalid storage backend: {storage_backend!r}. "
             f"Must be one of: {', '.join(sorted(VALID_STORAGE_BACKENDS))}"
         )
+
+    output_mode = merged.get("output", {}).get("mode", "summary")
+    if output_mode not in {"summary", "full"}:
+        raise ConfigError("output.mode must be either 'summary' or 'full'")
 
     # Validate obsidian vault_path when backend is obsidian
     if storage_backend == "obsidian":

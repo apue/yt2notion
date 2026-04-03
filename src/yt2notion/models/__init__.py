@@ -14,6 +14,7 @@ def create_summarizer(config: dict) -> Any:
     backend = model_config.get("backend", "claude_code")
     summarize_model = model_config.get("summarize_model", "sonnet")
     translate_model = model_config.get("translate_model", "opus")
+    reasoning_effort = model_config.get("reasoning_effort", "low")
 
     if backend == "claude_code":
         from yt2notion.models.claude_code import ClaudeCodeModel
@@ -21,6 +22,14 @@ def create_summarizer(config: dict) -> Any:
         return ClaudeCodeModel(
             summarize_model=summarize_model,
             translate_model=translate_model,
+        )
+    elif backend in {"codex_cli", "openai_api"}:
+        from yt2notion.models.codex_cli import CodexCLIModel
+
+        return CodexCLIModel(
+            summarize_model=summarize_model or "gpt-5.2",
+            translate_model=translate_model or "gpt-5.2",
+            reasoning_effort=reasoning_effort,
         )
     elif backend == "anthropic_api":
         from yt2notion.models.anthropic_api import AnthropicAPIModel

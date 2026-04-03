@@ -7,6 +7,7 @@ import pytest
 from yt2notion.models._parsers import (
     ParseError,
     parse_chunk_summary_json,
+    parse_review_summary_json,
     parse_synthesized_markdown,
 )
 
@@ -48,6 +49,31 @@ class TestParseChunkSummaryJson:
     def test_invalid_json_raises(self):
         with pytest.raises(ParseError, match="Failed to parse chunk summary"):
             parse_chunk_summary_json("not valid json {{{")
+
+
+class TestParseReviewSummaryJson:
+    def test_basic_parsing(self):
+        text = """{
+  "reviewed_transcript": "[0:00] cleaned transcript",
+  "sections": [
+    {
+      "title": "Introduction",
+      "timestamp": "0:00",
+      "timestamp_seconds": 0,
+      "summary": "The host introduces the guest."
+    }
+  ],
+  "overall_summary": "A short test summary.",
+  "suggested_tags": ["ai", "research"]
+}"""
+        result = parse_review_summary_json(text)
+        assert result.reviewed_transcript == "[0:00] cleaned transcript"
+        assert result.summary.sections[0].title == "Introduction"
+        assert result.summary.overall_summary == "A short test summary."
+
+    def test_invalid_json_raises(self):
+        with pytest.raises(ParseError, match="Failed to parse review\\+summary"):
+            parse_review_summary_json("not valid json {{{")
 
 
 class TestParseSynthesizedMarkdown:

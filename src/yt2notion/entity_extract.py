@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from yt2notion.models.base import Entity, EntityResult
 from yt2notion.models.llm import LLMCaller  # noqa: TC001
@@ -56,6 +57,8 @@ def parse_entity_result(raw: str) -> EntityResult:
 
 
 SINGLE_PASS_THRESHOLD = 30_000  # tokens (rough estimate: 1 token ≈ 4 chars)
+MAP_REDUCE_BATCH_CHAR_LIMIT = 24_000
+MAP_REDUCE_BATCH_SEGMENT_LIMIT = 60
 
 
 def _estimate_tokens(segments: list[dict]) -> int:
@@ -77,7 +80,37 @@ def _concat_segments(segments: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def extract_entities(segments: list[dict], caller: LLMCaller) -> EntityResult:
+def _batch_segments_for_map_reduce(segments: list[dict]) -> list[list[dict]]:
+    """Batch segments to keep map-phase calls bounded for long content."""
+    batches: list[list[dict]] = []
+    current_batch: list[dict] = []
+    current_chars = 0
+
+    for segment in segments:
+        segment_chars = len(segment.get("text", ""))
+        exceeds_char_limit = current_chars + segment_chars > MAP_REDUCE_BATCH_CHAR_LIMIT
+        exceeds_segment_limit = len(current_batch) >= MAP_REDUCE_BATCH_SEGMENT_LIMIT
+
+        if current_batch and (exceeds_char_limit or exceeds_segment_limit):
+            batches.append(current_batch)
+            current_batch = []
+            current_chars = 0
+
+        current_batch.append(segment)
+        current_chars += segment_chars
+
+    if current_batch:
+        batches.append(current_batch)
+
+    return batches
+
+
+def extract_entities(
+    segments: list[dict],
+    caller: LLMCaller,
+    *,
+    max_workers: int = 1,
+) -> EntityResult:
     """Extract entities from reviewed segments.
 
     Uses single-pass for short content, map-reduce for long content.
@@ -96,7 +129,7 @@ def extract_entities(segments: list[dict], caller: LLMCaller) -> EntityResult:
     if total_tokens < SINGLE_PASS_THRESHOLD:
         return _extract_single_pass(segments, caller)
     else:
-        return _extract_map_reduce(segments, caller)
+        return _extract_map_reduce(segments, caller, max_workers=max_workers)
 
 
 def _extract_single_pass(segments: list[dict], caller: LLMCaller) -> EntityResult:
@@ -107,35 +140,58 @@ def _extract_single_pass(segments: list[dict], caller: LLMCaller) -> EntityResul
     return parse_entity_result(raw)
 
 
-def _extract_map_reduce(segments: list[dict], caller: LLMCaller) -> EntityResult:
-    """Map phase: one Haiku call per segment. Reduce phase: one merge call."""
+def _extract_map_reduce(
+    segments: list[dict],
+    caller: LLMCaller,
+    *,
+    max_workers: int = 1,
+) -> EntityResult:
+    """Map phase: one call per segment batch. Reduce phase: one merge call."""
     map_prompt = load_prompt("extract_entities")
-    all_entities: list[dict] = []
+    batches = _batch_segments_for_map_reduce(segments)
 
-    for i, seg in enumerate(segments):
-        text = seg.get("text", "")
+    def _extract_batch(i: int, batch: list[dict]) -> dict | None:
+        text = _concat_segments(batch)
         if not text.strip():
-            continue
+            return None
         raw = caller.call(map_prompt, text, max_tokens=4000)
         try:
             entities, relations = parse_segment_entities(raw)
-            all_entities.append(
-                {
-                    "segment_id": i,
-                    "entities": [
-                        {
-                            "name": e.name,
-                            "type": e.type,
-                            "attributes": e.attributes,
-                            "linkable": e.linkable,
-                        }
-                        for e in entities
-                    ],
-                    "relations": relations,
-                }
-            )
+            return {
+                "segment_id": i,
+                "entities": [
+                    {
+                        "name": e.name,
+                        "type": e.type,
+                        "attributes": e.attributes,
+                        "linkable": e.linkable,
+                    }
+                    for e in entities
+                ],
+                "relations": relations,
+            }
         except (json.JSONDecodeError, KeyError):
-            continue  # Skip segments with unparseable output
+            return None
+
+    all_entities: list[dict] = []
+    worker_count = max(1, min(max_workers, len(batches)))
+
+    if worker_count == 1:
+        for i, batch in enumerate(batches):
+            extracted = _extract_batch(i, batch)
+            if extracted:
+                all_entities.append(extracted)
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_to_index = {
+                executor.submit(_extract_batch, i, batch): i for i, batch in enumerate(batches)
+            }
+            for future in as_completed(future_to_index):
+                extracted = future.result()
+                if extracted:
+                    all_entities.append(extracted)
+
+    all_entities.sort(key=lambda item: item["segment_id"])
 
     if not all_entities:
         return EntityResult(

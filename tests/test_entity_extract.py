@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from unittest.mock import MagicMock
+
+from yt2notion.entity_extract import parse_entity_result, parse_segment_entities
 from yt2notion.models.base import Entity, EntityResult
 
 
@@ -44,12 +48,6 @@ class TestEntityDataModels:
             relations=[],
         )
         assert r.entities == []
-
-
-import json
-
-from yt2notion.entity_extract import parse_entity_result, parse_segment_entities
-
 
 class TestParseSegmentEntities:
     def test_valid_json(self):
@@ -154,10 +152,6 @@ class TestParseEntityResult:
         assert result.entities == []
         assert result.is_entity_centric is False
 
-
-from unittest.mock import MagicMock
-
-
 class TestExtractEntities:
     """Test extract_entities() with mocked LLM caller."""
 
@@ -200,7 +194,11 @@ class TestExtractEntities:
         assert caller.call.call_count == 1
 
     def test_map_reduce_long_content(self):
-        from yt2notion.entity_extract import SINGLE_PASS_THRESHOLD, extract_entities
+        from yt2notion.entity_extract import (
+            SINGLE_PASS_THRESHOLD,
+            _batch_segments_for_map_reduce,
+            extract_entities,
+        )
 
         # Create segments with enough text to exceed threshold
         long_text = "word " * 200  # ~200 tokens per segment
@@ -231,14 +229,32 @@ class TestExtractEntities:
                 "relations": [],
             }
         )
-        # N map calls + 1 reduce call
-        responses = [map_response] * n_segments + [reduce_response]
+        batch_count = len(_batch_segments_for_map_reduce(segments))
+        responses = [map_response] * batch_count + [reduce_response]
         caller = self._make_caller(responses)
 
         result = extract_entities(segments, caller)
 
         assert isinstance(result, EntityResult)
-        assert caller.call.call_count == n_segments + 1
+        assert caller.call.call_count == batch_count + 1
+
+    def test_map_reduce_batching_avoids_tiny_batch_explosion(self):
+        from yt2notion.entity_extract import _batch_segments_for_map_reduce
+
+        # Dense segments should be bounded primarily by char limit, not tiny segment caps.
+        segments = [
+            {
+                "text": "x" * 1000,
+                "title": f"Seg {i}",
+                "start_seconds": i * 60,
+                "end_seconds": (i + 1) * 60,
+            }
+            for i in range(120)
+        ]
+
+        batch_count = len(_batch_segments_for_map_reduce(segments))
+
+        assert batch_count <= 8
 
     def test_empty_segments(self):
         from yt2notion.entity_extract import extract_entities

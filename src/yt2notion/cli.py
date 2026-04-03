@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
+
 import typer
 
 from yt2notion.config import ConfigError, load_config
 from yt2notion.extract import ExtractionError
+from yt2notion.process import seconds_to_display
 
 app = typer.Typer(help="YouTube videos → structured Chinese notes → Notion")
 
@@ -22,6 +26,7 @@ def process(
         None, "--from", help="Step to resume from (download/segment/transcribe/review/summarize)"
     ),
     workspace_dir: str = typer.Option(None, "--workspace-dir", help="Workspace base directory"),
+    mode: str = typer.Option(None, "--mode", help="Output mode: summary or full"),
 ) -> None:
     """Process a video or podcast into a Chinese Notion page."""
     try:
@@ -41,6 +46,7 @@ def process(
             no_confirm=no_confirm,
             resume_from=from_step,
             workspace_dir=resume or workspace_dir,
+            mode=mode,
         )
         if result and not dry_run:
             typer.echo(f"Done! {result}")
@@ -50,6 +56,78 @@ def process(
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(1) from None
+
+
+@app.command()
+def prepare(
+    url: str = typer.Argument(help="YouTube or podcast URL"),
+    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    resume: str = typer.Option(None, "--resume", help="Resume from workspace directory"),
+    from_step: str = typer.Option(
+        None, "--from", help="Step to resume from (download/segment/transcribe/review/summarize)"
+    ),
+    workspace_dir: str = typer.Option(None, "--workspace-dir", help="Workspace base directory"),
+    mode: str = typer.Option(None, "--mode", help="Output mode: summary or full"),
+) -> None:
+    """Run processing without publishing and emit structured JSON for agent wrappers."""
+    try:
+        config = load_config(config_path)
+    except ConfigError as e:
+        typer.echo(f"Configuration error: {e}", err=True)
+        raise typer.Exit(1) from None
+
+    from yt2notion.pipeline import prepare_content
+
+    try:
+        prepared = prepare_content(
+            url,
+            config,
+            verbose=verbose,
+            resume_from=from_step,
+            workspace_dir=resume or workspace_dir,
+            mode=mode,
+        )
+    except ExtractionError as e:
+        typer.echo(f"Extraction error: {e}", err=True)
+        raise typer.Exit(1) from None
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from None
+
+    transcript_markdown = None
+    if prepared.transcript_segments:
+        lines = [f"## 逐字稿：{prepared.metadata.title}", ""]
+        for seg in prepared.transcript_segments:
+            lines.append(
+                (
+                    f"### [{seconds_to_display(int(seg.get('start_seconds', 0)))}] "
+                    f"{str(seg.get('title', '')).strip()}"
+                ).strip()
+            )
+            lines.append("")
+            lines.append(str(seg.get("text", "")).strip())
+            lines.append("")
+        transcript_markdown = "\n".join(lines).strip()
+
+    payload = {
+        "mode": prepared.output_mode,
+        "is_long": prepared.is_long,
+        "metadata": asdict(prepared.metadata),
+        "summary": {
+            "overview": prepared.chinese_content.overview,
+            "key_points": prepared.chinese_content.key_points,
+            "tags": prepared.chinese_content.tags,
+            "fun_facts": prepared.chinese_content.fun_facts,
+            "mindmap": prepared.chinese_content.mindmap,
+            "raw_markdown": prepared.chinese_content.raw_markdown,
+        },
+        "transcript_segments": prepared.transcript_segments,
+        "transcript_markdown": transcript_markdown,
+        "entities": asdict(prepared.entities) if prepared.entities else None,
+        "workspace_dir": str(prepared.workspace.dir),
+    }
+    typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 @app.command()
@@ -72,13 +150,14 @@ def extract(
 
     ws_dir = Path(content_dir)
     reviewed_path = ws_dir / "reviewed.json"
-    if not reviewed_path.exists():
-        typer.echo(f"No reviewed.json found in {content_dir}", err=True)
+    transcripts_path = ws_dir / "transcripts.json"
+    if reviewed_path.exists():
+        reviewed = json.loads(reviewed_path.read_text(encoding="utf-8"))
+    elif transcripts_path.exists():
+        reviewed = json.loads(transcripts_path.read_text(encoding="utf-8"))
+    else:
+        typer.echo(f"No reviewed.json or transcripts.json found in {content_dir}", err=True)
         raise typer.Exit(1) from None
-
-    import json
-
-    reviewed = json.loads(reviewed_path.read_text(encoding="utf-8"))
 
     raw_config = {
         "model": config.model,

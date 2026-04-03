@@ -37,6 +37,18 @@ def test_load_extract_entities():
     assert "linkable" in text
 
 
+def test_load_summarize_reviewed_prompt():
+    text = load_prompt("summarize_reviewed")
+    assert "ASR" in text
+    assert "reviewed_transcript" in text
+
+
+def test_load_summarize_reviewed_freeform_prompt():
+    text = load_prompt("summarize_reviewed_freeform")
+    assert "ASR" in text
+    assert "reviewed_transcript" in text
+
+
 def test_load_reduce_entities():
     from yt2notion.prompts import load_prompt
 

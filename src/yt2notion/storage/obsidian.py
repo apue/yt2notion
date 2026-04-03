@@ -115,13 +115,16 @@ class ObsidianStorage:
         summaries_path.mkdir(parents=True, exist_ok=True)
         summary_file = _resolve_unique_path(summaries_path / f"{today} {sanitized}.md")
 
-        transcript_file = self._resolve_transcript_path(metadata)
-        transcript_stem = transcript_file.stem
+        transcript_file: Path | None = None
+        transcript_stem: str | None = None
+        if transcript_segments:
+            transcript_file = self._resolve_transcript_path(metadata)
+            transcript_stem = transcript_file.stem
 
         summary_md = self._render_summary(content, metadata, transcript_stem, today, entities)
         summary_file.write_text(summary_md, encoding="utf-8")
 
-        if transcript_segments:
+        if transcript_segments and transcript_file is not None:
             transcript_md = self._render_transcript(
                 metadata, transcript_segments, summary_file.stem
             )
@@ -144,12 +147,13 @@ class ObsidianStorage:
 
         transcript_md = self._render_transcript(metadata, transcript_segments, summary_file.stem)
         transcript_file.write_text(transcript_md, encoding="utf-8")
+        self._add_transcript_link(summary_file, transcript_file.stem)
 
     def _render_summary(
         self,
         content: ChineseContent,
         metadata: VideoMeta,
-        transcript_stem: str,
+        transcript_stem: str | None,
         today: str,
         entities: EntityResult | None = None,
     ) -> str:
@@ -174,7 +178,8 @@ class ObsidianStorage:
                 fm["date_published"] = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}"
         fm["date_processed"] = today
         fm["tags"] = content.tags
-        fm["transcript"] = f"[[{transcript_stem}]]"
+        if transcript_stem:
+            fm["transcript"] = f"[[{transcript_stem}]]"
 
         frontmatter = (
             "---\n"
@@ -284,6 +289,31 @@ class ObsidianStorage:
         lines.append("")
 
         return "\n".join(lines)
+
+    def _add_transcript_link(self, summary_file: Path, transcript_stem: str) -> None:
+        """Add transcript wikilink to summary frontmatter after deferred transcript generation."""
+        text = summary_file.read_text(encoding="utf-8")
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return
+
+        frontmatter = yaml.safe_load(parts[1]) or {}
+        if frontmatter.get("transcript") == f"[[{transcript_stem}]]":
+            return
+
+        frontmatter["transcript"] = f"[[{transcript_stem}]]"
+        updated = (
+            "---\n"
+            + yaml.dump(
+                frontmatter,
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ).rstrip()
+            + "\n---"
+            + parts[2]
+        )
+        summary_file.write_text(updated, encoding="utf-8")
 
     def _render_transcript(
         self,

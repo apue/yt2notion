@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import json
 import subprocess
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from yt2notion.extract import ExtractionError, extract_metadata, extract_subtitles
+from yt2notion.extract import (
+    ExtractionError,
+    extract_metadata,
+    extract_subtitles,
+    extract_webpage_transcript,
+    write_transcript_srt,
+)
+from yt2notion.models.base import VideoMeta
+from yt2notion.process import SubtitleEntry
 
 SAMPLE_YTDLP_JSON = {
     "id": "abc123",
@@ -142,3 +150,59 @@ def test_cookies_flag(mock_run, tmp_path):
     sub_calls = [c for c in calls if "--cookies-from-browser" in c]
     assert len(sub_calls) > 0
     assert "chrome" in sub_calls[0]
+
+
+@patch("yt2notion.extract.httpx.get")
+def test_extract_webpage_transcript_follows_episode_webpage_link(mock_get):
+    apple_page = """
+    <html><body>
+      <a href="https://www.acquired.fm/episodes/google-the-ai-company">
+        <span>Episode Webpage</span>
+      </a>
+    </body></html>
+    """
+    acquired_page = """
+    <html><body>
+      <div class="transcript-container">
+        <div id="transcript" class="rich-text-block-7 w-richtext">
+          <p><strong>Transcript:</strong></p>
+        </div>
+        <div class="rich-text-block-6 w-richtext">
+          <p>Ben: Welcome.</p>
+          <p>David: Let&apos;s go.</p>
+        </div>
+      </div>
+    </body></html>
+    """
+    apple_response = Mock()
+    apple_response.raise_for_status.return_value = None
+    apple_response.text = apple_page
+    acquired_response = Mock()
+    acquired_response.raise_for_status.return_value = None
+    acquired_response.text = acquired_page
+    mock_get.side_effect = [apple_response, acquired_response]
+
+    entries = extract_webpage_transcript(
+        "https://podcasts.apple.com/us/podcast/example/id1?i=2",
+        VideoMeta(video_id="2", title="Example", channel="Example", duration_seconds=120),
+    )
+
+    assert [entry.text for entry in entries] == ["Ben: Welcome.", "David: Let's go."]
+    assert entries[0].start_seconds == pytest.approx(0.0)
+    assert entries[0].end_seconds == pytest.approx(60.0)
+    assert entries[1].start_seconds == pytest.approx(60.0)
+    assert entries[1].end_seconds == pytest.approx(120.0)
+
+
+def test_write_transcript_srt(tmp_path):
+    output_path = tmp_path / "transcript.srt"
+    path = write_transcript_srt(
+        [
+            SubtitleEntry(start_seconds=0.0, end_seconds=5.25, text="Hello world"),
+        ],
+        output_path,
+    )
+    assert path == output_path
+    assert output_path.read_text(encoding="utf-8") == (
+        "1\n00:00:00,000 --> 00:00:05,250\nHello world\n"
+    )

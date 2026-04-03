@@ -27,7 +27,8 @@
 | Entry | File | Purpose |
 |---|---|---|
 | `uv run yt2notion "URL"` | `cli.py` → `pipeline.run_pipeline()` | Main CLI entrypoint via Typer |
-| `python -m yt2notion.extract_cmd` | `extract_cmd.py` | Slash-command mode, JSON stdout for MCP |
+| `uv run yt2notion prepare "URL"` | `cli.py` → `pipeline.prepare_content()` | Shared no-publish JSON entrypoint for Claude/Codex wrappers |
+| `python -m yt2notion.extract_cmd` | `extract_cmd.py` | Legacy transcript-only extraction helper |
 
 `pyproject.toml` registers: `yt2notion = "yt2notion.cli:app"`.
 
@@ -47,8 +48,8 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
    rewrites `transcripts.json` only after transcription
    Trigger: oversized transcript segments
 5. `REVIEW`
-   `reviewed.json`
-   Branch: subtitle-sourced content skips review; short ASR content does blocking review; long ASR content skips blocking review here
+   `reviewed.json` in `full` mode only
+   Branch: subtitle-sourced content skips review; short ASR in `summary` mode does internal review+summary in one analysis call; short ASR in `full` mode does blocking transcript review; long ASR content skips blocking review here
 6. `EXTRACT`
    `entities.json`
 7. `SUMMARIZE`
@@ -132,6 +133,7 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 | `extract.subtitle_priority` | `extract.py:extract_subtitles()` | subtitle language preference |
 | `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | choose ASR backend |
 | `extract.asr.endpoint` | `transcribe/remote.py:RemoteTranscriber` | remote ASR endpoint or `ASR_ENDPOINT` env override |
+| `output.mode` | `pipeline.py:_resolve_output_mode()` | `summary` or `full` output behavior |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
 | `output.chunk_duration_seconds` | `process.py` | timestamp chunking granularity |
@@ -145,10 +147,10 @@ Backends are selected by explicit `if/elif` factories, not registries:
 
 | Factory | Location | Config field | Current implementations |
 |---|---|---|---|
-| `create_summarizer(config)` | `models/__init__.py` | `model.backend` | `claude_code`, `anthropic_api` |
+| `create_summarizer(config)` | `models/__init__.py` | `model.backend` | `claude_code`, `anthropic_api`, `codex_cli`, `openai_api` alias |
 | `create_storage(config)` | `storage/__init__.py` | `storage.backend` | `notion`, `obsidian` |
 | `create_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.backend` | `remote` |
-| `create_llm_caller(config, model_key=)` | `models/llm.py` | `model.backend` + `model.{model_key}` | `claude_code` |
+| `create_llm_caller(config, model_key=)` | `models/llm.py` | `model.backend` + `model.{model_key}` | `claude_code`, `codex_cli`, `openai_api` alias |
 
 ## Prompt Templates ↔ Code Bindings
 
@@ -164,6 +166,10 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 | `reduce_entities.md` | `entity_extract.py` reduce phase | entity reduction | none |
 | `summarize.md` | summarizer | short content with chapters | none |
 | `summarize_freeform.md` | summarizer | short content without chapters | none |
+| `summarize_asr.md` | `pipeline._summarize_short_asr_single_pass()` | short ASR internal review+summary (chapters, summary mode) | none |
+| `summarize_asr_freeform.md` | `pipeline._summarize_short_asr_single_pass()` | short ASR internal review+summary (freeform, summary mode) | none |
+| `summarize_reviewed.md` | summarizer | short ASR review+summary (chapters) | none |
+| `summarize_reviewed_freeform.md` | summarizer | short ASR review+summary (freeform) | none |
 | `summarize_chunk.md` | summarizer map phase | long-form chunk summary | `{segment_title}`, `{start_time}`, `{end_time}`, `{segment_index}`, `{total_segments}` |
 | `chinese.md` | summarizer reduce phase | Chinese synthesis | none |
 | `synthesize.md` | summarizer final synthesis | output polishing | `{title}`, `{channel}`, `{duration}`, `{url}` |
@@ -212,12 +218,14 @@ pipeline.py -> extract.py, process.py, workspace.py,
                models/__init__.py, storage/__init__.py, transcribe/__init__.py
 chapter_extract.py, review.py, topic_segment.py, entity_extract.py -> models/llm.py, prompts/
 models/claude_code.py, models/anthropic_api.py -> prompts/, models/_parsers.py
+models/codex_cli.py -> prompts/, models/_parsers.py
 models/_parsers.py -> models/base.py
 storage/notion.py -> notion_client
 transcribe/remote.py -> httpx
 extract.py -> subprocess (yt-dlp CLI)
 audio.py -> subprocess (ffmpeg / ffprobe CLI)
 models/llm.py ClaudeCodeCaller -> subprocess (claude CLI)
+models/codex_cli.py -> subprocess (codex CLI)
 ```
 
 ## Maintenance Rules
