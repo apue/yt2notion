@@ -18,6 +18,13 @@
 - 工具行为、编码风格、执行限制：以 `.cursorrules` 为准
 - 若文档之间对 pipeline 描述不一致，以 `PROJECT_MAP.md` 为准；`.cursorrules` 只作为压缩摘要
 
+## 文档锚定约定（强制）
+
+- `PROJECT_MAP.md` 是唯一事实锚点：步骤顺序、分支逻辑、artifact 契约、config↔code 映射、扩展入口都只在这里定义。
+- `AGENTS.md`、`CLAUDE.md`、`.cursorrules` 只做索引与约束摘要，不重复维护完整 pipeline 事实。
+- 当实现变化影响 pipeline/契约时，必须先更新 `PROJECT_MAP.md`，再同步其余三个文档中的摘要/索引。
+- 若摘要与锚点冲突，执行和评审一律以 `PROJECT_MAP.md` 为准。
+
 ## 项目概述
 
 `yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对、实体提取、总结与发布，最终输出到 Notion 或 Obsidian。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
@@ -177,6 +184,7 @@ Codex 执行时应遵守：
 - 工作流变了：更新 `AGENTS.md`
 - 结构、契约、扩展点、pipeline 事实变了：更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
 - 项目开发底线变了：更新 [CLAUDE.md](./CLAUDE.md) 和必要的 `.cursorrules`
+- 若只改了 `AGENTS.md` / `CLAUDE.md` / `.cursorrules` 中的事实描述而未改 `PROJECT_MAP.md`，视为不合规变更
 
 ## Sandbox 与审批边界
 
@@ -191,6 +199,12 @@ Codex 执行时应遵守：
 - 超出当前任务范围的跨目录重构
 
 如果运行环境本身更严格，以运行环境限制为准。
+
+## GitHub 工具约定
+
+- 本仓库默认使用 `gh` CLI 完成 GitHub 相关流程（PR 创建、评论、查看 checks、触发 workflow）。
+- 不默认依赖 GitHub App / Connector；仅在 `gh` 不可用或用户明确要求时才使用。
+- 涉及 PR 流程时，优先执行可复现的命令行步骤并在交接中记录关键命令与结果。
 
 ## 任务追踪
 

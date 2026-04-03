@@ -55,6 +55,10 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 - `CLAUDE.md` 负责开发约束、命令约定、模型角色与本地运行假设
 - 当实现和文档发生偏差时，以 `PROJECT_MAP.md` 为准，再回头同步这里的摘要
 
+文档锚定约定：
+- `AGENTS.md` / `CLAUDE.md` / `.cursorrules` 仅做索引与规则，不承载完整 pipeline 事实。
+- 任何涉及 pipeline、契约、扩展点的变更，先改 `PROJECT_MAP.md`，再改本文件摘要。
+
 模型角色只保留到“用途级”：
 - 章节提取、转录校对、话题分段使用 `LLMCaller`
 - 多步总结使用 `Summarizer`
