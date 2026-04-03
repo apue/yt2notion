@@ -24,6 +24,16 @@ def create_transcriber(config: dict) -> Any:
                 "ASR endpoint required. "
                 "Set extract.asr.endpoint in config.yaml or ASR_ENDPOINT env var."
             )
-        return RemoteTranscriber(endpoint=endpoint)
+        return RemoteTranscriber(
+            endpoint=endpoint,
+            healthcheck_path=asr_cfg.get("healthcheck_path", "/health"),
+            healthcheck_timeout=asr_cfg.get("healthcheck_timeout_seconds", 3.0),
+            restart_before_transcribe=asr_cfg.get("restart_before_transcribe", False),
+            restart_on_unhealthy=asr_cfg.get("restart_on_unhealthy", False),
+            restart_command=asr_cfg.get("restart_command", ""),
+            restart_readiness_timeout=asr_cfg.get("restart_readiness_timeout_seconds", 90.0),
+            restart_readiness_interval=asr_cfg.get("restart_readiness_interval_seconds", 3.0),
+            restart_grace_seconds=asr_cfg.get("restart_grace_seconds", 5.0),
+        )
 
     raise ValueError(f"Unknown ASR backend: {backend!r}. Supported: remote")

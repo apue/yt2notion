@@ -69,6 +69,71 @@ class TestRemoteTranscriber:
         t = RemoteTranscriber(endpoint="http://localhost:8930/")
         assert t.endpoint == "http://localhost:8930"
 
+    def test_restart_before_transcribe_runs_once(self, tmp_path: Path):
+        audio_file = tmp_path / "test.mp3"
+        audio_file.write_bytes(b"fake")
+
+        request = {"segments": [{"start": 0.0, "end": 1.0, "text": "ok"}]}
+
+        with (
+            patch("yt2notion.transcribe.remote.subprocess.run") as mock_restart,
+            patch("yt2notion.transcribe.remote.httpx.get") as mock_get,
+            patch("yt2notion.transcribe.remote.httpx.post") as mock_post,
+        ):
+            mock_get.return_value.status_code = 200
+            mock_post.return_value.json.return_value = request
+            mock_post.return_value.raise_for_status = lambda: None
+
+            transcriber = RemoteTranscriber(
+                endpoint="http://localhost:8930",
+                restart_before_transcribe=True,
+                restart_command="echo restart",
+            )
+            transcriber.transcribe(audio_file)
+            transcriber.transcribe(audio_file)
+
+        assert mock_restart.call_count == 1
+        assert mock_post.call_count == 2
+
+    def test_restart_on_unhealthy(self, tmp_path: Path):
+        audio_file = tmp_path / "test.mp3"
+        audio_file.write_bytes(b"fake")
+
+        with (
+            patch("yt2notion.transcribe.remote.subprocess.run") as mock_restart,
+            patch("yt2notion.transcribe.remote.httpx.get") as mock_get,
+            patch("yt2notion.transcribe.remote.httpx.post") as mock_post,
+        ):
+            # First health check unhealthy, post-restart healthy.
+            mock_get.side_effect = [
+                type("Resp", (), {"status_code": 503})(),
+                type("Resp", (), {"status_code": 200})(),
+            ]
+            mock_post.return_value.json.return_value = {"segments": []}
+            mock_post.return_value.raise_for_status = lambda: None
+
+            transcriber = RemoteTranscriber(
+                endpoint="http://localhost:8930",
+                restart_on_unhealthy=True,
+                restart_command="echo restart",
+            )
+            transcriber.transcribe(audio_file)
+
+        assert mock_restart.call_count == 1
+
+    def test_restart_enabled_without_command_raises(self, tmp_path: Path):
+        audio_file = tmp_path / "test.mp3"
+        audio_file.write_bytes(b"fake")
+
+        transcriber = RemoteTranscriber(
+            endpoint="http://localhost:8930",
+            restart_before_transcribe=True,
+            restart_command="",
+        )
+
+        with pytest.raises(TranscriptionError, match="restart_command is empty"):
+            transcriber.transcribe(audio_file)
+
 
 class TestCreateTranscriber:
     def test_remote_backend(self):
@@ -93,3 +158,25 @@ class TestCreateTranscriber:
         config = {"extract": {"asr": {"backend": "unknown", "endpoint": "http://x"}}}
         with pytest.raises(ValueError, match="Unknown ASR backend"):
             create_transcriber(config)
+
+    def test_remote_backend_with_restart_options(self):
+        config = {
+            "extract": {
+                "asr": {
+                    "backend": "remote",
+                    "endpoint": "http://localhost:8930",
+                    "healthcheck_path": "/healthz",
+                    "restart_before_transcribe": True,
+                    "restart_on_unhealthy": True,
+                    "restart_command": "echo restart",
+                    "restart_grace_seconds": 1.0,
+                }
+            }
+        }
+        t = create_transcriber(config)
+        assert isinstance(t, RemoteTranscriber)
+        assert t.healthcheck_path == "/healthz"
+        assert t.restart_before_transcribe is True
+        assert t.restart_on_unhealthy is True
+        assert t.restart_command == "echo restart"
+        assert t.restart_grace_seconds == 1.0

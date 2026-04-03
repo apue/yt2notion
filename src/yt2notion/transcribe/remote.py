@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import time
 from pathlib import Path
 
 import httpx
@@ -18,12 +20,38 @@ class TranscriptionError(Exception):
 class RemoteTranscriber:
     """Transcriber that calls a remote FastAPI ASR endpoint."""
 
-    def __init__(self, endpoint: str, timeout: float = 1800.0) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        timeout: float = 1800.0,
+        *,
+        healthcheck_path: str = "/health",
+        healthcheck_timeout: float = 3.0,
+        restart_before_transcribe: bool = False,
+        restart_on_unhealthy: bool = False,
+        restart_command: str = "",
+        restart_readiness_timeout: float = 90.0,
+        restart_readiness_interval: float = 3.0,
+        restart_grace_seconds: float = 5.0,
+    ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
+        self.healthcheck_path = (
+            f"/{healthcheck_path.lstrip('/')}" if healthcheck_path else ""
+        )
+        self.healthcheck_timeout = max(0.1, float(healthcheck_timeout))
+        self.restart_before_transcribe = restart_before_transcribe
+        self.restart_on_unhealthy = restart_on_unhealthy
+        self.restart_command = restart_command.strip()
+        self.restart_readiness_timeout = max(0.1, float(restart_readiness_timeout))
+        self.restart_readiness_interval = max(0.1, float(restart_readiness_interval))
+        self.restart_grace_seconds = max(0.0, float(restart_grace_seconds))
+        self._startup_checked = False
 
     def transcribe(self, audio_path: Path, *, language: str | None = None) -> list[SubtitleEntry]:
         """Send audio to remote ASR service, return SubtitleEntry list."""
+        self._ensure_service_ready_once()
+
         url = f"{self.endpoint}/transcribe"
         data: dict[str, str] = {}
         if language:
@@ -82,3 +110,71 @@ class RemoteTranscriber:
             for seg in segments
             if seg.get("text", "").strip()
         ]
+
+    def _ensure_service_ready_once(self) -> None:
+        if self._startup_checked:
+            return
+
+        if self.restart_before_transcribe:
+            self._restart_asr_service("restart_before_transcribe=true")
+            self._wait_until_ready_after_restart()
+            self._startup_checked = True
+            return
+
+        if self.restart_on_unhealthy:
+            health = self._check_health()
+            if health is False:
+                self._restart_asr_service("health check failed before transcription")
+                self._wait_until_ready_after_restart()
+
+        self._startup_checked = True
+
+    def _check_health(self) -> bool | None:
+        """Return True/False for healthy/unhealthy, None if health endpoint is unsupported."""
+        if not self.healthcheck_path:
+            return None
+
+        health_url = f"{self.endpoint}{self.healthcheck_path}"
+        try:
+            response = httpx.get(health_url, timeout=self.healthcheck_timeout)
+        except httpx.HTTPError:
+            return False
+
+        if response.status_code == 404:
+            return None
+        return 200 <= response.status_code < 300
+
+    def _restart_asr_service(self, reason: str) -> None:
+        if not self.restart_command:
+            raise TranscriptionError(
+                "ASR restart is enabled but extract.asr.restart_command is empty"
+            )
+
+        try:
+            subprocess.run(
+                self.restart_command,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            detail = (e.stderr or e.stdout or str(e)).strip()
+            raise TranscriptionError(f"ASR restart command failed ({reason}): {detail}") from e
+
+    def _wait_until_ready_after_restart(self) -> None:
+        deadline = time.monotonic() + self.restart_readiness_timeout
+        while time.monotonic() < deadline:
+            health = self._check_health()
+            if health is True:
+                return
+            if health is None:
+                if self.restart_grace_seconds > 0:
+                    time.sleep(self.restart_grace_seconds)
+                return
+            time.sleep(self.restart_readiness_interval)
+
+        raise TranscriptionError(
+            "ASR service did not become healthy after restart within "
+            f"{self.restart_readiness_timeout:.1f}s"
+        )

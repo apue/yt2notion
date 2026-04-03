@@ -40,6 +40,14 @@ DEFAULTS: dict = {
         "asr": {
             "backend": "remote",
             "endpoint": "",
+            "healthcheck_path": "/health",
+            "healthcheck_timeout_seconds": 3.0,
+            "restart_before_transcribe": False,
+            "restart_on_unhealthy": False,
+            "restart_command": "",
+            "restart_readiness_timeout_seconds": 90.0,
+            "restart_readiness_interval_seconds": 3.0,
+            "restart_grace_seconds": 5.0,
         },
     },
     "credit": {

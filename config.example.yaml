@@ -52,6 +52,20 @@ extract:
   asr:
     backend: remote              # 可选: remote
     endpoint: ""                 # ASR 服务地址，或设置 ASR_ENDPOINT 环境变量
+    # 健康检查（用于自动重启场景）
+    healthcheck_path: "/health"
+    healthcheck_timeout_seconds: 3.0
+    # 启用后：每次进入 ASR 流程前先执行一次重启命令
+    restart_before_transcribe: false
+    # 启用后：仅在健康检查失败时重启
+    restart_on_unhealthy: false
+    # 例如: ssh mac-mini 'cd /opt/asr && docker compose restart asr'
+    restart_command: ""
+    # 重启后的就绪等待参数
+    restart_readiness_timeout_seconds: 90.0
+    restart_readiness_interval_seconds: 3.0
+    # 当 healthcheck endpoint 不可用时，重启后固定等待时间
+    restart_grace_seconds: 5.0
 
 credit:
   # 始终在输出中包含来源信息

@@ -78,3 +78,14 @@ def test_openai_alias_model_backend_is_valid(tmp_path):
     cfg_file.write_text("model:\n  backend: openai_api\nstorage:\n  backend: notion\n")
     config = load_config(str(cfg_file))
     assert config.model["backend"] == "openai_api"
+
+
+def test_asr_restart_defaults_present(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("{}")
+    config = load_config(str(cfg_file))
+    asr = config.extract["asr"]
+    assert asr["healthcheck_path"] == "/health"
+    assert asr["restart_before_transcribe"] is False
+    assert asr["restart_on_unhealthy"] is False
+    assert asr["restart_command"] == ""
