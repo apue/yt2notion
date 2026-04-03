@@ -18,6 +18,7 @@ from yt2notion.process import (
     parse_subtitle_file,
     seconds_to_display,
 )
+from yt2notion.retry import RetryExhausted
 from yt2notion.storage import create_storage
 from yt2notion.topic_segment import segment_transcript
 from yt2notion.workspace import STEPS, Workspace
@@ -54,157 +55,167 @@ def run_pipeline(
             raise ValueError(f"Unknown step: {resume_from!r}. Valid: {', '.join(STEPS)}")
         start_idx = STEPS.index(resume_from)
 
-    # --- Step 1: DOWNLOAD ---
     ws: Workspace | None = None
+    current_step = "download"
 
-    if start_idx <= 0:
-        metadata = _step_download(url, raw_config, verbose)
-        base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
-        ws = Workspace(base_dir, metadata.video_id)
-        ws.save_metadata(metadata)
+    try:
+        if start_idx <= 0:
+            metadata = _step_download(url, raw_config, verbose)
+            base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
+            ws = Workspace(base_dir, metadata.video_id)
+            ws.save_metadata(metadata)
 
-        # Download content based on metadata signals
-        if metadata.subtitles_available:
-            if verbose:
-                typer.echo("Downloading subtitles...")
-            try:
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    sub_path = extract_subtitles(
-                        url, raw_config, Path(tmp_dir), video_id=metadata.video_id
-                    )
-                    ws.save_subtitles(sub_path)
-                    if verbose:
-                        typer.echo(f"  Saved: subtitles{sub_path.suffix}")
-            except ExtractionError:
+            # Download content based on metadata signals
+            if metadata.subtitles_available:
                 if verbose:
-                    typer.echo("  Subtitle download failed, downloading audio instead...")
+                    typer.echo("Downloading subtitles...")
+                try:
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        sub_path = extract_subtitles(
+                            url, raw_config, Path(tmp_dir), video_id=metadata.video_id
+                        )
+                        ws.save_subtitles(sub_path)
+                        if verbose:
+                            typer.echo(f"  Saved: subtitles{sub_path.suffix}")
+                except ExtractionError:
+                    if verbose:
+                        typer.echo("  Subtitle download failed, downloading audio instead...")
+                    _download_audio(url, metadata, raw_config, ws, verbose)
+            else:
                 _download_audio(url, metadata, raw_config, ws, verbose)
         else:
-            _download_audio(url, metadata, raw_config, ws, verbose)
-    else:
-        # Resume: load workspace
-        base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
-        # For resume, we need the video_id from an existing workspace
-        # Try to find it from the URL or existing workspace
-        if resume_from and workspace_dir:
-            # workspace_dir might be the full path including video_id
-            ws_path = Path(workspace_dir)
-            if (ws_path / "metadata.json").exists():
-                ws = Workspace(ws_path.parent, ws_path.name)
+            # Resume: load workspace
+            base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
+            # For resume, we need the video_id from an existing workspace
+            # Try to find it from the URL or existing workspace
+            if resume_from and workspace_dir:
+                # workspace_dir might be the full path including video_id
+                ws_path = Path(workspace_dir)
+                if (ws_path / "metadata.json").exists():
+                    ws = Workspace(ws_path.parent, ws_path.name)
+                else:
+                    raise ValueError(f"No metadata.json found in {workspace_dir}")
             else:
-                raise ValueError(f"No metadata.json found in {workspace_dir}")
-        else:
-            # Extract video_id from URL to find workspace
-            metadata = extract_metadata(url)
-            ws = Workspace(base_dir, metadata.video_id)
+                # Extract video_id from URL to find workspace
+                metadata = extract_metadata(url)
+                ws = Workspace(base_dir, metadata.video_id)
 
-        metadata = ws.load_metadata()
-        if metadata is None:
-            raise ValueError("Cannot resume: no metadata.json in workspace")
-        if verbose:
-            typer.echo(f"Resuming from step '{resume_from}' for: {metadata.title}")
-
-    # --- Step 2: SEGMENT ---
-    if start_idx <= 1:
-        segments = _step_segment(metadata, raw_config, verbose)
-        ws.save_segments(segments)
-    else:
-        segments = ws.load_segments()
-        if segments is None:
-            raise ValueError("Cannot resume: no segments.json in workspace")
-
-    # --- Step 3: TRANSCRIBE ---
-    if start_idx <= 2:
-        transcripts = _step_transcribe(ws, metadata, segments, raw_config, verbose)
-        ws.save_transcripts(transcripts)  # Final save (incremental saves happen inside)
-    else:
-        transcripts = ws.load_transcripts()
-        if transcripts is None:
-            raise ValueError("Cannot resume: no transcripts.json in workspace")
-
-    # --- Step 3.5: TOPIC SEGMENTATION (refine coarse segments) ---
-    if start_idx <= 2:
-        max_seg_sec = raw_config.get("output", {}).get("max_segment_seconds", 600)
-        original_count = len(transcripts)
-        transcripts = segment_transcript(transcripts, metadata, raw_config, max_seg_sec)
-        if len(transcripts) != original_count:
-            ws.save_transcripts(transcripts)
+            metadata = ws.load_metadata()
+            if metadata is None:
+                raise ValueError("Cannot resume: no metadata.json in workspace")
             if verbose:
-                typer.echo(f"  Topic segmentation: {original_count} → {len(transcripts)} segments")
+                typer.echo(f"Resuming from step '{resume_from}' for: {metadata.title}")
 
-    # --- Step 4: REVIEW (short content only; long content defers to async) ---
-    is_long = _is_long_content(metadata, transcripts, raw_config)
-    if is_long:
-        # Long content: skip blocking review, pass raw transcripts to summarize
-        reviewed = transcripts
+        current_step = "segment"
+        if start_idx <= 1:
+            segments = _step_segment(metadata, raw_config, verbose)
+            ws.save_segments(segments)
+        else:
+            segments = ws.load_segments()
+            if segments is None:
+                raise ValueError("Cannot resume: no segments.json in workspace")
+
+        current_step = "transcribe"
+        if start_idx <= 2:
+            transcripts = _step_transcribe(ws, metadata, segments, raw_config, verbose)
+            ws.save_transcripts(transcripts)  # Final save (incremental saves happen inside)
+        else:
+            transcripts = ws.load_transcripts()
+            if transcripts is None:
+                raise ValueError("Cannot resume: no transcripts.json in workspace")
+
+        # --- Step 3.5: TOPIC SEGMENTATION (refine coarse segments) ---
+        if start_idx <= 2:
+            max_seg_sec = raw_config.get("output", {}).get("max_segment_seconds", 600)
+            original_count = len(transcripts)
+            transcripts = segment_transcript(transcripts, metadata, raw_config, max_seg_sec)
+            if len(transcripts) != original_count:
+                ws.save_transcripts(transcripts)
+                if verbose:
+                    typer.echo(
+                        f"  Topic segmentation: {original_count} → {len(transcripts)} segments"
+                    )
+
+        # --- Step 4: REVIEW (short content only; long content defers to async) ---
+        current_step = "review"
+        is_long = _is_long_content(metadata, transcripts, raw_config)
+        if is_long:
+            # Long content: skip blocking review, pass raw transcripts to summarize
+            reviewed = transcripts
+            if verbose:
+                typer.echo("Skipping blocking review (long content — will review async)")
+        elif start_idx <= 3:
+            reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
+            ws.save_reviewed(reviewed)
+        else:
+            reviewed = ws.load_reviewed()
+            if reviewed is None:
+                raise ValueError("Cannot resume: no reviewed.json in workspace")
+
+        # --- Step 5: EXTRACT ENTITIES ---
+        current_step = "extract"
+        if start_idx <= 4:
+            entities = _step_extract(reviewed, raw_config, verbose)
+            ws.save_entities(entities)
+        else:
+            entities = ws.load_entities()
+
+        # --- Step 6: SUMMARIZE ---
+        current_step = "summarize"
+        chinese_content = _step_summarize(reviewed, metadata, raw_config, verbose)
+        ws.save_summary(chinese_content)
+
+        # --- Output / Publish ---
+        if dry_run:
+            credit_format = config.credit.get("format", "来源：{channel} 「{title}」\n链接：{url}")
+            credit = credit_format.format(
+                channel=metadata.channel, title=metadata.title, url=metadata.url
+            )
+            output = f"{credit}\n\n{chinese_content.raw_markdown}"
+            typer.echo(output)
+            return output
+
+        current_step = "publish"
         if verbose:
-            typer.echo("Skipping blocking review (long content — will review async)")
-    elif start_idx <= 3:
-        reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
-        ws.save_reviewed(reviewed)
-    else:
-        reviewed = ws.load_reviewed()
-        if reviewed is None:
-            raise ValueError("Cannot resume: no reviewed.json in workspace")
-
-    # --- Step 5: EXTRACT ENTITIES ---
-    if start_idx <= 4:
-        entities = _step_extract(reviewed, raw_config, verbose)
-        ws.save_entities(entities)
-    else:
-        entities = ws.load_entities()
-
-    # --- Step 6: SUMMARIZE ---
-    chinese_content = _step_summarize(reviewed, metadata, raw_config, verbose)
-    ws.save_summary(chinese_content)
-
-    # --- Output / Publish ---
-    if dry_run:
-        credit_format = config.credit.get("format", "来源：{channel} 「{title}」\n链接：{url}")
-        credit = credit_format.format(
-            channel=metadata.channel, title=metadata.title, url=metadata.url
-        )
-        output = f"{credit}\n\n{chinese_content.raw_markdown}"
-        typer.echo(output)
-        return output
-
-    if not no_confirm:
-        typer.echo("\n--- Preview ---")
-        typer.echo(chinese_content.raw_markdown[:500])
-        if len(chinese_content.raw_markdown) > 500:
-            typer.echo("...(truncated)")
-        typer.echo("--- End Preview ---\n")
-        if not typer.confirm("Publish to storage?"):
-            typer.echo("Aborted.")
-            return ""
-
-    if verbose:
-        typer.echo(f"Publishing to {config.storage['backend']}...")
-    storage = create_storage(raw_config)
-    # For long content, publish summary first without transcript sub-page
-    result_url = storage.save(
-        chinese_content,
-        metadata,
-        transcript_segments=None if is_long else reviewed,
-        entities=entities,
-    )
-    if verbose:
-        typer.echo(f"  Published: {result_url}")
-
-    # --- Step 6: ASYNC TRANSCRIPT REVIEW (long content only) ---
-    if is_long and not dry_run:
-        _step_deferred_review(
-            transcripts,
+            typer.echo(f"Publishing to {config.storage['backend']}...")
+        storage = create_storage(raw_config)
+        # For long content, publish summary first without transcript sub-page
+        result_url = storage.save(
             chinese_content,
             metadata,
-            raw_config,
-            storage,
-            result_url,
-            ws,
-            verbose,
+            transcript_segments=None if is_long else reviewed,
+            entities=entities,
         )
+        if verbose:
+            typer.echo(f"  Published: {result_url}")
 
-    return result_url
+        if ws is not None:
+            ws.clear_failure()
+
+        # --- Step 6: ASYNC TRANSCRIPT REVIEW (long content only) ---
+        if is_long:
+            current_step = "deferred_review"
+            _step_deferred_review(
+                transcripts,
+                chinese_content,
+                metadata,
+                raw_config,
+                storage,
+                result_url,
+                ws,
+                verbose,
+            )
+
+        return result_url
+    except Exception as exc:
+        if ws is not None:
+            ws.save_failure(
+                url,
+                current_step,
+                exc,
+                retries_exhausted=_is_retries_exhausted(exc),
+            )
+        raise
 
 
 # === Step implementations ===
@@ -709,13 +720,20 @@ def _step_deferred_review(
                 typer.echo(f"  Review [{i + 1}/{len(groups)}] {group.get('title', '')}")
             cleaned = review_segment(group["text"], metadata, config, review_context)
             reviewed_groups.append(cleaned)
+    except RetryExhausted as exc:
+        typer.echo(
+            f"  Warning: review retries exhausted ({exc}), using unreviewed transcript",
+            err=True,
+        )
+        reviewed = _prepend_review_failure_note(transcripts)
+        storage.add_transcript_subpage(summary_page_url, reviewed, metadata)
+        if verbose:
+            typer.echo("  Transcript sub-page added.")
+        return
 
-        # Split reviewed text back to original segment granularity
-        reviewed = _redistribute_reviewed_text(transcripts, groups, reviewed_groups)
-        ws.save_reviewed(reviewed)
-    except Exception as e:
-        typer.echo(f"  Warning: review failed ({e}), using unreviewed transcript")
-        reviewed = transcripts
+    # Split reviewed text back to original segment granularity
+    reviewed = _redistribute_reviewed_text(transcripts, groups, reviewed_groups)
+    ws.save_reviewed(reviewed)
 
     # Add transcript sub-page to existing summary page
     if verbose:
@@ -738,6 +756,31 @@ def _build_review_context(chinese_content: ChineseContent) -> dict[str, str]:
         "key_terms": ", ".join(key_terms),
         "tags": ", ".join(chinese_content.tags),
     }
+
+
+def _prepend_review_failure_note(transcripts: list[dict]) -> list[dict]:
+    """Add a warning note before unreviewed transcript content."""
+    note = {
+        "title": "⚠️ 逐字稿未经校对（校对步骤失败）",
+        "start_seconds": 0,
+        "end_seconds": 0,
+        "text": "逐字稿使用原始 ASR 输出，未经过校对。",
+        "source": "review_failed",
+    }
+    return [note, *transcripts]
+
+
+def _is_retries_exhausted(exc: Exception) -> bool:
+    """Detect whether an exception chain contains RetryExhausted."""
+    current: Exception | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        if isinstance(current, RetryExhausted):
+            return True
+        seen.add(id(current))
+        next_exc = current.__cause__ or current.__context__
+        current = next_exc if isinstance(next_exc, Exception) else None
+    return False
 
 
 def _redistribute_reviewed_text(

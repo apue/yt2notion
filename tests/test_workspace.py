@@ -73,6 +73,23 @@ def test_summary_save(tmp_path):
     assert ws.step_done("summarize")
 
 
+def test_failure_roundtrip(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    ws.save_failure("https://example.com", "summarize", "boom", retries_exhausted=True)
+
+    loaded = ws.load_failure()
+    assert loaded is not None
+    assert loaded["url"] == "https://example.com"
+    assert loaded["step"] == "summarize"
+    assert loaded["error"] == "boom"
+    assert loaded["retries_exhausted"] is True
+    assert "timestamp" in loaded
+
+    ws.clear_failure()
+    assert ws.load_failure() is None
+    assert not (tmp_path / "test123" / "failed.json").exists()
+
+
 def test_steps_constant():
     assert STEPS == ("download", "segment", "transcribe", "review", "extract", "summarize")
 

@@ -11,6 +11,7 @@ from yt2notion.models._parsers import (
     parse_summary_json,
 )
 from yt2notion.prompts import load_prompt
+from yt2notion.retry import retry
 
 if TYPE_CHECKING:
     from yt2notion.models.base import ChineseContent, ChunkSummary, Summary, VideoMeta
@@ -127,25 +128,45 @@ class ClaudeCodeModel:
             "--output-format",
             "json",
         ]
-        try:
-            result = subprocess.run(
-                cmd,
-                input=prompt,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except FileNotFoundError as e:
-            raise ClaudeCodeError(
-                "claude CLI not found. Install Claude Code: https://code.claude.com"
-            ) from e
-        except subprocess.CalledProcessError as e:
-            raise ClaudeCodeError(f"claude CLI failed: {e.stderr.strip()}") from e
 
-        # Parse JSON output — result is in the "result" field
-        try:
-            output = json.loads(result.stdout)
-            return output.get("result", result.stdout)
-        except json.JSONDecodeError:
-            # Fallback: treat stdout as raw text
-            return result.stdout
+        class _EmptyOutputError(Exception):
+            """Raised when claude returns empty output."""
+
+        def _run() -> str:
+            try:
+                result = subprocess.run(
+                    cmd,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=120,
+                )
+            except FileNotFoundError as e:
+                raise ClaudeCodeError(
+                    "claude CLI not found. Install Claude Code: https://code.claude.com"
+                ) from e
+
+            raw = result.stdout
+            if not raw or not raw.strip():
+                raise _EmptyOutputError("claude returned empty output")
+
+            # Parse JSON output — result is in the "result" field.
+            # If the output is not valid JSON, keep the raw stdout fallback.
+            try:
+                output = json.loads(raw)
+                return output.get("result", raw)
+            except json.JSONDecodeError:
+                return raw
+
+        return retry(
+            _run,
+            max_retries=3,
+            base_delay=5.0,
+            retryable=(
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                _EmptyOutputError,
+            ),
+            label=f"claude -p {model}",
+        )

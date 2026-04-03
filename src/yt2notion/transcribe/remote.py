@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
 
 from yt2notion.process import SubtitleEntry
+from yt2notion.retry import RetryExhausted, retry
 
 
 class TranscriptionError(Exception):
@@ -27,20 +29,48 @@ class RemoteTranscriber:
         if language:
             data["language"] = language
 
-        with open(audio_path, "rb") as f:
-            files = {"file": (audio_path.name, f, "audio/mpeg")}
-            try:
+        class _RetryableStatusError(Exception):
+            """Raised for HTTP 5xx responses that should be retried."""
+
+        def _post() -> httpx.Response:
+            with open(audio_path, "rb") as f:
+                files = {"file": (audio_path.name, f, "audio/mpeg")}
                 response = httpx.post(
                     url,
                     files=files,
                     data=data,
                     timeout=self.timeout,
                 )
-                response.raise_for_status()
-            except httpx.HTTPError as e:
-                raise TranscriptionError(f"ASR request failed: {e}") from e
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code >= 500:
+                        raise _RetryableStatusError(f"ASR server error: {e}") from e
+                    raise TranscriptionError(f"ASR request failed: {e}") from e
+                except httpx.HTTPError as e:
+                    raise TranscriptionError(f"ASR request failed: {e}") from e
+                return response
 
-        result = response.json()
+        try:
+            response = retry(
+                _post,
+                max_retries=3,
+                base_delay=10.0,
+                retryable=(
+                    httpx.ConnectError,
+                    httpx.TimeoutException,
+                    _RetryableStatusError,
+                ),
+                label=f"ASR transcribe {audio_path.name}",
+            )
+        except RetryExhausted as e:
+            raise TranscriptionError(f"ASR request failed: {e}") from e
+
+        try:
+            result = response.json()
+        except json.JSONDecodeError as e:
+            raise TranscriptionError(f"ASR response was not valid JSON: {e}") from e
+
         segments = result.get("segments", [])
 
         return [

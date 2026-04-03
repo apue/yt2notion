@@ -90,22 +90,32 @@ def test_pipeline_full_mock(
     # Mock LLM caller for entity extraction
     mock_caller = MagicMock()
     # caller.call(system_prompt, user_prompt, max_tokens=4000) returns JSON string
-    mock_caller.call.return_value = '{"entities": [], "domain": "General", "is_entity_centric": false, "entity_types": [], "relations": []}'
+    mock_caller.call.return_value = (
+        '{"entities": [], "domain": "General", "is_entity_centric": false, '
+        '"entity_types": [], "relations": []}'
+    )
     mock_create_llm_caller.return_value = mock_caller
 
     from yt2notion.pipeline import run_pipeline
 
-    result = run_pipeline(
-        "https://www.youtube.com/watch?v=abc123",
-        config,
-        no_confirm=True,
-    )
+    failed_file = tmp_path / "workspace" / "abc123" / "failed.json"
+    failed_file.parent.mkdir(parents=True, exist_ok=True)
+    failed_file.write_text("{}", encoding="utf-8")
+
+    with patch("yt2notion.pipeline.typer.confirm") as mock_confirm:
+        result = run_pipeline(
+            "https://www.youtube.com/watch?v=abc123",
+            config,
+            no_confirm=True,
+        )
 
     assert result == "https://notion.so/page123"
+    mock_confirm.assert_not_called()
     mock_extract_meta.assert_called_once()
     mock_summarizer.summarize.assert_called_once()
     mock_summarizer.to_chinese.assert_called_once()
     mock_storage.save.assert_called_once()
+    assert not failed_file.exists()
 
 
 @patch("yt2notion.pipeline.create_llm_caller")
@@ -137,7 +147,10 @@ def test_pipeline_dry_run(
     # Mock LLM caller for entity extraction
     mock_caller = MagicMock()
     # caller.call(system_prompt, user_prompt, max_tokens=4000) returns JSON string
-    mock_caller.call.return_value = '{"entities": [], "domain": "General", "is_entity_centric": false, "entity_types": [], "relations": []}'
+    mock_caller.call.return_value = (
+        '{"entities": [], "domain": "General", "is_entity_centric": false, '
+        '"entity_types": [], "relations": []}'
+    )
     mock_create_llm_caller.return_value = mock_caller
 
     from yt2notion.pipeline import run_pipeline
@@ -161,3 +174,45 @@ def test_pipeline_extract_error(mock_extract_meta, config):
 
     with pytest.raises(ExtractionError, match="No subtitles"):
         run_pipeline("https://www.youtube.com/watch?v=abc123", config)
+
+
+@patch("yt2notion.pipeline.create_llm_caller")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline.extract_subtitles")
+@patch("yt2notion.pipeline.extract_metadata")
+def test_pipeline_records_failure(
+    mock_extract_meta,
+    mock_extract_subs,
+    mock_create_summarizer,
+    mock_create_llm_caller,
+    mock_meta,
+    mock_summary,
+    mock_chinese,
+    config,
+    tmp_path,
+):
+    mock_extract_meta.return_value = mock_meta
+
+    srt_file = tmp_path / "abc123.en.srt"
+    srt_file.write_text("1\n00:00:01,000 --> 00:00:05,000\nHello world\n")
+    mock_extract_subs.return_value = srt_file
+
+    mock_caller = MagicMock()
+    mock_caller.call.return_value = (
+        '{"entities": [], "domain": "General", "is_entity_centric": false, '
+        '"entity_types": [], "relations": []}'
+    )
+    mock_create_llm_caller.return_value = mock_caller
+    mock_create_summarizer.side_effect = RuntimeError("summary crashed")
+
+    from yt2notion.pipeline import run_pipeline
+
+    with pytest.raises(RuntimeError, match="summary crashed"):
+        run_pipeline("https://www.youtube.com/watch?v=abc123", config)
+
+    failed_file = tmp_path / "workspace" / "abc123" / "failed.json"
+    assert failed_file.exists()
+    data = failed_file.read_text(encoding="utf-8")
+    assert '"step": "summarize"' in data
+    assert '"url": "https://www.youtube.com/watch?v=abc123"' in data
+    assert '"retries_exhausted": false' in data.lower()

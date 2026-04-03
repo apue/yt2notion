@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -176,6 +177,36 @@ class Workspace:
             "mindmap": content.mindmap,
         }
         self._write_json("summary.json", d)
+
+    # --- Failure tracking ---
+
+    def save_failure(
+        self,
+        url: str,
+        step: str,
+        error: Exception | str,
+        *,
+        retries_exhausted: bool,
+    ) -> None:
+        """Persist structured failure details for the current workspace."""
+        failure = {
+            "url": url,
+            "step": step,
+            "error": str(error),
+            "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "retries_exhausted": retries_exhausted,
+        }
+        self._write_json("failed.json", failure)
+
+    def load_failure(self) -> dict | None:
+        """Load the last recorded failure, if any."""
+        return self._read_json("failed.json")
+
+    def clear_failure(self) -> None:
+        """Remove any previous failure marker from the workspace."""
+        path = self.dir / "failed.json"
+        if path.exists():
+            path.unlink()
 
     # --- Internal helpers ---
 
