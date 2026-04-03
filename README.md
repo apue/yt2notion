@@ -74,6 +74,10 @@ See [config.example.yaml](config.example.yaml) for all options.
 Key options:
 - `output.mode: summary|full`
 - `model.backend: claude_code|codex_cli|anthropic_api|openai_api`
+- `extract.asr.restart_before_transcribe` / `extract.asr.restart_on_unhealthy` for ASR self-healing
+
+ASR auto-restart operations and runbook:
+- [docs/operations/asr-service.md](docs/operations/asr-service.md)
 
 ## How It Works
 

@@ -59,7 +59,8 @@ extract:
     restart_before_transcribe: false
     # 启用后：仅在健康检查失败时重启
     restart_on_unhealthy: false
-    # 例如: ssh mac-mini 'cd /opt/asr && docker compose restart asr'
+    # 推荐：使用仓库脚本（固定 PATH + 健康检查）
+    # restart_command: "<repo_root>/scripts/asr/restart_remote_asr.sh <asr_host>"
     restart_command: ""
     # 重启后的就绪等待参数
     restart_readiness_timeout_seconds: 90.0

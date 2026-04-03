@@ -42,19 +42,44 @@ extract:
 
 ## 重启命令示例
 
-### Docker Compose
+### 推荐：固定脚本（避免 PATH 漂移）
+
+在本仓库使用：
+
+```bash
+<repo_root>/scripts/asr/restart_remote_asr.sh <asr_host>
+```
+
+该脚本会：
+
+- 固定远端 `PATH`（含 `/opt/homebrew/bin`，确保可找到 `ffmpeg`）
+- 重启 `server_mlx.py`
+- 轮询 `/health` 直到成功或超时
+
+对应配置：
+
+```yaml
+extract:
+  asr:
+    restart_before_transcribe: true
+    restart_command: "<repo_root>/scripts/asr/restart_remote_asr.sh <asr_host>"
+```
+
+### 其他示例（按你部署方式替换）
+
+#### Docker Compose
 
 ```bash
 ssh mac-mini 'cd /opt/asr && docker compose restart asr'
 ```
 
-### launchctl
+#### launchctl
 
 ```bash
 ssh mac-mini 'launchctl kickstart -k gui/$(id -u)/com.example.asr'
 ```
 
-### systemd
+#### systemd
 
 ```bash
 ssh mac-mini 'sudo systemctl restart asr.service'

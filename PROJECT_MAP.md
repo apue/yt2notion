@@ -133,6 +133,14 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 | `extract.subtitle_priority` | `extract.py:extract_subtitles()` | subtitle language preference |
 | `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | choose ASR backend |
 | `extract.asr.endpoint` | `transcribe/remote.py:RemoteTranscriber` | remote ASR endpoint or `ASR_ENDPOINT` env override |
+| `extract.asr.healthcheck_path` | `transcribe/remote.py:RemoteTranscriber` | ASR health endpoint (default `/health`) |
+| `extract.asr.healthcheck_timeout_seconds` | `transcribe/remote.py:RemoteTranscriber` | timeout for ASR health checks |
+| `extract.asr.restart_before_transcribe` | `transcribe/remote.py:RemoteTranscriber` | restart ASR once before first transcription call |
+| `extract.asr.restart_on_unhealthy` | `transcribe/remote.py:RemoteTranscriber` | restart ASR only when health check fails |
+| `extract.asr.restart_command` | `transcribe/remote.py:RemoteTranscriber` | shell command to restart remote ASR service |
+| `extract.asr.restart_readiness_timeout_seconds` | `transcribe/remote.py:RemoteTranscriber` | max wait time for ASR to become healthy after restart |
+| `extract.asr.restart_readiness_interval_seconds` | `transcribe/remote.py:RemoteTranscriber` | polling interval for post-restart health checks |
+| `extract.asr.restart_grace_seconds` | `transcribe/remote.py:RemoteTranscriber` | fallback fixed wait when health endpoint is unavailable |
 | `output.mode` | `pipeline.py:_resolve_output_mode()` | `summary` or `full` output behavior |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
@@ -140,6 +148,7 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 | `workspace.base_dir` | `workspace.py:Workspace` | workspace root |
 
 Config load path: `config.py:load_config()` → read YAML → deep-merge with defaults → validate backend values → return `AppConfig`.
+ASR operations runbook: `docs/operations/asr-service.md`.
 
 ## Factory Functions
 
