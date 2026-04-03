@@ -12,6 +12,14 @@
 
 例外：如果我明确说"直接改"或给出了足够具体的指令（如 "把 X 函数的返回类型从 A 改成 B"），可以直接执行。
 
+开始任何任务前，先执行下面的启动检查：
+
+1. 读取 `AGENTS.md`
+2. 读取 `handoff.md`
+3. 再按需查阅 `PROJECT_MAP.md`、`.cursorrules` 和相关代码
+
+如果当前任务要切换给 Codex，或从 Codex 接回 Claude/Opus，必须先更新 `handoff.md`，写明当前状态、受影响文件、约束、验证结果和下一步。
+
 ## Tech Stack
 
 - Python 3.11+, uv 包管理
@@ -107,6 +115,8 @@ URL
 
 ## Project References
 
+- @AGENTS.md 仓库级协作规则、角色分工、交接流程
+- @handoff.md 当前任务状态与交接面板
 - @PROJECT_MAP.md 项目导航地图（config↔code 映射、扩展 checklist、数据契约、依赖关系）
 - @README.md 项目介绍和使用说明
 - @config.example.yaml 配置文件模板

@@ -34,3 +34,8 @@ htmlcov/
 
 # Claude Code
 .claude/
+!.claude/
+.claude/*
+!.claude/commands/
+.claude/commands/*
+!.claude/commands/*.md
