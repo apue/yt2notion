@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 `yt2notion` 仓库的协作入口，用来统一 User、Claude Code、Opus、Codex 之间的任务流转方式。任何 agent 开始任务前，先读本文件，再读 [handoff.md](./handoff.md)，最后按需回看 [CLAUDE.md](./CLAUDE.md)、[PROJECT_MAP.md](./PROJECT_MAP.md) 和 [.cursorrules](./.cursorrules)。
+本文件是 `yt2notion` 仓库的协作入口，用来统一 User、Claude Code、Opus、Codex 之间的任务流转方式。任何 agent 开始任务前，先读本文件，再读 [handoff.md](./handoff.md)，最后按需回看 [CLAUDE.md](./CLAUDE.md)、[PROJECT_MAP.md](./PROJECT_MAP.md) 和 [.cursorrules](./.cursorrules)。其中，代码结构、数据契约与 pipeline 事实以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为唯一锚点。
 
 ## 文档优先级
 
@@ -14,13 +14,13 @@
 
 - 工作流、角色分工、交接格式：以 `AGENTS.md` 为准
 - 项目约束、开发底线、命令约定：以 `CLAUDE.md` 为准
-- 代码结构、数据契约、扩展入口：以 `PROJECT_MAP.md` 为准
+- 代码结构、数据契约、扩展入口、pipeline 事实：以 `PROJECT_MAP.md` 为准
 - 工具行为、编码风格、执行限制：以 `.cursorrules` 为准
-- 管道步骤数量若不一致，使用 `CLAUDE.md` / `PROJECT_MAP.md` 的 7-step 版本；`.cursorrules` 视为压缩摘要
+- 若文档之间对 pipeline 描述不一致，以 `PROJECT_MAP.md` 为准；`.cursorrules` 只作为压缩摘要
 
 ## 项目概述
 
-`yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对、实体提取、总结与发布，最终输出到 Notion 或 Obsidian。
+`yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对、实体提取、总结与发布，最终输出到 Notion 或 Obsidian。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
 
 默认分工如下：
 
@@ -175,7 +175,7 @@ Codex 执行时应遵守：
 ### 改文档时的约束
 
 - 工作流变了：更新 `AGENTS.md`
-- 结构、契约、扩展点变了：更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
+- 结构、契约、扩展点、pipeline 事实变了：更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
 - 项目开发底线变了：更新 [CLAUDE.md](./CLAUDE.md) 和必要的 `.cursorrules`
 
 ## Sandbox 与审批边界

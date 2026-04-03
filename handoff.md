@@ -4,91 +4,74 @@
 
 ## 当前任务卡
 
-- 任务：按 `docs/superpowers/specs/2026-04-01-pipeline-resilience-design.md` 落地 pipeline resilience，采用 subagent 并行实现
+- 任务：以 `PROJECT_MAP.md` 为锚点收敛文档 single source of truth，并采用 subagent 并行落地
 - 状态：`done`
 - 当前 owner：Codex
 - 上一执行者：User
 - 下一执行者：User
-- 来源：用户要求对照 resilience design 检查实现状态，并在未完成时按 design 落地
+- 来源：用户要求把 `PROJECT_MAP.md` 设为所有活跃文档共享的唯一锚点，并在完成后提交到当前分支
 - 目标：
-  - 补齐 retry / failure tracking / unattended execution 的设计闭环
-  - 让 pipeline 在无人值守场景下更稳健
-  - 保持现有插件架构、数据契约与发布语义不被无关改动破坏
+  - 明确 `PROJECT_MAP.md` 是 pipeline / contract / extension truth 的 canonical anchor
+  - 让其他活跃文档只保留角色化摘要，不再竞争性复述完整流程真相
+  - 为未来把 `PROJECT_MAP.md` 拆成索引 + part 的模式预留治理规则
 - 非目标：
-  - 不改 prompt 模板结构
-  - 不做与 resilience 无关的重构
-  - 不引入新的外部服务或配置项
+  - 不改代码行为
+  - 不清理历史 plan/spec 文档
+  - 不触碰 `prompts/` 模板
 - 约束：
-  - 以 design 文档为准，对照代码逐项落地
-  - 并行工作必须按文件边界切分，避免 worker 冲突
-  - 继续遵守仓库“不自动发布到 Notion”的总体底线；本次只移除 pipeline 内交互确认以支持 unattended execution
+  - 并行工作按文件边界切分，避免 worker 冲突
+  - 活跃文档必须明确 `PROJECT_MAP` 的权威性
+  - 摘要文档仍需保留各自面向的读者价值，不能只剩空链接
 - 受影响文件：
-  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
-  - [src/yt2notion/transcribe/remote.py](./src/yt2notion/transcribe/remote.py)
-  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
-  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_workspace.py](./tests/test_workspace.py)
-  - [tests/test_claude_code.py](./tests/test_claude_code.py)
-  - [tests/test_transcribe.py](./tests/test_transcribe.py)
-  - [tests/test_transcriber_retry.py](./tests/test_transcriber_retry.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [AGENTS.md](./AGENTS.md)
+  - [CLAUDE.md](./CLAUDE.md)
+  - [.cursorrules](./.cursorrules)
+  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 验收标准：
-  - `RemoteTranscriber`、`ClaudeCodeCaller`、`ClaudeCodeModel` 的 retry 行为符合 design
-  - pipeline 去除交互 confirm，失败时写 `failed.json`，成功时清理
-  - deferred review 仅在 retries exhausted 时显式降级，并保留 transcript 交付
-  - 测试覆盖关键 resilience 行为
+  - `PROJECT_MAP.md` 明确声明自身为 canonical anchor，并定义未来拆分规则
+  - `AGENTS.md`、`CLAUDE.md`、`.cursorrules`、`README.md` 不再独立承载完整 pipeline truth
+  - `PROJECT_MAP.md` 的 pipeline、branch rules、artifact contracts 与当前实现对齐
+  - 改动已提交到当前分支
 - 建议命令：
-  - `uv run pytest tests/test_retry.py tests/test_llm_retry.py tests/test_claude_code.py tests/test_transcribe.py tests/test_pipeline.py tests/test_workspace.py -v`
-  - `uv run pytest tests/test_transcriber_retry.py -v`
-  - `uv run ruff check src/ tests/`
+  - `git diff -- AGENTS.md CLAUDE.md PROJECT_MAP.md .cursorrules README.md handoff.md`
+  - `git status --short`
 - 未决问题：
-  - 是否需要保留 `--no-confirm` CLI 参数作为纯兼容占位
+  - 本轮先不新建 `docs/project-map/`，只在 `PROJECT_MAP.md` 中约定未来拆分机制
 
 ## 当前执行记录
 
 - 已完成：
-  - 对照 design 与代码确认：`retry.py` 与 `ClaudeCodeCaller.call()` 已完成
-  - 确认仍未完成：`RemoteTranscriber` retry、`ClaudeCodeModel` retry、pipeline 顶层 failure tracking、workspace failure artifact、deferred review 显式降级、移除交互 confirm
-  - 规划 subagent 切分：`pipeline/workspace`、`ASR retry`、`Claude summarizer retry`
-  - `ClaudeCodeModel._call_claude()` 已接入共享 retry helper、`timeout=120` 和空输出重试
-  - `tests/test_claude_code.py` 已补齐 retries / timeout / missing CLI 的定向测试
-  - `RemoteTranscriber.transcribe()` 已接入共享 retry helper，对连接错误、超时、HTTP 5xx 重试；HTTP 4xx 与 JSON decode 立即失败
-  - `run_pipeline()` 默认无人值守运行，不再触发交互 confirm；保留 `no_confirm` 参数仅作兼容
-  - `Workspace` 新增 `save_failure()` / `load_failure()` / `clear_failure()`，pipeline 失败时写 `failed.json`，成功发布后清理
-  - deferred review 改为仅在 `RetryExhausted` 时显式降级，并在 transcript 顶部注入警告说明
-  - 修正 `tests/test_integration.py`，去掉对固定 `claude -p` 调用次数的脆弱假设，并隔离 entity extraction 的 haiku 调用
+  - 读取 `AGENTS.md`、`handoff.md`、`CLAUDE.md`、`PROJECT_MAP.md`、`.cursorrules` 并核对当前实现
+  - 确认问题本质不是“改一句文案”，而是消除多份活跃文档并行承载完整 pipeline 真相
+  - 启动 subagent 并按文件边界切分：`CLAUDE.md/.cursorrules` 与 `AGENTS.md/README.md`
+  - `PROJECT_MAP.md` 已升级为 canonical anchor，补齐 pipeline 顺序、branch rules、workspace artifacts、future split rule
+  - `CLAUDE.md` 与 `.cursorrules` 已改为保留开发约束与政策摘要，不再复述完整流程
+  - `AGENTS.md` 与 `README.md` 已改为显式指向 `PROJECT_MAP.md`
+  - 所有文档改动已提交到当前分支
 - 当前阻塞：
   - 无
 - 已修改文件：
-  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
-  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/transcribe/remote.py](./src/yt2notion/transcribe/remote.py)
-  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
-  - [tests/test_claude_code.py](./tests/test_claude_code.py)
-  - [tests/test_integration.py](./tests/test_integration.py)
-  - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_transcriber_retry.py](./tests/test_transcriber_retry.py)
-  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [AGENTS.md](./AGENTS.md)
+  - [CLAUDE.md](./CLAUDE.md)
+  - [.cursorrules](./.cursorrules)
+  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `sed -n '1,260p' docs/superpowers/specs/2026-04-01-pipeline-resilience-design.md`
-  - 逐文件检查 `pipeline.py`、`workspace.py`、`remote.py`、`llm.py`、`claude_code.py` 及对应测试
-  - `uv run pytest tests/test_claude_code.py -v`
-  - `uv run ruff check src/yt2notion/models/claude_code.py tests/test_claude_code.py`
-  - `uv run pytest tests/test_transcriber_retry.py tests/test_transcribe.py -v`
-  - `uv run pytest tests/test_pipeline.py tests/test_workspace.py -v`
-  - `uv run pytest tests/test_integration.py -v`
-  - `uv run pytest tests/test_retry.py tests/test_llm_retry.py tests/test_claude_code.py tests/test_transcribe.py tests/test_transcriber_retry.py tests/test_pipeline.py tests/test_workspace.py tests/test_cli.py tests/test_integration.py -q` → `58 passed`
-  - `uv run ruff check src/yt2notion/pipeline.py src/yt2notion/workspace.py src/yt2notion/transcribe/remote.py src/yt2notion/models/claude_code.py tests/test_pipeline.py tests/test_workspace.py tests/test_transcriber_retry.py tests/test_claude_code.py tests/test_integration.py tests/test_cli.py` → passed
+  - `git status --short`
+  - `git log --oneline --decorate -n 8`
+  - `rg -n "Pipeline|pipeline|PROJECT_MAP|single truth|canonical|chapters >|Topic segmentation|7-step|5-step" AGENTS.md CLAUDE.md PROJECT_MAP.md .cursorrules README.md docs -S`
+  - `git diff -- AGENTS.md README.md`
+  - `git show --stat --summary --oneline ea7643b`
 - 风险/回滚点：
-  - `pipeline.py` 是关键路径中心文件，必须由单一 worker 负责以避免冲突
-  - 改动 `--no-confirm` 可能影响现有 CLI 测试，需要同步修正测试预期
-  - deferred review 的降级文案会影响 transcript 输出，需要保证仅在目标异常下触发
+  - `PROJECT_MAP.md` 现在信息密度更高，后续如果继续扩张，应按本轮约定及时拆成 canonical parts
+  - 历史 spec / plan 文档仍可能保留旧表述，但它们不再是活跃真源
+  - 若后续改 pipeline 未同步 `PROJECT_MAP.md`，仍会再次漂移
 - 下一步：
-  - 如需继续增强 resilience，可评估是否为 `tests/test_transcribe.py` 的连接错误用例注入无睡眠 patch，以缩短总测试耗时
-  - 如需扩大覆盖面，可继续评估 `failed.json` 在 resume 场景下的用户可见提示
+  - 新的 pipeline / contract 变更先改 `PROJECT_MAP.md`
+  - 等 `PROJECT_MAP.md` 超过可维护阈值时，再拆到 `docs/project-map/*.md`
 
 ## 接手检查清单
 

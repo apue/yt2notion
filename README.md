@@ -66,27 +66,9 @@ See [config.example.yaml](config.example.yaml) for all options.
 
 ## How It Works
 
-```
-YouTube / Podcast URL
-    │
-    1. DOWNLOAD ─── yt-dlp: metadata + subtitles or audio
-    │
-    2. SEGMENT ──── chapters → LLM extract from description → N/A
-    │
-    3. TRANSCRIBE ─ subtitle assignment or per-segment ASR
-    │       │
-    │       └── 3.5 TOPIC SEGMENT ── Haiku splits oversized segments
-    │
-    4. REVIEW ───── Haiku cleans ASR errors, fixes proper nouns
-    │
-    5. EXTRACT ──── Haiku identifies entities and relationships
-    │
-    6. SUMMARIZE ── Sonnet map (per-segment) + Opus reduce (global)
-    │       │
-    │       └── 6.5 DEFERRED REVIEW ── for long content: review + transcript after summary
-    │
-    └── Storage: summary + transcript (Notion page / Obsidian note)
-```
+Pipeline truth, step order, and artifact contracts live in [PROJECT_MAP.md](PROJECT_MAP.md). This README keeps the user-facing summary only: download metadata and media, segment by chapters or topic boundaries, transcribe from subtitles or ASR, review ASR text, extract entities, summarize, then publish to storage.
+
+If you need the canonical pipeline map, follow [PROJECT_MAP.md](PROJECT_MAP.md) first.
 
 ## Development
 
