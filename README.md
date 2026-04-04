@@ -1,6 +1,6 @@
 # yt2notion
 
-Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to Notion — in one command.
+Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to Notion / Obsidian — in one command.
 
 ## Features
 
@@ -8,11 +8,15 @@ Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to
 - **Podcast ASR support**: local Qwen3-ASR on Apple Silicon, no cloud API needed
 - **Multi-stage LLM pipeline**: Haiku (review/segment) → Sonnet (map) → Opus (reduce)
 - **Topic-aware segmentation**: LLM finds natural topic boundaries for long content
+- **Dual output modes**: `summary` by default, optional `full` for reviewed transcript + summary
 - **Timestamped key points**: clickable timestamp links in your notes
+- **Fun facts extraction**: hot takes, nerd stats, and media mentions pulled from content
+- **Entity extraction**: identifies people, places, tools, and their relationships — builds a knowledge graph via `[[wiki-links]]`
 - **Always credits the source**: channel name, video title, and URL included automatically
 - **Pluggable backends**: swap LLM providers and storage (Notion / Obsidian)
 - **Workspace persistence**: resume interrupted pipelines from any step
 - **Zero API cost option**: use your existing Claude Code subscription via `claude -p`
+- **Codex backend support**: use local `codex exec` with GPT-5.x style models
 
 ## Quick Start
 
@@ -29,8 +33,11 @@ uv sync --extra notion
 cp config.example.yaml config.yaml
 # Edit config.yaml with your Notion token and preferences
 
-# Run
-uv run yt2notion "https://www.youtube.com/watch?v=VIDEO_ID"
+# Run (publishes by default)
+uv run yt2notion process "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Prepare JSON for Claude/Codex wrappers without publishing
+uv run yt2notion prepare "https://www.youtube.com/watch?v=VIDEO_ID" --mode summary
 ```
 
 ## Prerequisites
@@ -39,6 +46,7 @@ uv run yt2notion "https://www.youtube.com/watch?v=VIDEO_ID"
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and on PATH
 - One of:
   - [Claude Code](https://code.claude.com) (Pro/Max subscription) — zero additional cost
+  - [Codex CLI](https://platform.openai.com/docs/codex) — local `codex` command available
   - Anthropic API key — pay per token
 - Notion integration token (if using Notion storage)
 
@@ -47,8 +55,9 @@ uv run yt2notion "https://www.youtube.com/watch?v=VIDEO_ID"
 | Backend | Config value | Cost | Requirements |
 |---------|-------------|------|--------------|
 | Claude Code CLI | `claude_code` | Included in subscription | `claude` on PATH |
+| Codex CLI | `codex_cli` | Depends on your Codex setup | `codex` on PATH |
 | Anthropic API | `anthropic_api` | ~$0.30/video | `ANTHROPIC_API_KEY` |
-| OpenAI API | `openai_api` | varies | PRs welcome! |
+| OpenAI alias | `openai_api` | Depends on your Codex setup | routes to `codex_cli` |
 
 ## Storage Backends
 
@@ -62,25 +71,19 @@ uv run yt2notion "https://www.youtube.com/watch?v=VIDEO_ID"
 
 See [config.example.yaml](config.example.yaml) for all options.
 
+Key options:
+- `output.mode: summary|full`
+- `model.backend: claude_code|codex_cli|anthropic_api|openai_api`
+- `extract.asr.restart_before_transcribe` / `extract.asr.restart_on_unhealthy` for ASR self-healing
+
+ASR auto-restart operations and runbook:
+- [docs/operations/asr-service.md](docs/operations/asr-service.md)
+
 ## How It Works
 
-```
-YouTube / Podcast URL
-    │
-    1. DOWNLOAD ─── yt-dlp: metadata + subtitles or audio
-    │
-    2. SEGMENT ──── chapters → LLM extract from description → N/A
-    │
-    3. TRANSCRIBE ─ subtitle assignment or per-segment ASR
-    │       │
-    │       └── 3.5 TOPIC SEGMENT ── Haiku splits oversized segments
-    │
-    4. REVIEW ───── Haiku cleans ASR errors, fixes proper nouns
-    │
-    5. SUMMARIZE ── Sonnet map (per-segment) + Opus reduce (global)
-    │
-    └── Notion API: summary page + transcript sub-page
-```
+Pipeline truth, step order, and artifact contracts live in [PROJECT_MAP.md](PROJECT_MAP.md). This README keeps the user-facing summary only: download metadata and media, segment by chapters or topic boundaries, transcribe from subtitles or ASR, optionally keep a reviewed transcript in `full` mode, summarize, then publish to storage. Use `prepare` (or `process --dry-run`) when you want a no-publish run.
+
+If you need the canonical pipeline map, follow [PROJECT_MAP.md](PROJECT_MAP.md) first.
 
 ## Development
 

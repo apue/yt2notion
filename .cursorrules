@@ -23,9 +23,8 @@ You are an expert Python developer working on the `yt2notion` project, a CLI pip
 - **Error Handling**: Define and use custom exception classes scoped within their respective modules.
 
 ## 5. Pipeline Overview
-The core pipeline consists of 5 metadata-driven steps. All decisions should be based on metadata signals, not URL pattern matching:
-1. **DOWNLOAD**: Extract metadata and subtitles/audio via `yt-dlp`.
-2. **SEGMENT**: Generate chapter markers (from existing chapters -> LLM extraction -> Topic segmentation).
-3. **TRANSCRIBE**: Extract or generate text (existing subs -> MLX-Whisper/Qwen ASR).
-4. **REVIEW**: LLM-assisted correction of ASR errors.
-5. **SUMMARIZE**: Multi-step LLM summarization (Map-Reduce: e.g., Sonnet for structure, Opus for Chinese synthesis) and Notion API delivery.
+`PROJECT_MAP.md` is the canonical anchor for pipeline order, branch logic, JSON contracts, and prompt bindings. This file only records the hard rules:
+- All pipeline decisions must be driven by metadata signals, not URL pattern matching.
+- Do not duplicate the full step-by-step pipeline here; keep this file as a policy summary only.
+- Any change to step order, artifact shape, or backend selection must be reflected in `PROJECT_MAP.md` first.
+- `AGENTS.md`, `CLAUDE.md`, and `.cursorrules` are index/constraint docs only; when conflicts exist, trust `PROJECT_MAP.md`.

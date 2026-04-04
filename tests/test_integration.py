@@ -24,6 +24,8 @@ def _make_config(tmp_path: Path) -> AppConfig:
 
 
 @patch("yt2notion.pipeline.create_storage")
+@patch("yt2notion.pipeline.create_llm_caller")
+@patch("yt2notion.pipeline._is_long_content", return_value=False)
 @patch("yt2notion.models.claude_code.subprocess.run")
 @patch("yt2notion.pipeline.extract_subtitles")
 @patch("yt2notion.pipeline.extract_metadata")
@@ -31,6 +33,8 @@ def test_full_pipeline_with_fixtures(
     mock_extract_meta,
     mock_extract_subs,
     mock_claude_run,
+    mock_is_long_content,
+    mock_create_llm_caller,
     mock_create_storage,
     tmp_path,
     sample_srt,
@@ -44,29 +48,32 @@ def test_full_pipeline_with_fixtures(
     summary_json = _load_fixture("sample_summary_response.json")
     chinese_md = _load_fixture("sample_chinese_response.md")
 
-    call_count = 0
-
     def claude_side_effect(cmd, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            # summarize call
+        model = cmd[cmd.index("--model") + 1]
+        if model == "sonnet":
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
                 stdout=json.dumps({"result": summary_json}),
                 stderr="",
             )
-        else:
-            # to_chinese call
+        if model == "opus":
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
                 stdout=json.dumps({"result": chinese_md}),
                 stderr="",
             )
+        raise AssertionError(f"Unexpected model in claude invocation: {model}")
 
     mock_claude_run.side_effect = claude_side_effect
+
+    mock_caller = MagicMock()
+    mock_caller.call.return_value = (
+        '{"entities": [], "domain": "General", "is_entity_centric": false, '
+        '"entity_types": [], "relations": []}'
+    )
+    mock_create_llm_caller.return_value = mock_caller
 
     # 3. Setup storage mock
     mock_storage = MagicMock()
@@ -78,7 +85,6 @@ def test_full_pipeline_with_fixtures(
     result = run_pipeline(
         "https://www.youtube.com/watch?v=abc123",
         config,
-        no_confirm=True,
     )
 
     # 5. Verify
@@ -102,6 +108,8 @@ def test_full_pipeline_with_fixtures(
     assert metadata.video_id == "abc123"
 
 
+@patch("yt2notion.pipeline.create_llm_caller")
+@patch("yt2notion.pipeline._is_long_content", return_value=False)
 @patch("yt2notion.models.claude_code.subprocess.run")
 @patch("yt2notion.pipeline.extract_subtitles")
 @patch("yt2notion.pipeline.extract_metadata")
@@ -109,6 +117,8 @@ def test_dry_run_includes_credit(
     mock_extract_meta,
     mock_extract_subs,
     mock_claude_run,
+    mock_is_long_content,
+    mock_create_llm_caller,
     tmp_path,
     sample_srt,
     sample_meta,
@@ -119,27 +129,32 @@ def test_dry_run_includes_credit(
     summary_json = _load_fixture("sample_summary_response.json")
     chinese_md = _load_fixture("sample_chinese_response.md")
 
-    call_count = 0
-
     def claude_side_effect(cmd, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
+        model = cmd[cmd.index("--model") + 1]
+        if model == "sonnet":
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
                 stdout=json.dumps({"result": summary_json}),
                 stderr="",
             )
-        else:
+        if model == "opus":
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=0,
                 stdout=json.dumps({"result": chinese_md}),
                 stderr="",
             )
+        raise AssertionError(f"Unexpected model in claude invocation: {model}")
 
     mock_claude_run.side_effect = claude_side_effect
+
+    mock_caller = MagicMock()
+    mock_caller.call.return_value = (
+        '{"entities": [], "domain": "General", "is_entity_centric": false, '
+        '"entity_types": [], "relations": []}'
+    )
+    mock_create_llm_caller.return_value = mock_caller
 
     config = _make_config(tmp_path)
     result = run_pipeline(

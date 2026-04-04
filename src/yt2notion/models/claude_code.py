@@ -8,12 +8,20 @@ from typing import TYPE_CHECKING
 
 from yt2notion.models._parsers import (
     parse_chinese_markdown,
+    parse_review_summary_json,
     parse_summary_json,
 )
 from yt2notion.prompts import load_prompt
+from yt2notion.retry import retry
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, ChunkSummary, Summary, VideoMeta
+    from yt2notion.models.base import (
+        ChineseContent,
+        ChunkSummary,
+        ReviewSummaryResult,
+        Summary,
+        VideoMeta,
+    )
 
 
 class ClaudeCodeError(Exception):
@@ -45,6 +53,25 @@ class ClaudeCodeModel:
             model=self.summarize_model,
         )
         return parse_summary_json(raw)
+
+    def review_and_summarize(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "summarize_reviewed",
+    ) -> ReviewSummaryResult:
+        """Review raw ASR transcript and summarize it in one pass."""
+        system_prompt = load_prompt(prompt_name)
+        user_prompt = (
+            f"Video: {metadata.title} by {metadata.channel}\nURL: {metadata.url}\n\n{transcript}"
+        )
+        raw = self._call_claude(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=self.summarize_model,
+        )
+        return parse_review_summary_json(raw)
 
     def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:
         """Rewrite summary in natural Chinese."""
@@ -127,25 +154,45 @@ class ClaudeCodeModel:
             "--output-format",
             "json",
         ]
-        try:
-            result = subprocess.run(
-                cmd,
-                input=prompt,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except FileNotFoundError as e:
-            raise ClaudeCodeError(
-                "claude CLI not found. Install Claude Code: https://code.claude.com"
-            ) from e
-        except subprocess.CalledProcessError as e:
-            raise ClaudeCodeError(f"claude CLI failed: {e.stderr.strip()}") from e
 
-        # Parse JSON output — result is in the "result" field
-        try:
-            output = json.loads(result.stdout)
-            return output.get("result", result.stdout)
-        except json.JSONDecodeError:
-            # Fallback: treat stdout as raw text
-            return result.stdout
+        class _EmptyOutputError(Exception):
+            """Raised when claude returns empty output."""
+
+        def _run() -> str:
+            try:
+                result = subprocess.run(
+                    cmd,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=120,
+                )
+            except FileNotFoundError as e:
+                raise ClaudeCodeError(
+                    "claude CLI not found. Install Claude Code: https://code.claude.com"
+                ) from e
+
+            raw = result.stdout
+            if not raw or not raw.strip():
+                raise _EmptyOutputError("claude returned empty output")
+
+            # Parse JSON output — result is in the "result" field.
+            # If the output is not valid JSON, keep the raw stdout fallback.
+            try:
+                output = json.loads(raw)
+                return output.get("result", raw)
+            except json.JSONDecodeError:
+                return raw
+
+        return retry(
+            _run,
+            max_retries=3,
+            base_delay=5.0,
+            retryable=(
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                _EmptyOutputError,
+            ),
+            label=f"claude -p {model}",
+        )
