@@ -2,11 +2,15 @@
 # 复制为 config.yaml 并填入你的实际值
 
 model:
-  # 可选: claude_code | anthropic_api | openai_api
+  # 可选: claude_code | anthropic_api | codex_cli | openai_api
   backend: claude_code
   summarize_model: sonnet    # 结构化总结（英文处理强）
   translate_model: opus      # 中文化润色（中文质量高）
   review_model: haiku        # 章节提取 + 转录校对（轻量任务）
+  # 使用 codex_cli 时建议改为:
+  # summarize_model: gpt-5.2
+  # translate_model: gpt-5.2
+  # review_model: gpt-5.2
 
 storage:
   # Choose one backend: notion | obsidian | markdown
@@ -48,6 +52,21 @@ extract:
   asr:
     backend: remote              # 可选: remote
     endpoint: ""                 # ASR 服务地址，或设置 ASR_ENDPOINT 环境变量
+    # 健康检查（用于自动重启场景）
+    healthcheck_path: "/health"
+    healthcheck_timeout_seconds: 3.0
+    # 启用后：每次进入 ASR 流程前先执行一次重启命令
+    restart_before_transcribe: false
+    # 启用后：仅在健康检查失败时重启
+    restart_on_unhealthy: false
+    # 推荐：使用仓库脚本（固定 PATH + 健康检查）
+    # restart_command: "<repo_root>/scripts/asr/restart_remote_asr.sh <asr_host>"
+    restart_command: ""
+    # 重启后的就绪等待参数
+    restart_readiness_timeout_seconds: 90.0
+    restart_readiness_interval_seconds: 3.0
+    # 当 healthcheck endpoint 不可用时，重启后固定等待时间
+    restart_grace_seconds: 5.0
 
 credit:
   # 始终在输出中包含来源信息
@@ -55,6 +74,8 @@ credit:
   format: "来源：{channel} 「{title}」\n链接：{url}"
 
 output:
+  # 输出模式：summary 只输出总结；full 输出总结 + 校对后的逐字稿
+  mode: summary
   # chunk 分段长度（秒），用于时间戳关联
   chunk_duration_seconds: 120
   # 最终输出语言

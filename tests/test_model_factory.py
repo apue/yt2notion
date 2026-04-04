@@ -17,6 +17,36 @@ def test_create_claude_code():
     assert isinstance(model, ClaudeCodeModel)
 
 
+def test_create_codex_cli():
+    config = {"model": {"backend": "codex_cli", "summarize_model": "gpt-5.2"}}
+    model = create_summarizer(config)
+    from yt2notion.models.codex_cli import CodexCLIModel
+
+    assert isinstance(model, CodexCLIModel)
+
+
+def test_create_openai_alias_routes_to_codex_cli():
+    config = {"model": {"backend": "openai_api", "summarize_model": "gpt-5.2"}}
+    model = create_summarizer(config)
+    from yt2notion.models.codex_cli import CodexCLIModel
+
+    assert isinstance(model, CodexCLIModel)
+
+
+def test_create_openai_alias_normalizes_legacy_model_names():
+    config = {
+        "model": {
+            "backend": "openai_api",
+            "summarize_model": "sonnet",
+            "translate_model": "opus",
+        }
+    }
+    model = create_summarizer(config)
+
+    assert model.summarize_model == "gpt-5.2"
+    assert model.translate_model == "gpt-5.2"
+
+
 @patch("yt2notion.models.anthropic_api._anthropic")
 def test_create_anthropic(mock_anthropic):
     config = {"model": {"backend": "anthropic_api", "api_key": "test-key"}}

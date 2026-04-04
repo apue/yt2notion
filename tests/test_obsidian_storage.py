@@ -148,10 +148,13 @@ class TestSave:
         storage = ObsidianStorage(vault_path=str(vault))
         result = storage.save(content, meta, transcript_segments=None)
 
-        assert Path(result).exists()
+        summary_path = Path(result)
+        assert summary_path.exists()
         transcript_dir = vault / "yt2notion" / "transcripts"
         # Directory created but no files
         assert not list(transcript_dir.glob("*.md"))
+        summary_text = summary_path.read_text(encoding="utf-8")
+        assert "transcript:" not in summary_text
 
     def test_summary_frontmatter_valid_yaml(
         self, vault: Path, meta: VideoMeta, content: ChineseContent, segments: list[dict]
@@ -195,7 +198,7 @@ class TestSave:
         self, vault: Path, meta: VideoMeta, content: ChineseContent, segments: list[dict]
     ):
         storage = ObsidianStorage(vault_path=str(vault))
-        result = storage.save(content, meta, transcript_segments=segments)
+        storage.save(content, meta, transcript_segments=segments)
 
         transcript_dir = vault / "yt2notion" / "transcripts"
         transcript_file = list(transcript_dir.glob("T-*.md"))[0]
@@ -296,6 +299,8 @@ class TestAddTranscriptSubpage:
         transcript_dir = vault / "yt2notion" / "transcripts"
         transcript_files = list(transcript_dir.glob("T-*.md"))
         assert len(transcript_files) == 1
+        summary_text = Path(result).read_text(encoding="utf-8")
+        assert f"[[{transcript_files[0].stem}]]" in summary_text
 
         # Check transcript content
         text = transcript_files[0].read_text(encoding="utf-8")
@@ -326,7 +331,12 @@ class TestConfigValidation:
 
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            "model:\n  backend: claude_code\nstorage:\n  backend: obsidian\n  obsidian:\n    vault_path: ''\n"
+            "model:\n"
+            "  backend: claude_code\n"
+            "storage:\n"
+            "  backend: obsidian\n"
+            "  obsidian:\n"
+            "    vault_path: ''\n"
         )
         with pytest.raises(ConfigError, match="vault_path is required"):
             load_config(str(config_file))

@@ -66,6 +66,25 @@ def test_api_error_handling(mock_anthropic, meta):
         model.summarize("transcript", meta)
 
 
+@patch("yt2notion.models.anthropic_api._anthropic")
+def test_review_and_summarize(mock_anthropic, meta):
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+
+    combined = dict(SAMPLE_SUMMARY_JSON)
+    combined["reviewed_transcript"] = "[0:00] cleaned transcript"
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text=json.dumps(combined))]
+    mock_client.messages.create.return_value = mock_response
+
+    from yt2notion.models.anthropic_api import AnthropicAPIModel
+
+    model = AnthropicAPIModel(api_key="test-key", summarize_model="sonnet")
+    result = model.review_and_summarize("transcript", meta)
+    assert result.reviewed_transcript == "[0:00] cleaned transcript"
+    assert result.summary.overall_summary == "Test overall."
+
+
 def test_reuses_parsers():
     """Verify the same JSON output parses identically in both backends."""
     from yt2notion.models._parsers import parse_summary_json

@@ -12,6 +12,14 @@
 
 例外：如果我明确说"直接改"或给出了足够具体的指令（如 "把 X 函数的返回类型从 A 改成 B"），可以直接执行。
 
+开始任何任务前，先执行下面的启动检查：
+
+1. 读取 `AGENTS.md`
+2. 读取 `handoff.md`
+3. 再按需查阅 `PROJECT_MAP.md`、`.cursorrules` 和相关代码
+
+如果当前任务要切换给 Codex，或从 Codex 接回 Claude/Opus，必须先更新 `handoff.md`，写明当前状态、受影响文件、约束、验证结果和下一步。
+
 ## Tech Stack
 
 - Python 3.11+, uv 包管理
@@ -42,42 +50,19 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 
 实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` 仅有 `ClaudeCodeCaller` 实现。
 
-### 管道流程（5-step metadata-driven）
+流水线的唯一规范真源在 [PROJECT_MAP.md](./PROJECT_MAP.md)。本文件只保留开发者视角的高层摘要：
+- `PROJECT_MAP.md` 负责步骤顺序、条件分支、JSON 契约、prompt 绑定和扩展入口
+- `CLAUDE.md` 负责开发约束、命令约定、模型角色与本地运行假设
+- 当实现和文档发生偏差时，以 `PROJECT_MAP.md` 为准，再回头同步这里的摘要
 
-```
-URL
- ↓
-1. DOWNLOAD     → metadata.json + (subtitles.srt | audio.mp3)
- ↓
-2. SEGMENT      → segments.json  (chapters > LLM提取 > N/A)
- ↓
-3. TRANSCRIBE   → transcripts.json  (字幕分配 | 逐段ASR | 全量ASR+句分)
- ↓                    ↓
- │              3.5 TOPIC SEGMENT  (超长段落 → Haiku 按话题拆分)
- ↓
-4. REVIEW       → reviewed.json  (Haiku 校对 ASR 错误)
- ↓
-5. SUMMARIZE    → summary.json   (Sonnet map × N + Opus reduce → Storage)
- ↓                    ↓
- │              5.5 DEFERRED REVIEW  (长内容：总结后再校对 + 写入 transcript)
- ↓
-6. PUBLISH      → Notion page / Obsidian note + transcript sub-page/文件
-```
+文档锚定约定：
+- `AGENTS.md` / `CLAUDE.md` / `.cursorrules` 仅做索引与规则，不承载完整 pipeline 事实。
+- 任何涉及 pipeline、契约、扩展点的变更，先改 `PROJECT_MAP.md`，再改本文件摘要。
 
-决策逻辑基于元数据信号（非 URL 模式匹配）：
-- `subtitles_available` → 下载字幕 vs 下载音频
-- `chapters` 非空 → 直接使用作者章节
-- `chapters` 空 + `description` 有内容 → LLM 从描述中提取章节（Haiku）
-- 两者皆无 → 全量 ASR 后按话题分段
-
-### 模型分工
-
-| 步骤 | 模型 | 用途 |
-|------|------|------|
-| 章节提取 / 话题分段 / 转录校对 | Haiku | 轻量结构化任务 |
-| 逐段摘要（Map） | Sonnet | 英文结构提取 |
-| 全局综合（Reduce） | Opus | 中文润色 + 全局连贯 |
-| ASR 转写 | Qwen3-ASR 1.7B 4-bit | 本地 Mac Mini |
+模型角色只保留到“用途级”：
+- 章节提取、转录校对、话题分段使用 `LLMCaller`
+- 多步总结使用 `Summarizer`
+- ASR 使用本地 `mlx-whisper / Qwen` 路径
 
 ## Code Style
 
@@ -104,6 +89,8 @@ URL
 
 ## Project References
 
+- @AGENTS.md 仓库级协作规则、角色分工、交接流程
+- @handoff.md 当前任务状态与交接面板
 - @PROJECT_MAP.md 项目导航地图（config↔code 映射、扩展 checklist、数据契约、依赖关系）
 - @README.md 项目介绍和使用说明
 - @config.example.yaml 配置文件模板

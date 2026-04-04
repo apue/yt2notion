@@ -97,6 +97,14 @@ class Summary:
 
 
 @dataclass
+class ReviewSummaryResult:
+    """Result of a combined transcript review + summary pass."""
+
+    reviewed_transcript: str
+    summary: Summary
+
+
+@dataclass
 class ChunkSummary:
     """Summary of a single segment from the map phase."""
 
@@ -127,6 +135,27 @@ FUN_FACTS_CATEGORIES: dict[str, str] = {
 }
 
 
+@dataclass
+class Entity:
+    """A named entity extracted from content."""
+
+    name: str
+    type: str
+    attributes: dict[str, str] = field(default_factory=dict)
+    linkable: bool = True
+
+
+@dataclass
+class EntityResult:
+    """Complete entity extraction output."""
+
+    domain: str
+    is_entity_centric: bool
+    entity_types: list[str]
+    entities: list[Entity]
+    relations: list[dict]  # [{from, relation, to}]
+
+
 class Summarizer(Protocol):
     """Protocol for LLM summarization backends."""
 
@@ -134,6 +163,16 @@ class Summarizer(Protocol):
         self, transcript: str, metadata: VideoMeta, *, prompt_name: str = "summarize"
     ) -> Summary:
         """Produce a structured summary with timestamps."""
+        ...
+
+    def review_and_summarize(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "summarize_reviewed",
+    ) -> ReviewSummaryResult:
+        """Review an ASR transcript and summarize it in a single LLM call."""
         ...
 
     def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:

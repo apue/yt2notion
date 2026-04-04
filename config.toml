@@ -1,0 +1,12 @@
+# Base Codex config for this repository.
+# If your Codex installation does not auto-read repo-local config,
+# mirror these values into ~/.codex/config.toml.
+# Workflow, approvals, and handoff rules remain defined in AGENTS.md.
+
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+personality = "pragmatic"
+approvals_reviewer = "user"
+
+[projects."/Users/yangtian/Developer/agent/yt2notion"]
+trust_level = "trusted"

@@ -28,8 +28,10 @@ def test_default_values(tmp_path):
     assert config.model["backend"] == "claude_code"
     assert config.model["summarize_model"] == "sonnet"
     assert config.model["translate_model"] == "opus"
+    assert config.model["reasoning_effort"] == "low"
     assert config.storage["backend"] == "notion"
     assert config.extract["subtitle_priority"] == ["zh-Hans", "zh-Hant", "en"]
+    assert config.output["mode"] == "summary"
     assert config.output["chunk_duration_seconds"] == 120
     assert config.credit["always_include"] is True
 
@@ -48,6 +50,13 @@ def test_invalid_storage_backend(tmp_path):
         load_config(str(cfg_file))
 
 
+def test_invalid_output_mode(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("output:\n  mode: transcript_only\n")
+    with pytest.raises(ConfigError, match="output.mode"):
+        load_config(str(cfg_file))
+
+
 def test_deep_merge_preserves_nested(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("storage:\n  backend: notion\n  notion:\n    token: my_token\n")
@@ -55,3 +64,28 @@ def test_deep_merge_preserves_nested(tmp_path):
     assert config.storage["notion"]["token"] == "my_token"
     # Default database_id should still be present
     assert config.storage["notion"]["database_id"] == ""
+
+
+def test_codex_cli_model_backend_is_valid(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("model:\n  backend: codex_cli\nstorage:\n  backend: notion\n")
+    config = load_config(str(cfg_file))
+    assert config.model["backend"] == "codex_cli"
+
+
+def test_openai_alias_model_backend_is_valid(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("model:\n  backend: openai_api\nstorage:\n  backend: notion\n")
+    config = load_config(str(cfg_file))
+    assert config.model["backend"] == "openai_api"
+
+
+def test_asr_restart_defaults_present(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("{}")
+    config = load_config(str(cfg_file))
+    asr = config.extract["asr"]
+    assert asr["healthcheck_path"] == "/health"
+    assert asr["restart_before_transcribe"] is False
+    assert asr["restart_on_unhealthy"] is False
+    assert asr["restart_command"] == ""

@@ -6,7 +6,13 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from yt2notion.models.base import FUN_FACTS_CATEGORIES, ChineseContent, Section, Summary
+from yt2notion.models.base import (
+    FUN_FACTS_CATEGORIES,
+    ChineseContent,
+    ReviewSummaryResult,
+    Section,
+    Summary,
+)
 
 if TYPE_CHECKING:
     from yt2notion.models.base import ChunkSummary
@@ -62,6 +68,28 @@ def parse_summary_json(text: str) -> Summary:
         sections=sections,
         overall_summary=data.get("overall_summary", ""),
         suggested_tags=data.get("suggested_tags", []),
+    )
+
+
+def parse_review_summary_json(text: str) -> ReviewSummaryResult:
+    """Parse combined review + summary JSON output."""
+    fence_match = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+    json_str = fence_match.group(1) if fence_match else text
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ParseError(
+            f"Failed to parse review+summary JSON: {e}\nRaw text: {text[:200]}"
+        ) from e
+
+    reviewed_transcript = data.get("reviewed_transcript", "")
+    if not isinstance(reviewed_transcript, str):
+        reviewed_transcript = ""
+
+    return ReviewSummaryResult(
+        reviewed_transcript=reviewed_transcript,
+        summary=parse_summary_json(json.dumps(data, ensure_ascii=False)),
     )
 
 

@@ -13,7 +13,7 @@ from yt2notion.models.base import FUN_FACTS_CATEGORIES
 from yt2notion.process import display_to_seconds, seconds_to_display
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
 
 
 class ObsidianStorageError(Exception):
@@ -105,6 +105,7 @@ class ObsidianStorage:
         metadata: VideoMeta,
         *,
         transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
     ) -> str:
         """Write summary + transcript files to vault. Return summary path."""
         today = date.today().isoformat()
@@ -114,13 +115,16 @@ class ObsidianStorage:
         summaries_path.mkdir(parents=True, exist_ok=True)
         summary_file = _resolve_unique_path(summaries_path / f"{today} {sanitized}.md")
 
-        transcript_file = self._resolve_transcript_path(metadata)
-        transcript_stem = transcript_file.stem
+        transcript_file: Path | None = None
+        transcript_stem: str | None = None
+        if transcript_segments:
+            transcript_file = self._resolve_transcript_path(metadata)
+            transcript_stem = transcript_file.stem
 
-        summary_md = self._render_summary(content, metadata, transcript_stem, today)
+        summary_md = self._render_summary(content, metadata, transcript_stem, today, entities)
         summary_file.write_text(summary_md, encoding="utf-8")
 
-        if transcript_segments:
+        if transcript_segments and transcript_file is not None:
             transcript_md = self._render_transcript(
                 metadata, transcript_segments, summary_file.stem
             )
@@ -143,13 +147,15 @@ class ObsidianStorage:
 
         transcript_md = self._render_transcript(metadata, transcript_segments, summary_file.stem)
         transcript_file.write_text(transcript_md, encoding="utf-8")
+        self._add_transcript_link(summary_file, transcript_file.stem)
 
     def _render_summary(
         self,
         content: ChineseContent,
         metadata: VideoMeta,
-        transcript_stem: str,
+        transcript_stem: str | None,
         today: str,
+        entities: EntityResult | None = None,
     ) -> str:
         """Render the summary markdown file."""
         url = metadata.url
@@ -172,7 +178,8 @@ class ObsidianStorage:
                 fm["date_published"] = f"{ud[:4]}-{ud[4:6]}-{ud[6:8]}"
         fm["date_processed"] = today
         fm["tags"] = content.tags
-        fm["transcript"] = f"[[{transcript_stem}]]"
+        if transcript_stem:
+            fm["transcript"] = f"[[{transcript_stem}]]"
 
         frontmatter = (
             "---\n"
@@ -216,6 +223,65 @@ class ObsidianStorage:
                 for item in items:
                     lines.append(f"- {item}")
 
+        # Entities section
+        if entities and entities.entities:
+            if entities.is_entity_centric:
+                lines.append("")
+                lines.append("## Entities")
+                # Build lookup: entity name -> Entity object
+                entity_map = {e.name: e for e in entities.entities}
+                # Build relations lookup: from_name -> list of (relation, to_name)
+                relations_by_from: dict[str, list[tuple[str, str]]] = {}
+                for rel in entities.relations:
+                    from_name = rel.get("from", "")
+                    to_name = rel.get("to", "")
+                    relation = rel.get("relation", "")
+                    if from_name not in relations_by_from:
+                        relations_by_from[from_name] = []
+                    relations_by_from[from_name].append((relation, to_name))
+                # Group entities by type, preserving entity_types order
+                type_order = list(entities.entity_types)
+                # Collect any types not in entity_types at the end
+                extra_types = [e.type for e in entities.entities if e.type not in type_order]
+                for t in extra_types:
+                    if t not in type_order:
+                        type_order.append(t)
+                entities_by_type: dict[str, list] = {}
+                for e in entities.entities:
+                    entities_by_type.setdefault(e.type, []).append(e)
+                for type_key in type_order:
+                    group = entities_by_type.get(type_key, [])
+                    if not group:
+                        continue
+                    lines.append("")
+                    lines.append(f"**{type_key.capitalize()}**")
+                    for ent in group:
+                        name_part = f"[[{ent.name}]]" if ent.linkable else ent.name
+                        # First attribute value in parentheses
+                        attr_part = ""
+                        if ent.attributes:
+                            first_val = next(iter(ent.attributes.values()))
+                            attr_part = f" ({first_val})"
+                        # Related entities from relations where this entity is "from"
+                        related_parts: list[str] = []
+                        for _rel, to_name in relations_by_from.get(ent.name, []):
+                            target = entity_map.get(to_name)
+                            if target and target.linkable:
+                                related_parts.append(f"[[{to_name}]]")
+                            else:
+                                related_parts.append(to_name)
+                        related_str = ""
+                        if related_parts:
+                            related_str = " — " + ", ".join(related_parts)
+                        lines.append(f"- {name_part}{attr_part}{related_str}")
+            else:
+                # Non-entity-centric: one-liner with linkable entities only
+                linkable = [e for e in entities.entities if e.linkable]
+                if linkable:
+                    mentions = ", ".join(f"[[{e.name}]]" for e in linkable)
+                    lines.append("")
+                    lines.append(f"Mentioned: {mentions}")
+
         lines.append("")
         lines.append("## 标签")
         lines.append("")
@@ -223,6 +289,31 @@ class ObsidianStorage:
         lines.append("")
 
         return "\n".join(lines)
+
+    def _add_transcript_link(self, summary_file: Path, transcript_stem: str) -> None:
+        """Add transcript wikilink to summary frontmatter after deferred transcript generation."""
+        text = summary_file.read_text(encoding="utf-8")
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return
+
+        frontmatter = yaml.safe_load(parts[1]) or {}
+        if frontmatter.get("transcript") == f"[[{transcript_stem}]]":
+            return
+
+        frontmatter["transcript"] = f"[[{transcript_stem}]]"
+        updated = (
+            "---\n"
+            + yaml.dump(
+                frontmatter,
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ).rstrip()
+            + "\n---"
+            + parts[2]
+        )
+        summary_file.write_text(updated, encoding="utf-8")
 
     def _render_transcript(
         self,

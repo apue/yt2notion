@@ -11,6 +11,7 @@ import pytest
 from yt2notion.models._parsers import parse_chinese_markdown, parse_summary_json
 from yt2notion.models.base import VideoMeta
 from yt2notion.models.claude_code import ClaudeCodeError, ClaudeCodeModel
+from yt2notion.retry import RetryExhausted
 
 SAMPLE_SUMMARY_JSON = {
     "sections": [
@@ -127,6 +128,22 @@ def test_summarize_integration(mock_run, meta):
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
+def test_review_and_summarize_integration(mock_run, meta):
+    combined = dict(SAMPLE_SUMMARY_JSON)
+    combined["reviewed_transcript"] = "[0:00] cleaned transcript"
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=json.dumps({"result": json.dumps(combined)}),
+        stderr="",
+    )
+    model = ClaudeCodeModel()
+    result = model.review_and_summarize("transcript text", meta)
+    assert result.reviewed_transcript == "[0:00] cleaned transcript"
+    assert result.summary.overall_summary
+
+
+@patch("yt2notion.models.claude_code.subprocess.run")
 def test_to_chinese_integration(mock_run, meta):
     mock_run.return_value = subprocess.CompletedProcess(
         args=[],
@@ -150,8 +167,52 @@ def test_claude_not_found(mock_run, meta):
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
-def test_claude_cli_error(mock_run, meta):
+@patch("yt2notion.retry.time.sleep", return_value=None)
+def test_claude_cli_error_exhausts_retries(mock_sleep, mock_run, meta):
     mock_run.side_effect = subprocess.CalledProcessError(1, "claude", stderr="error msg")
     model = ClaudeCodeModel()
-    with pytest.raises(ClaudeCodeError, match="failed"):
+    with pytest.raises(RetryExhausted):
         model.summarize("text", meta)
+    assert mock_run.call_count == 3
+
+
+@patch("yt2notion.models.claude_code.subprocess.run")
+@patch("yt2notion.retry.time.sleep", return_value=None)
+def test_claude_retries_on_empty_output(mock_sleep, mock_run, meta):
+    success_stdout = json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)})
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(args=[], returncode=0, stdout="   ", stderr=""),
+        subprocess.CompletedProcess(args=[], returncode=0, stdout=success_stdout, stderr=""),
+    ]
+    model = ClaudeCodeModel()
+    result = model.summarize("text", meta)
+    assert len(result.sections) == 2
+    assert mock_run.call_count == 2
+
+
+@patch("yt2notion.models.claude_code.subprocess.run")
+@patch("yt2notion.retry.time.sleep", return_value=None)
+def test_claude_retries_on_timeout(mock_sleep, mock_run, meta):
+    success_stdout = json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)})
+    mock_run.side_effect = [
+        subprocess.TimeoutExpired("claude", 120),
+        subprocess.CompletedProcess(args=[], returncode=0, stdout=success_stdout, stderr=""),
+    ]
+    model = ClaudeCodeModel()
+    result = model.summarize("text", meta)
+    assert len(result.sections) == 2
+    assert mock_run.call_count == 2
+
+
+@patch("yt2notion.models.claude_code.subprocess.run")
+def test_claude_has_timeout(mock_run, meta):
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)}),
+        stderr="",
+    )
+    model = ClaudeCodeModel()
+    model.summarize("text", meta)
+    call_kwargs = mock_run.call_args.kwargs
+    assert call_kwargs.get("timeout") == 120

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from yt2notion.process import display_to_seconds
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
 
 try:
     from notion_client import Client as _NotionClient
@@ -47,6 +47,7 @@ class NotionStorage:
         metadata: VideoMeta,
         *,
         transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
     ) -> str:
         """Create a Notion page and return its URL.
 

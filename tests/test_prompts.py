@@ -27,3 +27,30 @@ def test_render_prompt_no_vars():
     # Summarize and chinese prompts don't use {vars}, should load fine
     prompt = load_prompt("summarize")
     assert len(prompt) > 0
+
+
+def test_load_extract_entities():
+    from yt2notion.prompts import load_prompt
+
+    text = load_prompt("extract_entities")
+    assert "entities" in text
+    assert "linkable" in text
+
+
+def test_load_summarize_reviewed_prompt():
+    text = load_prompt("summarize_reviewed")
+    assert "ASR" in text
+    assert "reviewed_transcript" in text
+
+
+def test_load_summarize_reviewed_freeform_prompt():
+    text = load_prompt("summarize_reviewed_freeform")
+    assert "ASR" in text
+    assert "reviewed_transcript" in text
+
+
+def test_load_reduce_entities():
+    from yt2notion.prompts import load_prompt
+
+    text = load_prompt("reduce_entities")
+    assert "deduplicate" in text.lower() or "merge" in text.lower() or "consolidat" in text.lower()

@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import contextlib
+import html
 import json
+import re
 import subprocess
 from pathlib import Path
+from urllib.parse import urljoin
+
+import httpx
 
 from yt2notion.models.base import VideoMeta
+from yt2notion.process import SubtitleEntry
 
 
 class ExtractionError(Exception):
     """Raised when yt-dlp extraction fails."""
+
+
+_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+    )
+}
 
 
 def _run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
@@ -171,6 +185,45 @@ def extract_audio(
     raise ExtractionError(f"Audio download succeeded but file not found in {output_dir}")
 
 
+def extract_webpage_transcript(url: str, metadata: VideoMeta) -> list[SubtitleEntry]:
+    """Extract a transcript from the source page or a linked episode webpage."""
+    page_html = _fetch_page(url)
+
+    candidates = [url]
+    candidates.extend(_find_episode_webpage_candidates(page_html, base_url=url))
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+
+        html_text = page_html if candidate == url else _fetch_page(candidate)
+        paragraphs = _extract_transcript_paragraphs(html_text)
+        if paragraphs:
+            return _build_transcript_entries(paragraphs, metadata.duration_seconds)
+
+    return []
+
+
+def write_transcript_srt(entries: list[SubtitleEntry], output_path: Path) -> Path:
+    """Write transcript entries to an SRT file."""
+    lines: list[str] = []
+    for index, entry in enumerate(entries, start=1):
+        lines.extend(
+            [
+                str(index),
+                f"{_format_srt_timestamp(entry.start_seconds)} --> "
+                f"{_format_srt_timestamp(entry.end_seconds)}",
+                entry.text,
+                "",
+            ]
+        )
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    return output_path
+
+
 def _find_subtitle_file(output_dir: Path, video_id: str) -> Path | None:
     """Find a downloaded subtitle file in the output directory."""
     for ext in ("srt", "vtt"):
@@ -178,3 +231,95 @@ def _find_subtitle_file(output_dir: Path, video_id: str) -> Path | None:
         if candidates:
             return candidates[0]
     return None
+
+
+def _fetch_page(url: str) -> str:
+    """Fetch a webpage as text."""
+    response = httpx.get(url, headers=_HTTP_HEADERS, follow_redirects=True, timeout=30.0)
+    response.raise_for_status()
+    return response.text
+
+
+def _find_episode_webpage_candidates(page_html: str, *, base_url: str) -> list[str]:
+    """Find likely episode webpage links from a landing page."""
+    matches: list[str] = []
+    for match in re.finditer(
+        r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        page_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        href, inner_html = match.groups()
+        if "episode webpage" not in _html_to_text(inner_html).lower():
+            continue
+        matches.append(urljoin(base_url, href))
+    return matches
+
+
+def _extract_transcript_paragraphs(page_html: str) -> list[str]:
+    """Extract transcript paragraphs from a webpage transcript section."""
+    transcript_marker = re.search(
+        r'<div[^>]+id="transcript"[^>]*>.*?</div>\s*<div[^>]+class="[^"]*rich-text-block-6[^"]*"[^>]*>(.*?)</div>',
+        page_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not transcript_marker:
+        return []
+
+    content_html = transcript_marker.group(1)
+    paragraphs = re.findall(r"<p>(.*?)</p>", content_html, flags=re.IGNORECASE | re.DOTALL)
+
+    cleaned: list[str] = []
+    for paragraph in paragraphs:
+        text = _html_to_text(paragraph)
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _html_to_text(fragment: str) -> str:
+    """Convert a simple HTML fragment into readable text."""
+    fragment = re.sub(r"<br\s*/?>", "\n", fragment, flags=re.IGNORECASE)
+    fragment = re.sub(r"</p>\s*<p>", "\n\n", fragment, flags=re.IGNORECASE)
+    fragment = re.sub(r"<[^>]+>", "", fragment)
+    text = html.unescape(fragment)
+    text = text.replace("\xa0", " ")
+    text = text.replace("\u200d", "")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
+def _build_transcript_entries(
+    paragraphs: list[str], duration_seconds: int | float | None
+) -> list[SubtitleEntry]:
+    """Assign approximate timestamps across transcript paragraphs."""
+    cleaned = [paragraph for paragraph in paragraphs if paragraph]
+    if not cleaned:
+        return []
+
+    total_duration = float(duration_seconds or len(cleaned))
+    step = max(1.0, total_duration / len(cleaned))
+
+    entries: list[SubtitleEntry] = []
+    for index, paragraph in enumerate(cleaned):
+        start = index * step
+        end = min(total_duration, (index + 1) * step)
+        if end <= start:
+            end = start + 1.0
+        entries.append(
+            SubtitleEntry(
+                start_seconds=start,
+                end_seconds=end,
+                text=paragraph,
+            )
+        )
+    return entries
+
+
+def _format_srt_timestamp(seconds: float) -> str:
+    """Format seconds in SRT timestamp format."""
+    total_millis = max(0, int(seconds * 1000))
+    hours, remainder = divmod(total_millis, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    secs, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
