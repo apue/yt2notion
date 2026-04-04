@@ -26,7 +26,7 @@
 
 | Entry | File | Purpose |
 |---|---|---|
-| `uv run yt2notion "URL"` | `cli.py` → `pipeline.run_pipeline()` | Main CLI entrypoint via Typer |
+| `uv run yt2notion process "URL"` | `cli.py` → `pipeline.run_pipeline()` | Main CLI entrypoint via Typer (publishes by default) |
 | `uv run yt2notion prepare "URL"` | `cli.py` → `pipeline.prepare_content()` | Shared no-publish JSON entrypoint for Claude/Codex wrappers |
 | `python -m yt2notion.extract_cmd` | `extract_cmd.py` | Legacy transcript-only extraction helper |
 
@@ -34,7 +34,7 @@
 
 ## Canonical Pipeline Map
 
-Precision rule: this ordered list reflects the current implementation in `src/yt2notion/pipeline.py`. Older summaries may still call deferred review "6.5", but the actual long-content transcript review happens after summary publish.
+Precision rule: this ordered list reflects the current implementation in `src/yt2notion/pipeline.py`. Older summaries may still call transcript review "deferred", but current `full` mode performs long-content context review after summary generation and before publish.
 
 1. `DOWNLOAD`
    `metadata.json` + one of `subtitles.*` or `audio.*`
@@ -49,16 +49,16 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
    Trigger: oversized transcript segments
 5. `REVIEW`
    `reviewed.json` in `full` mode only
-   Branch: subtitle-sourced content skips review; short ASR in `summary` mode does internal review+summary in one analysis call; short ASR in `full` mode does blocking transcript review; long ASR content skips blocking review here
+   Branch: subtitle-sourced content skips review; short ASR in `summary` mode does internal review+summary in one analysis call; short ASR in `full` mode does blocking transcript review; long ASR content skips blocking review in this step
 6. `EXTRACT`
    `entities.json`
 7. `SUMMARIZE`
    `summary.json`
-8. `PUBLISH`
+8. `CONTEXT REVIEW`
+   long ASR content in `full` mode only; review transcript with summary context before publish
+9. `PUBLISH`
    summary page/note via storage backend
    For long content, publish summary first without transcript subpage
-9. `DEFERRED REVIEW`
-   long content only; review transcript after publish and attach transcript subpage/file
 
 ### Pipeline Truth by Step
 
@@ -68,11 +68,11 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 | `SEGMENT` | `pipeline._step_segment()` | `VideoMeta` | `segments.json` | LLM may be used here before ASR when description exists and chapters do not |
 | `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely |
 | `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription, never before |
-| `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers review |
+| `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers to context review step |
 | `EXTRACT` | `pipeline._step_extract()` | reviewed transcripts | `entities.json` | Uses `LLMCaller` |
 | `SUMMARIZE` | `pipeline._step_summarize()` | reviewed transcripts | `summary.json` | Short content single pass or chapter-aware; long content map-reduce |
+| `CONTEXT REVIEW` | `pipeline._review_transcript_with_summary_context()` | long-form transcripts + summary context | rewritten `reviewed.json` | `full` mode long ASR only; retries-exhausted falls back to unreviewed transcript with warning note |
 | `PUBLISH` | `storage.save()` | summary + metadata + optional transcript/entities | backend artifact | Long content omits transcript subpage in this call |
-| `DEFERRED REVIEW` | `pipeline._step_deferred_review()` | raw long-form transcripts + summary context | transcript subpage/file | Retries-exhausted falls back to unreviewed transcript with warning note |
 
 ### Branch Rules
 
@@ -91,9 +91,10 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 - subtitle-sourced transcripts:
   - skip blocking review
 - long content:
-  - skip blocking review before summarize
-  - publish summary first
-  - then run deferred review and transcript attachment
+  - skip blocking review in `REVIEW`
+  - summarize first
+  - in `full` mode, run context review before publish
+  - publish summary first, then attach transcript subpage/file
 
 ## Workspace Artifacts and Contracts
 
@@ -104,7 +105,7 @@ Canonical workspace artifacts:
 | `metadata.json` | `DOWNLOAD` | `VideoMeta` dataclass from `models/base.py` |
 | `segments.json` | `SEGMENT` | `list[{title, start_seconds, end_seconds, ?parent_title}]` |
 | `transcripts.json` | `TRANSCRIBE` / `TOPIC SEGMENT` | `list[{title, start_seconds, end_seconds, text, source}]`, `source = "subtitle" | "asr"` |
-| `reviewed.json` | `REVIEW` / `DEFERRED REVIEW` | same shape as `transcripts.json`; `text` cleaned or context-reviewed |
+| `reviewed.json` | `REVIEW` / `CONTEXT REVIEW` | same shape as `transcripts.json`; `text` cleaned or context-reviewed |
 | `entities.json` | `EXTRACT` | `EntityResult {domain, is_entity_centric, entity_types, entities, relations}` |
 | `summary.json` | `SUMMARIZE` | `ChineseContent {overview, key_points, tags, fun_facts, raw_markdown, ?mindmap}` |
 | `failed.json` | top-level pipeline error handling | `{url, step, error_type, error_message, retries_exhausted, timestamp}` style failure record |

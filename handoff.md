@@ -4,78 +4,73 @@
 
 ## 当前任务卡
 
-- 任务：完成三项需求落地并验证：summary/full mode、Codex backend、Codex slash command；补齐单测并跑通 Apple Podcasts 到 Obsidian 的端到端
+- 任务：修复 PR #10 code review 发现的问题并完成 PR 更新（自动发布契约、full 模式文本回填正确性、resume 校验、文档锚点同步）
 - 状态：`done`
 - 当前 owner：Codex
 - 上一执行者：User
 - 下一执行者：User
-- 来源：用户要求用 subagent 产出开发计划并完成改造，补充分测试后执行指定 Apple Podcasts 链接的端到端验证（默认 Obsidian）
+- 来源：用户要求基于 review 反馈做完整修复、保证测试通过，并用 `gh` 命令完成 PR
 - 目标：
-  - 产出三项需求开发计划（里程碑 + 验收标准）
-  - 完成代码改造并补齐关键单测
-  - 跑通指定 URL 的端到端流程并落盘到 Obsidian
+  - 明确 `process` 默认自动发布契约并消除接口歧义
+  - 修复 full 模式长内容复审回填错位
+  - 补齐 resume `summarize` 对 `entities.json` 的严格校验
+  - 去除重复 transcript markdown 渲染实现
+  - 更新 `PROJECT_MAP.md` / `README.md` 行为说明
 - 非目标：
-  - 不发布到 Notion
-  - 不做无关重构
+  - 不引入新功能
+  - 不做超出本轮问题的架构重构
 - 约束：
   - 不回滚他人改动
-  - 只在本轮负责文件中做最小改动
-  - pipeline/contract 事实以 `PROJECT_MAP.md` 为准
+  - pipeline/contract 事实以 `PROJECT_MAP.md` 为准并同步文档
 - 受影响文件：
   - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/entity_extract.py](./src/yt2notion/entity_extract.py)
-  - [src/yt2notion/extract.py](./src/yt2notion/extract.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
   - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
   - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_entity_extract.py](./tests/test_entity_extract.py)
   - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_model_factory.py](./tests/test_model_factory.py)
-  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
-  - [tests/test_agent_commands.py](./tests/test_agent_commands.py)
+  - [tests/test_integration.py](./tests/test_integration.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+  - [handoff.md](./handoff.md)
 - 验收标准：
-  - 三项需求均已落地并有对应测试
+  - 关键 review 问题修复完成
   - 全量测试通过
-  - 指定 URL 端到端成功写入 Obsidian
 - 建议命令：
   - `uv run pytest tests/ -q`
-  - `uv run yt2notion process '<url>' -c /tmp/yt2notion-e2e-gpt54mini-serial.yaml --no-confirm -v --workspace-dir <workspace>`
+  - `uv run ruff check src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py tests/test_cli.py tests/test_pipeline.py tests/test_integration.py`
 - 未决问题：
   - 无
 
 ## 当前执行记录
 
 - 已完成：
-  - 三项需求实现完成：`summary/full mode`、`codex_cli backend`、`.codex` slash command 入口
-  - 补齐并扩展测试覆盖（pipeline/config/cli/model factory/codex backend/agent commands）
-  - 优化 E2E 稳定性：网页 transcript fallback、summary 模式下 subtitle-derived 内容跳过实体抽取、实体 map-reduce 批次优化
-  - 端到端成功：Apple Podcasts 指定 URL 完整跑通并写入 Obsidian
+  - 移除 `process`/`run_pipeline` 中 `no_confirm` 契约，`process` 明确默认自动发布
+  - `--from` 帮助文案更新为 `download/segment/transcribe/review/extract/summarize`
+  - `prepare` 复用 `pipeline.render_transcript_markdown()`，去除 CLI 重复实现
+  - 修复 `_merge_segments_into_groups` 与 `_redistribute_reviewed_text` 分组不一致导致的错位回填
+  - `resume_from="summarize"` 严格要求 `entities.json` 存在
+  - 修复 `codex exec` 失败时临时文件未清理的问题
+  - 删除未使用的 `_step_deferred_review`，避免行为误导
+  - 同步更新 `PROJECT_MAP.md` / `README.md` 的实际 pipeline 与发布语义说明
 - 当前阻塞：
   - 无
 - 已修改文件：
   - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/entity_extract.py](./src/yt2notion/entity_extract.py)
-  - [src/yt2notion/extract.py](./src/yt2notion/extract.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
   - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
   - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_entity_extract.py](./tests/test_entity_extract.py)
   - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_config.py](./tests/test_config.py)
-  - [tests/test_model_factory.py](./tests/test_model_factory.py)
-  - [tests/test_agent_commands.py](./tests/test_agent_commands.py)
-  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
+  - [tests/test_integration.py](./tests/test_integration.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `uv run pytest tests/test_pipeline.py tests/test_entity_extract.py tests/test_cli.py tests/test_codex_cli.py tests/test_config.py tests/test_model_factory.py tests/test_agent_commands.py -q` -> `65 passed`
-  - `uv run ruff check src/yt2notion/pipeline.py src/yt2notion/entity_extract.py tests/test_pipeline.py tests/test_entity_extract.py` -> `All checks passed`
-  - `uv run pytest tests/ -q` -> `227 passed`
-  - `uv run yt2notion process 'https://podcasts.apple.com/us/podcast/google-part-iii-the-ai-company/id1050462261?i=1000730326283' -c /tmp/yt2notion-e2e-gpt54mini-serial.yaml --no-confirm -v --workspace-dir /tmp/yt2notion-e2e-workspace-15` -> 成功发布到 Obsidian
+  - `uv run ruff check src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py tests/test_cli.py tests/test_pipeline.py tests/test_integration.py` -> `All checks passed`
+  - `uv run pytest tests/ -q` -> `234 passed`
 - 风险/回滚点：
-  - `codex exec` 真实运行时延迟仍可能波动，当前通过 summary 模式降载规避主要卡点
-  - slash-command 测试是文档契约级，不覆盖宿主端 UI 集成行为
+  - 仓库全量 `ruff check src tests` 仍有历史基线问题（`RetryExhausted` 命名、`tests/test_retry.py` import 排序），与本次修复无关
 - 下一步：
-  - 用户在 Obsidian 校验产物内容与格式；如需 `full` 模式 transcript 页面产物，再补跑一次 `--mode full` 验证
+  - 使用 `gh` 提交 commit 并推送到 PR #10 分支
 
 ## 接手检查清单
 
@@ -121,3 +116,4 @@
 | 2026-04-03 | User | Codex | 生成 `AGENTS.md` / `handoff.md` / `config.toml` 初稿 | 完成 |
 | 2026-04-03 | User | Codex | 把工作流接入 Claude 入口并修正交接机制 | 完成 |
 | 2026-04-03 | User | Codex | 审计三项需求测试覆盖并补测，输出开发计划 | 完成 |
+| 2026-04-04 | User | Codex | 修复 PR #10 review 问题并同步文档/测试 | 完成 |

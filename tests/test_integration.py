@@ -85,7 +85,6 @@ def test_full_pipeline_with_fixtures(
     result = run_pipeline(
         "https://www.youtube.com/watch?v=abc123",
         config,
-        no_confirm=True,
     )
 
     # 5. Verify

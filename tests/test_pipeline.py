@@ -271,15 +271,12 @@ def test_pipeline_full_mock(
     failed_file.parent.mkdir(parents=True, exist_ok=True)
     failed_file.write_text("{}", encoding="utf-8")
 
-    with patch("yt2notion.pipeline.typer.confirm") as mock_confirm:
-        result = run_pipeline(
-            "https://www.youtube.com/watch?v=abc123",
-            config,
-            no_confirm=True,
-        )
+    result = run_pipeline(
+        "https://www.youtube.com/watch?v=abc123",
+        config,
+    )
 
     assert result == "https://notion.so/page123"
-    mock_confirm.assert_not_called()
     mock_extract_meta.assert_called_once()
     mock_summarizer.summarize.assert_called_once()
     mock_summarizer.to_chinese.assert_called_once()
@@ -398,6 +395,33 @@ def test_rebase_chunk_entries_drops_overlap_duplicates():
     assert [entry.text for entry in rebased] == ["keep-middle"]
     assert rebased[0].start_seconds == pytest.approx(300.5)
     assert rebased[0].end_seconds == pytest.approx(302.5)
+
+
+def test_redistribute_reviewed_text_respects_actual_group_boundaries():
+    from yt2notion.pipeline import _merge_segments_into_groups, _redistribute_reviewed_text
+
+    segments = [
+        {
+            "title": f"S{i + 1}",
+            "start_seconds": i * 10,
+            "end_seconds": (i + 1) * 10,
+            "text": "segment",
+            "source": "asr",
+        }
+        for i in range(7)
+    ]
+    groups = _merge_segments_into_groups(segments)
+    assert [group["segment_count"] for group in groups] == [6, 1]
+
+    reviewed = _redistribute_reviewed_text(
+        segments,
+        groups,
+        ["FIRST-GROUP-REVIEWED", "SECOND-GROUP-REVIEWED"],
+    )
+
+    assert reviewed[-1]["text"] == "SECOND-GROUP-REVIEWED"
+    for seg in reviewed[:-1]:
+        assert "SECOND-GROUP-REVIEWED" not in seg["text"]
 
 
 @patch("yt2notion.audio.split_audio")
@@ -537,6 +561,26 @@ def test_resolve_output_mode_rejects_invalid(config):
 
     with pytest.raises(ValueError, match="Unknown output mode"):
         _resolve_output_mode(config, "invalid-mode")
+
+
+def test_prepare_content_resume_summarize_requires_entities(config, mock_meta):
+    from pathlib import Path
+
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    workspace.save_metadata(mock_meta)
+    workspace.save_segments([])
+    workspace.save_transcripts([])
+
+    with pytest.raises(ValueError, match="no entities.json"):
+        prepare_content(
+            mock_meta.url,
+            config,
+            resume_from="summarize",
+            workspace_dir=str(workspace.dir),
+        )
 
 
 @patch("yt2notion.pipeline.create_llm_caller")

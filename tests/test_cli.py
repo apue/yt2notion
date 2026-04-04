@@ -62,7 +62,6 @@ def test_cli_process_invocation(mock_pipeline, mock_load_config):
         [
             "process",
             "https://www.youtube.com/watch?v=abc123",
-            "--no-confirm",
             "-v",
             "--mode",
             "full",
@@ -75,7 +74,6 @@ def test_cli_process_invocation(mock_pipeline, mock_load_config):
     assert result.exit_code == 0
     call_kwargs = mock_pipeline.call_args
     assert call_kwargs.kwargs.get("verbose") is True
-    assert call_kwargs.kwargs.get("no_confirm") is True
     assert call_kwargs.kwargs.get("mode") == "full"
 
 

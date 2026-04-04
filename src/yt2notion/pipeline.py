@@ -41,7 +41,6 @@ if TYPE_CHECKING:
         Summarizer,
         VideoMeta,
     )
-    from yt2notion.storage.base import Storage
 
 
 FULL_AUDIO_ASR_CHUNK_SECONDS = 300
@@ -70,12 +69,11 @@ def run_pipeline(
     *,
     verbose: bool = False,
     dry_run: bool = False,
-    no_confirm: bool = False,
     resume_from: str | None = None,
     workspace_dir: str | None = None,
     mode: str | None = None,
 ) -> str:
-    """Run the pipeline and optionally publish to the configured storage backend."""
+    """Run the pipeline and publish to the configured storage backend."""
     prepared = prepare_content(
         url,
         config,
@@ -278,6 +276,8 @@ def prepare_content(
             ws.save_entities(entities)
         else:
             entities = ws.load_entities()
+            if entities is None:
+                raise ValueError("Cannot resume: no entities.json in workspace")
 
         # --- Step 6: SUMMARIZE ---
         current_step = "summarize"
@@ -993,6 +993,7 @@ def _merge_segments_into_groups(segments: list[dict]) -> list[dict]:
                 "end_seconds": batch[-1]["end_seconds"],
                 "text": "\n\n".join(segment.get("text", "") for segment in batch),
                 "source": batch[0].get("source", "asr"),
+                "segment_count": len(batch),
             }
         )
 
@@ -1012,38 +1013,6 @@ def _merge_segments_into_groups(segments: list[dict]) -> list[dict]:
     _flush(current_batch)
 
     return groups
-
-
-def _step_deferred_review(
-    transcripts: list[dict],
-    chinese_content: ChineseContent,
-    metadata: VideoMeta,
-    config: dict,
-    storage: Storage,
-    summary_page_url: str,
-    ws: Workspace,
-    verbose: bool,
-) -> None:
-    """Step 6: Context-aware transcript review using completed summary, then add sub-page.
-
-    Runs after summary is published. Uses summary's overview, key_points, and tags
-    as terminology anchors for higher-quality ASR correction.
-    """
-    reviewed = _review_transcript_with_summary_context(
-        transcripts,
-        chinese_content,
-        metadata,
-        config,
-        ws,
-        verbose,
-    )
-
-    # Add transcript sub-page to existing summary page
-    if verbose:
-        typer.echo("  Adding transcript sub-page...")
-    storage.add_transcript_subpage(summary_page_url, reviewed, metadata)
-    if verbose:
-        typer.echo("  Transcript sub-page added.")
 
 
 def _build_review_context(chinese_content: ChineseContent) -> dict[str, str]:
@@ -1135,11 +1104,11 @@ def render_prepared_output(prepared: PreparedContent, config: AppConfig) -> str:
     )
     parts = [credit, prepared.chinese_content.raw_markdown]
     if prepared.output_mode == "full" and prepared.transcript_segments:
-        parts.append(_render_transcript_markdown(prepared.metadata, prepared.transcript_segments))
+        parts.append(render_transcript_markdown(prepared.metadata, prepared.transcript_segments))
     return "\n\n".join(parts)
 
 
-def _render_transcript_markdown(metadata: VideoMeta, transcript_segments: list[dict]) -> str:
+def render_transcript_markdown(metadata: VideoMeta, transcript_segments: list[dict]) -> str:
     """Render reviewed transcript for dry-run and agent JSON output."""
     lines = [f"## 逐字稿：{metadata.title}", ""]
     for seg in transcript_segments:
@@ -1174,15 +1143,17 @@ def _redistribute_reviewed_text(
     Uses character-length ratio to split reviewed text proportionally.
     """
     result: list[dict] = []
-    n = len(original_segments)
-    target_groups = len(groups)
-    group_size = n / target_groups
+    cursor = 0
 
-    for g in range(target_groups):
-        start_idx = int(g * group_size)
-        end_idx = int((g + 1) * group_size) if g < target_groups - 1 else n
-        batch = original_segments[start_idx:end_idx]
-        reviewed_text = reviewed_texts[g]
+    for group, reviewed_text in zip(groups, reviewed_texts, strict=True):
+        segment_count = int(group.get("segment_count", 0))
+        if segment_count <= 0:
+            continue
+
+        batch = original_segments[cursor : cursor + segment_count]
+        cursor += segment_count
+        if not batch:
+            continue
 
         if len(batch) == 1:
             result.append({**batch[0], "text": reviewed_text})
@@ -1213,5 +1184,9 @@ def _redistribute_reviewed_text(
                 chunk = reviewed_text[pos:break_pos]
                 pos = break_pos
             result.append({**seg, "text": chunk.strip()})
+
+    # Defensive fallback for unexpected group mismatch; preserve untouched tail.
+    if cursor < len(original_segments):
+        result.extend({**seg} for seg in original_segments[cursor:])
 
     return result

@@ -9,9 +9,12 @@ import typer
 
 from yt2notion.config import ConfigError, load_config
 from yt2notion.extract import ExtractionError
-from yt2notion.process import seconds_to_display
 
 app = typer.Typer(help="YouTube videos → structured Chinese notes → Notion")
+RESUME_STEP_HELP = (
+    "Step to resume from "
+    "(download/segment/transcribe/review/extract/summarize)"
+)
 
 
 @app.command()
@@ -20,11 +23,8 @@ def process(
     config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Output result without publishing"),
-    no_confirm: bool = typer.Option(False, "--no-confirm", help="Skip confirmation prompt"),
     resume: str = typer.Option(None, "--resume", help="Resume from workspace directory"),
-    from_step: str = typer.Option(
-        None, "--from", help="Step to resume from (download/segment/transcribe/review/summarize)"
-    ),
+    from_step: str = typer.Option(None, "--from", help=RESUME_STEP_HELP),
     workspace_dir: str = typer.Option(None, "--workspace-dir", help="Workspace base directory"),
     mode: str = typer.Option(None, "--mode", help="Output mode: summary or full"),
 ) -> None:
@@ -43,7 +43,6 @@ def process(
             config,
             verbose=verbose,
             dry_run=dry_run,
-            no_confirm=no_confirm,
             resume_from=from_step,
             workspace_dir=resume or workspace_dir,
             mode=mode,
@@ -64,9 +63,7 @@ def prepare(
     config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     resume: str = typer.Option(None, "--resume", help="Resume from workspace directory"),
-    from_step: str = typer.Option(
-        None, "--from", help="Step to resume from (download/segment/transcribe/review/summarize)"
-    ),
+    from_step: str = typer.Option(None, "--from", help=RESUME_STEP_HELP),
     workspace_dir: str = typer.Option(None, "--workspace-dir", help="Workspace base directory"),
     mode: str = typer.Option(None, "--mode", help="Output mode: summary or full"),
 ) -> None:
@@ -77,7 +74,7 @@ def prepare(
         typer.echo(f"Configuration error: {e}", err=True)
         raise typer.Exit(1) from None
 
-    from yt2notion.pipeline import prepare_content
+    from yt2notion.pipeline import prepare_content, render_transcript_markdown
 
     try:
         prepared = prepare_content(
@@ -97,18 +94,9 @@ def prepare(
 
     transcript_markdown = None
     if prepared.transcript_segments:
-        lines = [f"## 逐字稿：{prepared.metadata.title}", ""]
-        for seg in prepared.transcript_segments:
-            lines.append(
-                (
-                    f"### [{seconds_to_display(int(seg.get('start_seconds', 0)))}] "
-                    f"{str(seg.get('title', '')).strip()}"
-                ).strip()
-            )
-            lines.append("")
-            lines.append(str(seg.get("text", "")).strip())
-            lines.append("")
-        transcript_markdown = "\n".join(lines).strip()
+        transcript_markdown = render_transcript_markdown(
+            prepared.metadata, prepared.transcript_segments
+        )
 
     payload = {
         "mode": prepared.output_mode,

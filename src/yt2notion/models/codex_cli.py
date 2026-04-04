@@ -81,24 +81,22 @@ def _run_codex_exec(
     ]
 
     try:
-        subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=timeout_seconds,
-        )
-    except FileNotFoundError as e:
-        raise CodexCLIError("'codex' CLI not found on PATH") from e
-    finally:
-        # Keep path for read attempt below on success.
-        pass
+        try:
+            subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=timeout_seconds,
+            )
+        except FileNotFoundError as e:
+            raise CodexCLIError("'codex' CLI not found on PATH") from e
 
-    try:
-        raw = output_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        raw = ""
+        try:
+            raw = output_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raw = ""
     finally:
         output_path.unlink(missing_ok=True)
 

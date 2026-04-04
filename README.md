@@ -33,8 +33,8 @@ uv sync --extra notion
 cp config.example.yaml config.yaml
 # Edit config.yaml with your Notion token and preferences
 
-# Run
-uv run yt2notion "https://www.youtube.com/watch?v=VIDEO_ID"
+# Run (publishes by default)
+uv run yt2notion process "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Prepare JSON for Claude/Codex wrappers without publishing
 uv run yt2notion prepare "https://www.youtube.com/watch?v=VIDEO_ID" --mode summary
@@ -81,7 +81,7 @@ ASR auto-restart operations and runbook:
 
 ## How It Works
 
-Pipeline truth, step order, and artifact contracts live in [PROJECT_MAP.md](PROJECT_MAP.md). This README keeps the user-facing summary only: download metadata and media, segment by chapters or topic boundaries, transcribe from subtitles or ASR, optionally keep a reviewed transcript in `full` mode, summarize, then publish to storage.
+Pipeline truth, step order, and artifact contracts live in [PROJECT_MAP.md](PROJECT_MAP.md). This README keeps the user-facing summary only: download metadata and media, segment by chapters or topic boundaries, transcribe from subtitles or ASR, optionally keep a reviewed transcript in `full` mode, summarize, then publish to storage. Use `prepare` (or `process --dry-run`) when you want a no-publish run.
 
 If you need the canonical pipeline map, follow [PROJECT_MAP.md](PROJECT_MAP.md) first.
 
