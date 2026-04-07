@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from yt2notion.models import create_summarizer
 from yt2notion.models.base import Summary, VideoMeta
 from yt2notion.models.codex_cli import CodexCLICaller, CodexCLIError, CodexCLIModel
 from yt2notion.models.llm import create_llm_caller
@@ -48,6 +50,22 @@ def test_codex_caller_invokes_exec_and_returns_text(mock_run):
     assert "--sandbox" in cmd and "read-only" in cmd
     assert cmd[-1] == "-"
     assert mock_run.call_args.kwargs.get("timeout") == 300
+
+
+@patch("yt2notion.models.codex_cli.subprocess.run")
+def test_codex_caller_passes_workdir_to_subprocess_run(mock_run):
+    workdir = "/tmp/yt2notion-codex-runtime"
+
+    def _side_effect(cmd, **kwargs):
+        _write_output_from_cmd(cmd, "ok")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = _side_effect
+    caller = CodexCLICaller(model="gpt-5.2", workdir=workdir)
+    result = caller.call("system", "user")
+
+    assert result == "ok"
+    assert mock_run.call_args.kwargs.get("cwd") == workdir
 
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
@@ -98,6 +116,19 @@ def test_codex_caller_no_retry_on_missing_binary(mock_run):
     mock_run.side_effect = FileNotFoundError("codex not found")
     caller = CodexCLICaller(model="gpt-5.2")
     with pytest.raises(CodexCLIError, match="not found"):
+        caller.call("system", "user")
+    assert mock_run.call_count == 1
+
+
+@patch("yt2notion.models.codex_cli.subprocess.run")
+def test_codex_caller_reports_invalid_workdir(mock_run):
+    bad_workdir = "/tmp/does-not-exist-codex-runtime"
+    mock_run.side_effect = FileNotFoundError(
+        errno.ENOENT, "No such file or directory", bad_workdir
+    )
+    caller = CodexCLICaller(model="gpt-5.2", workdir=bad_workdir)
+
+    with pytest.raises(CodexCLIError, match="working directory not found"):
         caller.call("system", "user")
     assert mock_run.call_count == 1
 
@@ -238,3 +269,34 @@ def test_create_llm_caller_openai_alias_maps_legacy_model_name():
     caller = create_llm_caller({"model": {"backend": "openai_api", "review_model": "haiku"}})
     assert isinstance(caller, CodexCLICaller)
     assert caller.model == "gpt-5.2"
+
+
+def test_create_llm_caller_codex_backend_forwards_runtime_workdir():
+    caller = create_llm_caller(
+        {
+            "model": {
+                "backend": "codex_cli",
+                "review_model": "gpt-5.2",
+                "_runtime": {"codex_workdir": "/tmp/runtime-agent-home"},
+            }
+        }
+    )
+    assert isinstance(caller, CodexCLICaller)
+    assert caller.workdir == "/tmp/runtime-agent-home"
+
+
+def test_create_summarizer_codex_backend_forwards_runtime_workdir():
+    summarizer = create_summarizer(
+        {
+            "model": {
+                "backend": "codex_cli",
+                "summarize_model": "gpt-5.2",
+                "translate_model": "gpt-5.2",
+                "_runtime": {"codex_workdir": "/tmp/runtime-agent-home"},
+            },
+        }
+    )
+    assert isinstance(summarizer, CodexCLIModel)
+    assert summarizer.workdir == "/tmp/runtime-agent-home"
+    assert summarizer._summarize_caller.workdir == "/tmp/runtime-agent-home"
+    assert summarizer._translate_caller.workdir == "/tmp/runtime-agent-home"
