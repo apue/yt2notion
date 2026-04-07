@@ -158,6 +158,28 @@ The agent runner converts `agent.yaml` into the existing `AppConfig` shape befor
 
 This keeps user config minimal while preserving the current internal factories.
 
+### Existing Pipeline Config Reuse
+
+The agent must preserve existing pipeline configuration that is not part of the minimal user-facing agent surface.
+
+Implementation rule:
+
+- load the repository `config.yaml` as the base pipeline config,
+- override only the fixed agent choices and runtime-home-derived paths,
+- keep existing `extract.*` behavior unless the agent explicitly needs to change it.
+
+This matters most for remote ASR reliability. The current project already supports:
+
+- `extract.asr.endpoint`
+- `extract.asr.healthcheck_path`
+- `extract.asr.healthcheck_timeout_seconds`
+- `extract.asr.restart_before_transcribe`
+- `extract.asr.restart_on_unhealthy`
+- `extract.asr.restart_command`
+- readiness / grace timing fields
+
+The agent must reuse these settings as-is, including existing restart scripts such as `scripts/asr/restart_remote_asr.sh`. The queue/worker layer must not invent a second ASR restart or healthcheck mechanism.
+
 ## Queue and Job Model
 
 ### Queue Semantics
@@ -384,6 +406,19 @@ Use `run_pipeline()` rather than `prepare_content()` so Obsidian writing stays i
 
 Because the product constraint is fixed to Obsidian + summary mode, this publish is expected behavior, not an extra confirmation step.
 
+### ASR Self-Healing
+
+If a job falls back to ASR, the agent relies on the existing remote ASR self-healing path in `transcribe/remote.py` and the current `extract.asr.*` config contract.
+
+Required behavior:
+
+- do not bypass `create_transcriber(config)`
+- do not move ASR restart logic into the worker layer
+- do not expose ASR restart knobs in `agent.yaml` in MVP
+- preserve base-config values for `restart_before_transcribe`, `restart_on_unhealthy`, and `restart_command`
+
+This allows the current `scripts/asr/restart_remote_asr.sh` flow and related healthcheck behavior to continue working unchanged under the agent.
+
 ### Progress Reporting
 
 Add an optional progress callback to pipeline entrypoints. Minimal shape:
@@ -469,6 +504,7 @@ Mock pipeline execution or patch storage/model layers so tests validate:
 - success updates `result_path`
 - failure updates `error`
 - progress callback writes `current_step`
+- base config ASR restart settings survive agent config expansion
 
 ### Verification Standard
 
