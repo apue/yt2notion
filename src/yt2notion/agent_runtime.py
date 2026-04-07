@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from copy import deepcopy
@@ -204,17 +205,24 @@ def load_agent_config(paths: AgentPaths) -> AgentConfig:
 
 def read_queue(paths: AgentPaths) -> dict[str, Any]:
     """Read queue.json."""
-    return json.loads(paths.queue_path.read_text(encoding="utf-8"))
+    with paths.queue_path.open(encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+        payload = json.load(handle)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return payload
 
 
 def write_queue(paths: AgentPaths, queue: dict[str, Any]) -> None:
     """Persist queue.json with updated timestamp."""
     payload = dict(queue)
     payload["updated_at"] = _now_iso()
-    paths.queue_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    with paths.queue_path.open("r+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.seek(0)
+        handle.truncate()
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.flush()
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def write_job(paths: AgentPaths, record: dict[str, Any]) -> None:
