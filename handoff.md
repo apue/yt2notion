@@ -5,10 +5,10 @@
 ## 当前任务卡
 
 - 任务：为 `yt2notion` 设计一个基于现有 pipeline 的简单 CLI agent（Codex 后端、Obsidian 存储、禁用 full mode、支持排队处理 / 进度查询 / 终端通知）
-- 状态：`in_progress`
-- 当前 owner：Codex
+- 状态：`done`
+- 当前 owner：User
 - 上一执行者：User
-- 下一执行者：User
+- 下一执行者：User / Reviewer
 - 来源：用户提出新需求，已完成方案、spec、plan，并进入 subagent-driven implementation 与收口阶段
 - 目标：
   - 交付 file-backed CLI agent MVP：提交任务、查看状态、查看进度、查看日志、重试、前台/后台 drain
@@ -70,7 +70,7 @@
     - 不继续为 JSON 状态文件追求数据库级一致性
     - 后续若要强化一致性，优先引入 SQLite 而不是继续补 JSON 事务语义
 - 当前阻塞：
-  - 无硬阻塞；正在做收口文档与最终验证，准备提 PR
+  - 无
 - 已修改文件：
   - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
   - [src/yt2notion/agent_worker.py](./src/yt2notion/agent_worker.py)
@@ -87,15 +87,14 @@
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `uv run pytest tests/test_agent_worker.py tests/test_cli.py -q` → `40 passed`
-  - `uv run ruff check src/yt2notion/agent_worker.py src/yt2notion/cli.py tests/test_agent_worker.py tests/test_cli.py` → pass
+  - `uv run pytest tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py -q` → `88 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py src/yt2notion/models/llm.py src/yt2notion/models/__init__.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py` → pass
 - 风险/回滚点：
   - file-backed queue / worker state 是 best-effort，本轮不承诺数据库级事务一致性
   - 少量 reviewer 指出的极端多进程竞争/崩溃窗口被有意接受为 MVP residual risk，而不是继续在 JSON 文件上过度工程
 - 下一步：
-  - 跑一轮更完整的 focused verification
-  - 提交当前实现与文档
-  - 创建 PR
+  - 基于当前分支创建 PR
+  - 后续若需要更强状态一致性，优先将 file-backed state layer 替换为 SQLite
 
 ## 接手检查清单
 
