@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 
 from yt2notion.process import SubtitleEntry
-from yt2notion.retry import RetryExhausted, retry
+from yt2notion.retry import RetryExhaustedError, retry
 
 
 class TranscriptionError(Exception):
@@ -36,9 +36,7 @@ class RemoteTranscriber:
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
-        self.healthcheck_path = (
-            f"/{healthcheck_path.lstrip('/')}" if healthcheck_path else ""
-        )
+        self.healthcheck_path = f"/{healthcheck_path.lstrip('/')}" if healthcheck_path else ""
         self.healthcheck_timeout = max(0.1, float(healthcheck_timeout))
         self.restart_before_transcribe = restart_before_transcribe
         self.restart_on_unhealthy = restart_on_unhealthy
@@ -91,7 +89,7 @@ class RemoteTranscriber:
                 ),
                 label=f"ASR transcribe {audio_path.name}",
             )
-        except RetryExhausted as e:
+        except RetryExhaustedError as e:
             raise TranscriptionError(f"ASR request failed: {e}") from e
 
         try:

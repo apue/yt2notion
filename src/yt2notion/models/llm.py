@@ -38,7 +38,7 @@ class ClaudeCodeCaller:
             "json",
         ]
 
-        from yt2notion.retry import RetryExhausted, retry
+        from yt2notion.retry import RetryExhaustedError, retry
 
         class _EmptyOutputError(Exception):
             pass
@@ -71,7 +71,7 @@ class ClaudeCodeCaller:
                 ),
                 label=f"claude -p {self.model}",
             )
-        except RetryExhausted:
+        except RetryExhaustedError:
             raise
 
 
