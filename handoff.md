@@ -69,6 +69,8 @@
     - 当前 file-backed 状态层按单用户本地自用 MVP 接受
     - 不继续为 JSON 状态文件追求数据库级一致性
     - 后续若要强化一致性，优先引入 SQLite 而不是继续补 JSON 事务语义
+  - PR #13 已合入 `main`
+  - README 已补充 `agent` 最终使用方式与最小 `agent.yaml` 示例
 - 当前阻塞：
   - 无
 - 已修改文件：
@@ -93,7 +95,7 @@
   - file-backed queue / worker state 是 best-effort，本轮不承诺数据库级事务一致性
   - 少量 reviewer 指出的极端多进程竞争/崩溃窗口被有意接受为 MVP residual risk，而不是继续在 JSON 文件上过度工程
 - 下一步：
-  - 审阅并合并 PR #13
+  - 基于真实本地 vault 做一轮 `agent init/add/status/run` smoke test
   - 后续若需要更强状态一致性，优先将 file-backed state layer 替换为 SQLite
 
 ## 接手检查清单
