@@ -72,7 +72,9 @@ def _normalize_runtime_path(
     if not candidate.is_absolute():
         base = anchor if anchor is not None else Path.cwd()
         candidate = base / candidate
-    normalized = str(candidate.resolve(strict=False))
+    # Use abspath (normalize . / ..) without following symlinks — iCloud
+    # Obsidian vaults are often symlinked and resolve() would break them.
+    normalized = os.path.abspath(str(candidate))
 
     if not normalized:
         raise ValueError(f"{field_name} is required")
@@ -227,7 +229,7 @@ def write_queue(paths: AgentPaths, queue: dict[str, Any]) -> None:
 
 def write_job(paths: AgentPaths, record: dict[str, Any]) -> None:
     """Persist a job record under jobs/<job_id>.json."""
-    job_path = paths.jobs_dir / f'{record["job_id"]}.json'
+    job_path = paths.jobs_dir / f"{record['job_id']}.json"
     paths.jobs_dir.mkdir(exist_ok=True)
     job_path.write_text(
         json.dumps(record, ensure_ascii=False, indent=2),

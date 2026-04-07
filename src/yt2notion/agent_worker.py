@@ -68,17 +68,7 @@ def _notification_line(job_id: str, status: str, detail: str) -> str:
     return f"JOB {job_id} {status} {detail}"
 
 
-def _emit_notification(
-    paths: AgentPaths,
-    job_id: str,
-    notification: str,
-    *,
-    capture_pipeline_output: bool,
-) -> None:
-    if capture_pipeline_output:
-        append_job_log(paths, job_id, notification)
-        print(notification)
-        return
+def _emit_notification(paths: AgentPaths, job_id: str, notification: str) -> None:
     append_job_log(paths, job_id, notification)
     print(notification)
 
@@ -134,6 +124,13 @@ def _pid_alive(pid: int) -> bool:
 
 def _spawning_grace_active(worker: dict) -> bool:
     if worker.get("mode") != "spawning":
+        return False
+    try:
+        pid = int(worker.get("pid", 0))
+    except (TypeError, ValueError):
+        return False
+    if pid and not _pid_alive(pid):
+        # Parent CLI crashed between claim and spawn — don't wait for grace.
         return False
     started_at = worker.get("started_at")
     if not isinstance(started_at, str) or not started_at:
@@ -244,9 +241,7 @@ def remove_queued_job(paths: AgentPaths, job_id: str) -> None:
         payload = json.load(handle)
         queued_job_ids = payload.setdefault("queued_job_ids", [])
         payload["queued_job_ids"] = [
-            queued_job_id
-            for queued_job_id in queued_job_ids
-            if queued_job_id != normalized_job_id
+            queued_job_id for queued_job_id in queued_job_ids if queued_job_id != normalized_job_id
         ]
         payload["updated_at"] = _now_iso()
         handle.seek(0)
@@ -329,7 +324,7 @@ def retry_job(paths: AgentPaths, job_id: str) -> str:
     if original.get("status") != "failed":
         raise ValueError("Only failed jobs can be retried")
 
-    new_job_id = f'{datetime.now().strftime("%Y%m%d-%H%M%S")}-retry-{uuid4().hex[:6]}'
+    new_job_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-retry-{uuid4().hex[:6]}"
     new_record = {
         "job_id": new_job_id,
         "url": original["url"],
@@ -433,12 +428,7 @@ def run_worker_once(
         write_job(paths, failed)
         _backfill_job_metadata(paths, agent_config, job_id)
         notification = _notification_line(job_id, "FAILED", str(exc))
-        _emit_notification(
-            paths,
-            job_id,
-            notification,
-            capture_pipeline_output=capture_pipeline_output,
-        )
+        _emit_notification(paths, job_id, notification)
         return True
 
     completed = _read_job(paths, job_id)
@@ -450,12 +440,7 @@ def run_worker_once(
         write_job(paths, completed)
         _backfill_job_metadata(paths, agent_config, job_id)
         notification = _notification_line(job_id, "FAILED", str(completed["error"]))
-        _emit_notification(
-            paths,
-            job_id,
-            notification,
-            capture_pipeline_output=capture_pipeline_output,
-        )
+        _emit_notification(paths, job_id, notification)
         return True
 
     completed["status"] = "completed"
@@ -467,12 +452,7 @@ def run_worker_once(
     write_job(paths, completed)
     _backfill_job_metadata(paths, agent_config, job_id)
     notification = _notification_line(job_id, "COMPLETED", str(result_path))
-    _emit_notification(
-        paths,
-        job_id,
-        notification,
-        capture_pipeline_output=capture_pipeline_output,
-    )
+    _emit_notification(paths, job_id, notification)
     return True
 
 
@@ -480,25 +460,25 @@ def spawn_background_worker(paths: AgentPaths, *, base_config_path: str) -> subp
     queue = read_queue(paths)
     queued_job_ids = queue.get("queued_job_ids", [])
     stdout_path = paths.logs_dir / "worker.log"
-    stdout_handle = stdout_path.open("a", encoding="utf-8")
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "yt2notion.cli",
-            "agent",
-            "_worker",
-            "--agent-home",
-            str(paths.home),
-            "--config",
-            base_config_path,
-        ],
-        cwd=str(paths.home),
-        stdout=stdout_handle,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        text=True,
-    )
+    with stdout_path.open("a", encoding="utf-8") as stdout_handle:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "yt2notion.cli",
+                "agent",
+                "_worker",
+                "--agent-home",
+                str(paths.home),
+                "--config",
+                base_config_path,
+            ],
+            cwd=str(paths.home),
+            stdout=stdout_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            text=True,
+        )
     _write_worker_state(
         paths,
         pid=process.pid,

@@ -34,10 +34,7 @@ from yt2notion.extract import ExtractionError
 
 app = typer.Typer(help="YouTube videos → structured Chinese notes → Notion")
 agent_app = typer.Typer(help="Manage local file-backed agent runtime")
-RESUME_STEP_HELP = (
-    "Step to resume from "
-    "(download/segment/transcribe/review/extract/summarize)"
-)
+RESUME_STEP_HELP = "Step to resume from (download/segment/transcribe/review/extract/summarize)"
 app.add_typer(agent_app, name="agent")
 RECENT_JOB_OUTCOME_LIMIT = 5
 
@@ -203,7 +200,7 @@ def _now_iso() -> str:
 
 
 def _build_queued_job_record(url: str) -> dict:
-    job_id = f'{datetime.now().strftime("%Y%m%d-%H%M%S")}-{uuid4().hex[:6]}'
+    job_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:6]}"
     return {
         "job_id": job_id,
         "url": url,
@@ -325,6 +322,11 @@ def _validate_agent_config_path(config_path: str) -> str:
     resolved = Path(config_path).expanduser().resolve()
     if not resolved.exists() or not resolved.is_file():
         typer.echo(f"Configuration error: Config file not found: {resolved}", err=True)
+        raise typer.Exit(1) from None
+    try:
+        load_config(str(resolved))
+    except ConfigError as exc:
+        typer.echo(f"Configuration error: {exc}", err=True)
         raise typer.Exit(1) from None
     return str(resolved)
 
