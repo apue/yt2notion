@@ -5,68 +5,97 @@
 ## 当前任务卡
 
 - 任务：为 `yt2notion` 设计一个基于现有 pipeline 的简单 CLI agent（Codex 后端、Obsidian 存储、禁用 full mode、支持排队处理 / 进度查询 / 终端通知）
-- 状态：`planned`
+- 状态：`in_progress`
 - 当前 owner：Codex
 - 上一执行者：User
 - 下一执行者：User
-- 来源：用户提出新需求，希望先阅读项目并给出方案想法，再决定实现方向
+- 来源：用户提出新需求，已完成方案、spec、plan，并进入 subagent-driven implementation 与收口阶段
 - 目标：
-  - 评估现有 `prepare/process/workspace` 是否足以支撑 agent 外壳
-  - 明确最小可行 CLI 交互：提交任务、查看状态、查看进度、完成通知
+  - 交付 file-backed CLI agent MVP：提交任务、查看状态、查看进度、查看日志、重试、前台/后台 drain
   - 约束在 `model.backend=codex_cli`、`storage.backend=obsidian`、`output.mode=summary`
   - 约束在独立 `agent.yaml` 与独立 runtime `AGENTS.md`
   - 尽量复用现有 pipeline，避免改动核心步骤和 JSON 契约
+  - 以“单用户本地自用”标准收口，不继续追求 JSON 状态文件的强一致
 - 非目标：
-  - 本轮先不直接实现
   - 不引入 full mode
   - 不触发 Notion 发布路径
+  - 不把当前 file-backed 状态层提升到数据库级事务一致性
+  - 不在本轮实现 SQLite 状态后端
 - 约束：
   - pipeline/contract 事实以 `PROJECT_MAP.md` 为准
-  - 不回滚当前 worktree 里已有的未提交改动
   - 新 agent 应默认运行在 no-publish / summary-only 约束下，除非用户后续另行确认
+  - 当前 MVP 假设单用户使用；允许“worker 运行时继续 add 新任务”，但不把多 CLI 强并发作为硬性保证目标
 - 受影响文件：
+  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
+  - [src/yt2notion/agent_worker.py](./src/yt2notion/agent_worker.py)
   - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
   - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
+  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
+  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
   - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [src/yt2notion/storage/obsidian.py](./src/yt2notion/storage/obsidian.py)
+  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
+  - [tests/test_agent_worker.py](./tests/test_agent_worker.py)
+  - [tests/test_cli.py](./tests/test_cli.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
+  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
   - [handoff.md](./handoff.md)
 - 验收标准：
-  - 给出 2-3 个可实现方案及 tradeoff
-  - 给出推荐 MVP 边界与后续实现切分
-  - 获得用户对方向的确认，再进入设计/计划或实现
+  - `agent` 命令组可用，且 runtime control plane 与 repo 开发控制面分离
+  - 现有 pipeline 可在 agent 模式下以 `codex_cli + obsidian + summary` 顺序处理队列
+  - 状态、日志、retry、stale worker 基础恢复可用
+  - `PROJECT_MAP.md` 与本文件同步到当前实现与已接受边界
 - 建议命令：
-  - `uv run yt2notion prepare "URL" --mode summary`
-  - `uv run yt2notion process "URL" --mode summary`
-  - `rg -n "resume|workspace|codex_cli|obsidian" src/yt2notion`
+  - `uv run pytest tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py -q`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py src/yt2notion/models/llm.py src/yt2notion/models/__init__.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py`
 - 未决问题：
-  - agent 是否需要常驻后台进程，还是接受“单前台 + 轮询查询”的轻量模型
-  - 终端通知是否只需 stdout / bell，还是要接入系统通知
-  - 用户 share 内容的入口形态是命令行 `add URL` 还是 stdin / clipboard 集成
+  - 未来是否将 file-backed 状态层替换为 SQLite
+  - 是否需要系统通知而不只是 log / worker stdout / foreground terminal 输出
 
 ## 当前执行记录
 
 - 已完成：
-  - 读取 `AGENTS.md`、`handoff.md`、`CLAUDE.md`、`PROJECT_MAP.md`、`.cursorrules`
-  - 阅读 `cli.py`、`pipeline.py`、`workspace.py`、`models/codex_cli.py`、`models/llm.py`、`storage/obsidian.py`、`config.py`
-  - 确认现有基础能力：`codex_cli` backend、`obsidian` storage、workspace artifact 持久化、resume from step、prepare no-publish 输出
-  - 确认现有缺口：没有任务队列、没有统一状态文件、没有进度查询命令、没有完成通知机制
-  - 与用户确认 agent 采用“命令触发 + 本地文件状态衔接”的轻量模型，不做常驻进程
-  - 与用户确认运行时控制面独立于仓库开发控制面：使用极简 `agent.yaml` 与独立 runtime `AGENTS.md`
-  - 将此前遗留的 `RetryExhaustedError` 代码清理单独拆分为 PR #11 并已合入 `main`
+  - 方案确认：命令触发、文件状态衔接、无常驻 daemon
+  - 配置确认：独立 `agent.yaml`，独立 runtime `AGENTS.md`，固定 `codex_cli + obsidian + summary`
+  - spec 已完成：[docs/superpowers/specs/2026-04-07-cli-agent-design.md](./docs/superpowers/specs/2026-04-07-cli-agent-design.md)
+  - plan 已完成：[docs/superpowers/plans/2026-04-07-cli-agent.md](./docs/superpowers/plans/2026-04-07-cli-agent.md)
+  - 已完成实现：
+    - runtime config/state 层
+    - Codex runtime workdir 隔离
+    - pipeline progress callback
+    - file-backed worker / queue / retry / stale worker 基础恢复
+    - `agent` CLI 命令组
+  - 已与用户确认收口标准：
+    - 当前 file-backed 状态层按单用户本地自用 MVP 接受
+    - 不继续为 JSON 状态文件追求数据库级一致性
+    - 后续若要强化一致性，优先引入 SQLite 而不是继续补 JSON 事务语义
 - 当前阻塞：
-  - 无
+  - 无硬阻塞；正在做收口文档与最终验证，准备提 PR
 - 已修改文件：
+  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
+  - [src/yt2notion/agent_worker.py](./src/yt2notion/agent_worker.py)
+  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
+  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
+  - [tests/test_agent_worker.py](./tests/test_agent_worker.py)
+  - [tests/test_cli.py](./tests/test_cli.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
+  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `git status --short`
-  - `git diff --stat`
-  - 多个 `sed` / `rg` 只读检查命令
+  - `uv run pytest tests/test_agent_worker.py tests/test_cli.py -q` → `40 passed`
+  - `uv run ruff check src/yt2notion/agent_worker.py src/yt2notion/cli.py tests/test_agent_worker.py tests/test_cli.py` → pass
 - 风险/回滚点：
-  - 本任务尚未产出设计文档与实现计划；当前只同步了交接状态
+  - file-backed queue / worker state 是 best-effort，本轮不承诺数据库级事务一致性
+  - 少量 reviewer 指出的极端多进程竞争/崩溃窗口被有意接受为 MVP residual risk，而不是继续在 JSON 文件上过度工程
 - 下一步：
-  - 为 CLI agent 撰写正式设计文档，细化命令集、状态文件、runtime 目录和执行约束
+  - 跑一轮更完整的 focused verification
+  - 提交当前实现与文档
+  - 创建 PR
 
 ## 接手检查清单
 

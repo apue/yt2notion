@@ -28,9 +28,46 @@
 |---|---|---|
 | `uv run yt2notion process "URL"` | `cli.py` → `pipeline.run_pipeline()` | Main CLI entrypoint via Typer (publishes by default) |
 | `uv run yt2notion prepare "URL"` | `cli.py` → `pipeline.prepare_content()` | Shared no-publish JSON entrypoint for Claude/Codex wrappers |
+| `uv run yt2notion agent <subcommand>` | `cli.py` → `agent_runtime.py` / `agent_worker.py` | File-backed local agent wrapper for queued Codex→Obsidian summary runs |
 | `python -m yt2notion.extract_cmd` | `extract_cmd.py` | Legacy transcript-only extraction helper |
 
 `pyproject.toml` registers: `yt2notion = "yt2notion.cli:app"`.
+
+### Agent Runtime Entry Points
+
+The CLI agent is a thin wrapper around the canonical pipeline, not a separate pipeline.
+
+Supported subcommands:
+
+- `agent init`
+- `agent add <url>`
+- `agent status`
+- `agent list`
+- `agent show <job-id>`
+- `agent logs <job-id>`
+- `agent retry <job-id>`
+- `agent run [--foreground]`
+- hidden internal worker entrypoint: `agent _worker`
+
+Runtime files live under `~/.yt2notion-agent/` by default, overridable via `--agent-home` or `YT2NOTION_AGENT_HOME`:
+
+```text
+agent.yaml
+AGENTS.md
+queue.json
+worker.json
+jobs/<job-id>.json
+logs/<job-id>.log
+logs/worker.log
+workspace/<video-id>/
+```
+
+MVP scope note:
+
+- This runtime is intentionally file-backed and optimized for single-user local use.
+- Normal supported usage includes enqueuing new jobs while one worker is already draining the queue.
+- It does not claim database-grade consistency under arbitrary concurrent CLI invocations.
+- If stronger consistency is needed later, replace this state layer with SQLite rather than continuing to harden ad hoc JSON transactions.
 
 ## Canonical Pipeline Map
 
@@ -147,6 +184,23 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
 | `output.chunk_duration_seconds` | `process.py` | timestamp chunking granularity |
 | `workspace.base_dir` | `workspace.py:Workspace` | workspace root |
+| `model._runtime.codex_workdir` | `models/llm.py:create_llm_caller()`, `models/__init__.py:create_summarizer()`, `models/codex_cli.py` | optional internal override so Codex subprocesses run under agent home and inherit runtime `AGENTS.md` |
+
+### Agent Config Expansion
+
+`agent_runtime.py:build_runtime_app_config()` maps the minimal runtime `agent.yaml` into an `AppConfig` for the canonical pipeline:
+
+- forces `model.backend = "codex_cli"`
+- forces `storage.backend = "obsidian"`
+- forces `output.mode = "summary"`
+- sets `model.summarize_model`, `model.translate_model`, `model.review_model` from `agent.yaml`
+- sets `model.reasoning_effort` from `agent.yaml`
+- sets `model._runtime.codex_workdir = <agent_home>`
+- sets `storage.obsidian.*` from `agent.yaml`
+- sets `workspace.base_dir` from `agent.yaml`
+- preserves repo `config.yaml` values outside that override set, especially `extract.asr.*`
+
+This is how the agent reuses current ASR self-healing behavior without exposing those knobs in the minimal runtime config.
 
 Config load path: `config.py:load_config()` → read YAML → deep-merge with defaults → validate backend values → return `AppConfig`.
 ASR operations runbook: `docs/operations/asr-service.md`.
