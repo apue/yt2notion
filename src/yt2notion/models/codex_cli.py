@@ -80,6 +80,8 @@ def _run_codex_exec(
         str(output_path),
         "-",
     ]
+    if workdir is not None:
+        cmd.insert(-1, "--skip-git-repo-check")
 
     try:
         try:
