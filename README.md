@@ -29,15 +29,62 @@ git clone https://github.com/YOUR_USERNAME/yt2notion.git
 cd yt2notion
 uv sync --extra notion
 
-# Configure
+# Configure the base pipeline
 cp config.example.yaml config.yaml
-# Edit config.yaml with your Notion token and preferences
+# Edit config.yaml with your extraction / ASR / model preferences
 
-# Run (publishes by default)
+# One-off run (publishes through the configured storage backend)
 uv run yt2notion process "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Prepare JSON for Claude/Codex wrappers without publishing
 uv run yt2notion prepare "https://www.youtube.com/watch?v=VIDEO_ID" --mode summary
+```
+
+## Queued Agent Workflow
+
+Use the `agent` command group when you want a local file-backed queue that drains URLs one by one into Obsidian.
+
+Fixed behavior for this workflow:
+- LLM backend is always `codex_cli`
+- Storage backend is always `obsidian`
+- Output mode is always `summary`
+- Runtime state lives under `~/.yt2notion-agent/`
+
+`config.yaml` is still required. The agent reuses the normal pipeline config for extraction and ASR settings, then overlays the fixed runtime choices above.
+
+```bash
+# Create ~/.yt2notion-agent/agent.yaml and runtime AGENTS.md
+uv run yt2notion agent init
+
+# Edit the minimal runtime config
+$EDITOR ~/.yt2notion-agent/agent.yaml
+
+# Queue work
+uv run yt2notion agent add "https://www.youtube.com/watch?v=VIDEO_ID"
+uv run yt2notion agent add "https://example.com/podcast-episode"
+
+# Inspect queue / job state
+uv run yt2notion agent status
+uv run yt2notion agent list
+uv run yt2notion agent show <job-id>
+uv run yt2notion agent logs <job-id>
+
+# Retry a failed job
+uv run yt2notion agent retry <job-id>
+
+# Debug in the foreground instead of spawning a background worker
+uv run yt2notion agent run --foreground
+```
+
+The generated `agent.yaml` is intentionally small:
+
+```yaml
+vault_path: "/path/to/your/vault"
+summaries_dir: "yt2notion/summaries"
+transcripts_dir: "yt2notion/transcripts"
+workspace_dir: "~/.yt2notion-agent/workspace"
+codex_model: "gpt-5.3-codex"
+reasoning_effort: "low"
 ```
 
 ## Prerequisites
@@ -49,6 +96,7 @@ uv run yt2notion prepare "https://www.youtube.com/watch?v=VIDEO_ID" --mode summa
   - [Codex CLI](https://platform.openai.com/docs/codex) — local `codex` command available
   - Anthropic API key — pay per token
 - Notion integration token (if using Notion storage)
+- An Obsidian vault path (if using Obsidian storage or the queued agent workflow)
 
 ## Model Backends
 
