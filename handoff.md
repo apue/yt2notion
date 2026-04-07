@@ -93,7 +93,7 @@
   - file-backed queue / worker state 是 best-effort，本轮不承诺数据库级事务一致性
   - 少量 reviewer 指出的极端多进程竞争/崩溃窗口被有意接受为 MVP residual risk，而不是继续在 JSON 文件上过度工程
 - 下一步：
-  - 基于当前分支创建 PR
+  - 审阅并合并 PR #13
   - 后续若需要更强状态一致性，优先将 file-backed state layer 替换为 SQLite
 
 ## 接手检查清单
