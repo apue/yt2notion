@@ -332,6 +332,159 @@ def test_pipeline_dry_run(
     assert "概要" in result
 
 
+@patch("yt2notion.pipeline._step_summarize")
+@patch("yt2notion.pipeline._step_extract")
+@patch("yt2notion.pipeline._step_review")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_emits_progress_callbacks_for_key_steps_summary_mode(
+    mock_step_download,
+    mock_download_audio,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_download_webpage_transcript,
+    mock_step_review,
+    mock_step_extract,
+    mock_step_summarize,
+    mock_meta,
+    mock_chinese,
+    config,
+):
+    mock_meta.subtitles_available = False
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_download_audio.return_value = None
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = [
+        {
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 300,
+            "text": "raw asr text",
+            "source": "asr",
+        }
+    ]
+    mock_step_extract.return_value = EntityResult(
+        domain="General",
+        is_entity_centric=False,
+        entity_types=[],
+        entities=[],
+        relations=[],
+    )
+    mock_step_review.return_value = mock_step_transcribe.return_value
+    mock_step_summarize.return_value = mock_chinese
+
+    from yt2notion.pipeline import prepare_content
+
+    events: list[tuple[str, str, str | None]] = []
+    prepare_content(
+        "https://example.com/video",
+        config,
+        mode="summary",
+        progress_callback=lambda step, event, message=None: events.append((step, event, message)),
+    )
+
+    assert events == [
+        ("download", "started", None),
+        ("download", "completed", None),
+        ("segment", "started", None),
+        ("segment", "completed", None),
+        ("transcribe", "started", None),
+        ("transcribe", "completed", None),
+        ("extract", "started", None),
+        ("extract", "completed", None),
+        ("summarize", "started", None),
+        ("summarize", "completed", None),
+    ]
+
+    mock_step_review.assert_not_called()
+
+
+@patch("yt2notion.pipeline._step_summarize")
+@patch("yt2notion.pipeline._step_extract")
+@patch("yt2notion.pipeline._step_review")
+@patch("yt2notion.pipeline._review_transcript_with_summary_context")
+@patch("yt2notion.pipeline._is_long_content")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_emits_review_progress_callbacks_in_full_long_deferred_mode(
+    mock_step_download,
+    mock_download_audio,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_download_webpage_transcript,
+    mock_is_long_content,
+    mock_deferred_review,
+    mock_step_review,
+    mock_step_extract,
+    mock_step_summarize,
+    mock_meta,
+    mock_chinese,
+    config,
+):
+    mock_meta.subtitles_available = False
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_download_audio.return_value = None
+    mock_step_segment.return_value = []
+    transcripts = [
+        {
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 300,
+            "text": "raw asr text",
+            "source": "asr",
+        }
+    ]
+    reviewed = [{**transcripts[0], "text": "cleaned text"}]
+    mock_step_transcribe.return_value = transcripts
+    mock_step_review.return_value = reviewed
+    mock_is_long_content.return_value = True
+    mock_deferred_review.return_value = reviewed
+    mock_step_extract.return_value = EntityResult(
+        domain="General",
+        is_entity_centric=False,
+        entity_types=[],
+        entities=[],
+        relations=[],
+    )
+    mock_step_summarize.return_value = mock_chinese
+
+    from yt2notion.pipeline import prepare_content
+
+    events: list[tuple[str, str, str | None]] = []
+    prepare_content(
+        "https://example.com/video",
+        config,
+        mode="full",
+        progress_callback=lambda step, event, message=None: events.append((step, event, message)),
+    )
+
+    assert events == [
+        ("download", "started", None),
+        ("download", "completed", None),
+        ("segment", "started", None),
+        ("segment", "completed", None),
+        ("transcribe", "started", None),
+        ("transcribe", "completed", None),
+        ("extract", "started", None),
+        ("extract", "completed", None),
+        ("summarize", "started", None),
+        ("summarize", "completed", None),
+        ("review", "started", None),
+        ("review", "completed", None),
+    ]
+
+    mock_step_review.assert_not_called()
+    mock_deferred_review.assert_called_once()
+
+
 @patch("yt2notion.pipeline.prepare_content")
 def test_run_pipeline_dry_run_full_includes_transcript(mock_prepare_content, config):
     from pathlib import Path
@@ -373,6 +526,58 @@ def test_run_pipeline_dry_run_full_includes_transcript(mock_prepare_content, con
     assert "## 概要" in result
     assert "## 逐字稿" in result
     assert "cleaned text" in result
+
+
+@patch("yt2notion.pipeline.prepare_content")
+@patch("yt2notion.pipeline.create_storage")
+def test_run_pipeline_emits_publish_progress_callbacks(
+    mock_create_storage,
+    mock_prepare_content,
+    config,
+):
+    from pathlib import Path
+
+    from yt2notion.pipeline import PreparedContent, run_pipeline
+    from yt2notion.workspace import Workspace
+
+    workspace = Workspace(Path(config.workspace["base_dir"]), "abc123")
+    mock_prepare_content.return_value = PreparedContent(
+        metadata=VideoMeta(
+            video_id="abc123",
+            title="Test Video",
+            channel="TestChannel",
+            url="https://www.youtube.com/watch?v=abc123",
+        ),
+        chinese_content=ChineseContent(
+            overview="测试概要",
+            key_points=[],
+            tags=[],
+            raw_markdown="## 概要\n\n测试概要",
+        ),
+        transcript_segments=None,
+        entities=None,
+        workspace=workspace,
+        is_long=False,
+        output_mode="summary",
+    )
+
+    mock_storage = MagicMock()
+    mock_storage.save.return_value = "https://notion.so/page123"
+    mock_create_storage.return_value = mock_storage
+
+    events: list[tuple[str, str, str | None]] = []
+    result = run_pipeline(
+        "https://example.com/video",
+        config,
+        progress_callback=lambda step, event, message=None: events.append((step, event, message)),
+    )
+
+    assert result == "https://notion.so/page123"
+    assert events == [
+        ("publish", "started", None),
+        ("publish", "completed", None),
+    ]
+    assert mock_prepare_content.call_args.kwargs["progress_callback"] is not None
 
 
 def test_rebase_chunk_entries_drops_overlap_duplicates():

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import typer
 
@@ -48,6 +49,8 @@ ASR_CHUNK_PADDING_SECONDS = 0.5
 SUMMARY_GROUP_CHAR_LIMIT = 24_000
 SUMMARY_GROUP_SEGMENT_LIMIT = 6
 ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD = 300
+ProgressEvent: TypeAlias = Literal["started", "completed"]
+ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
 
 
 @dataclass
@@ -72,6 +75,7 @@ def run_pipeline(
     resume_from: str | None = None,
     workspace_dir: str | None = None,
     mode: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> str:
     """Run the pipeline and publish to the configured storage backend."""
     prepared = prepare_content(
@@ -81,6 +85,7 @@ def run_pipeline(
         resume_from=resume_from,
         workspace_dir=workspace_dir,
         mode=mode,
+        progress_callback=progress_callback,
     )
 
     if dry_run:
@@ -104,12 +109,14 @@ def run_pipeline(
     if prepared.is_long:
         transcript_segments = None
 
+    _emit_progress(progress_callback, "publish", "started")
     result_url = storage.save(
         prepared.chinese_content,
         prepared.metadata,
         transcript_segments=transcript_segments,
         entities=prepared.entities,
     )
+    _emit_progress(progress_callback, "publish", "completed")
     if verbose:
         typer.echo(f"  Published: {result_url}")
 
@@ -133,6 +140,7 @@ def prepare_content(
     resume_from: str | None = None,
     workspace_dir: str | None = None,
     mode: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> PreparedContent:
     """Run the processing pipeline and return artifacts without publishing."""
     raw_config = {
@@ -156,6 +164,7 @@ def prepare_content(
 
     try:
         if start_idx <= 0:
+            _emit_progress(progress_callback, "download", "started")
             metadata = _step_download(url, raw_config, verbose)
             base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
             ws = Workspace(base_dir, metadata.video_id)
@@ -181,6 +190,7 @@ def prepare_content(
             else:
                 if not _download_webpage_transcript(url, metadata, ws, verbose):
                     _download_audio(url, metadata, raw_config, ws, verbose)
+            _emit_progress(progress_callback, "download", "completed")
         else:
             # Resume: load workspace
             base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
@@ -206,8 +216,10 @@ def prepare_content(
 
         current_step = "segment"
         if start_idx <= 1:
+            _emit_progress(progress_callback, "segment", "started")
             segments = _step_segment(metadata, raw_config, verbose)
             ws.save_segments(segments)
+            _emit_progress(progress_callback, "segment", "completed")
         else:
             segments = ws.load_segments()
             if segments is None:
@@ -215,8 +227,10 @@ def prepare_content(
 
         current_step = "transcribe"
         if start_idx <= 2:
+            _emit_progress(progress_callback, "transcribe", "started")
             transcripts = _step_transcribe(ws, metadata, segments, raw_config, verbose)
             ws.save_transcripts(transcripts)  # Final save (incremental saves happen inside)
+            _emit_progress(progress_callback, "transcribe", "completed")
         else:
             transcripts = ws.load_transcripts()
             if transcripts is None:
@@ -249,8 +263,10 @@ def prepare_content(
                         "Skipping blocking review (long content — will review after summary)"
                     )
             elif start_idx <= 3:
+                _emit_progress(progress_callback, "review", "started")
                 reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
                 ws.save_reviewed(reviewed)
+                _emit_progress(progress_callback, "review", "completed")
             else:
                 reviewed = ws.load_reviewed()
                 if reviewed is None:
@@ -264,6 +280,7 @@ def prepare_content(
         current_step = "extract"
         analysis_segments = reviewed if output_mode == "full" else transcripts
         if start_idx <= 4:
+            _emit_progress(progress_callback, "extract", "started")
             analysis_source = (
                 analysis_segments[0].get("source", "subtitle") if analysis_segments else "subtitle"
             )
@@ -274,6 +291,7 @@ def prepare_content(
             else:
                 entities = _step_extract(analysis_segments, raw_config, verbose)
             ws.save_entities(entities)
+            _emit_progress(progress_callback, "extract", "completed")
         else:
             entities = ws.load_entities()
             if entities is None:
@@ -281,6 +299,7 @@ def prepare_content(
 
         # --- Step 6: SUMMARIZE ---
         current_step = "summarize"
+        _emit_progress(progress_callback, "summarize", "started")
         chinese_content = _step_summarize(
             analysis_segments,
             metadata,
@@ -289,11 +308,13 @@ def prepare_content(
             output_mode=output_mode,
         )
         ws.save_summary(chinese_content)
+        _emit_progress(progress_callback, "summarize", "completed")
 
         transcript_segments: list[dict] | None = None
         if output_mode == "full":
             if is_long:
                 current_step = "deferred_review"
+                _emit_progress(progress_callback, "review", "started")
                 transcript_segments = _review_transcript_with_summary_context(
                     transcripts,
                     chinese_content,
@@ -302,6 +323,7 @@ def prepare_content(
                     ws,
                     verbose,
                 )
+                _emit_progress(progress_callback, "review", "completed")
             else:
                 transcript_segments = reviewed
 
@@ -329,6 +351,16 @@ def prepare_content(
 
 
 # === Step implementations ===
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    step: str,
+    event: ProgressEvent,
+    message: str | None = None,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(step, event, message)
 
 
 def _step_download(url: str, config: dict, verbose: bool) -> VideoMeta:
