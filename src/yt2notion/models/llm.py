@@ -86,6 +86,8 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
     backend = model_cfg.get("backend", "claude_code")
     model = model_cfg.get(model_key, "haiku")
     reasoning_effort = model_cfg.get("reasoning_effort", "low")
+    runtime_cfg = model_cfg.get("_runtime", {})
+    codex_workdir = runtime_cfg.get("codex_workdir")
 
     if backend == "claude_code":
         return ClaudeCodeCaller(model=model)
@@ -95,6 +97,7 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
         return CodexCLICaller(
             model=model or "gpt-5.2",
             reasoning_effort=reasoning_effort,
+            workdir=codex_workdir,
         )
 
     raise ValueError(f"Unknown LLM backend: {backend!r}")

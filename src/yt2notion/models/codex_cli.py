@@ -61,6 +61,7 @@ def _run_codex_exec(
     model: str,
     timeout_seconds: int,
     reasoning_effort: str,
+    workdir: str | None = None,
 ) -> str:
     """Run `codex exec` and return the final assistant message."""
     with tempfile.NamedTemporaryFile(prefix="yt2notion-codex-", suffix=".txt", delete=False) as f:
@@ -89,8 +90,11 @@ def _run_codex_exec(
                 text=True,
                 check=True,
                 timeout=timeout_seconds,
+                cwd=workdir,
             )
         except FileNotFoundError as e:
+            if workdir is not None and e.filename == workdir:
+                raise CodexCLIError(f"codex working directory not found: {workdir}") from e
             raise CodexCLIError("'codex' CLI not found on PATH") from e
 
         try:
@@ -115,10 +119,12 @@ class CodexCLICaller:
         *,
         timeout_seconds: int = 300,
         reasoning_effort: str = "low",
+        workdir: str | None = None,
     ) -> None:
         self.model = _normalize_codex_model(model)
         self.timeout_seconds = timeout_seconds
         self.reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
+        self.workdir = workdir
 
     def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:
         # max_tokens is part of the shared protocol; codex CLI does not expose a direct equivalent.
@@ -131,6 +137,7 @@ class CodexCLICaller:
                 model=self.model,
                 timeout_seconds=self.timeout_seconds,
                 reasoning_effort=self.reasoning_effort,
+                workdir=self.workdir,
             )
 
         try:
@@ -158,17 +165,21 @@ class CodexCLIModel:
         translate_model: str = "gpt-5.2",
         *,
         reasoning_effort: str = "low",
+        workdir: str | None = None,
     ) -> None:
         self.summarize_model = _normalize_codex_model(summarize_model)
         self.translate_model = _normalize_codex_model(translate_model)
         self.reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
+        self.workdir = workdir
         self._summarize_caller = CodexCLICaller(
             self.summarize_model,
             reasoning_effort=self.reasoning_effort,
+            workdir=self.workdir,
         )
         self._translate_caller = CodexCLICaller(
             self.translate_model,
             reasoning_effort=self.reasoning_effort,
+            workdir=self.workdir,
         )
 
     def summarize(
