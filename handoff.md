@@ -4,73 +4,69 @@
 
 ## 当前任务卡
 
-- 任务：修复 PR #10 code review 发现的问题并完成 PR 更新（自动发布契约、full 模式文本回填正确性、resume 校验、文档锚点同步）
-- 状态：`done`
+- 任务：为 `yt2notion` 设计一个基于现有 pipeline 的简单 CLI agent（Codex 后端、Obsidian 存储、禁用 full mode、支持排队处理 / 进度查询 / 终端通知）
+- 状态：`planned`
 - 当前 owner：Codex
 - 上一执行者：User
 - 下一执行者：User
-- 来源：用户要求基于 review 反馈做完整修复、保证测试通过，并用 `gh` 命令完成 PR
+- 来源：用户提出新需求，希望先阅读项目并给出方案想法，再决定实现方向
 - 目标：
-  - 明确 `process` 默认自动发布契约并消除接口歧义
-  - 修复 full 模式长内容复审回填错位
-  - 补齐 resume `summarize` 对 `entities.json` 的严格校验
-  - 去除重复 transcript markdown 渲染实现
-  - 更新 `PROJECT_MAP.md` / `README.md` 行为说明
+  - 评估现有 `prepare/process/workspace` 是否足以支撑 agent 外壳
+  - 明确最小可行 CLI 交互：提交任务、查看状态、查看进度、完成通知
+  - 约束在 `model.backend=codex_cli`、`storage.backend=obsidian`、`output.mode=summary`
+  - 约束在独立 `agent.yaml` 与独立 runtime `AGENTS.md`
+  - 尽量复用现有 pipeline，避免改动核心步骤和 JSON 契约
 - 非目标：
-  - 不引入新功能
-  - 不做超出本轮问题的架构重构
+  - 本轮先不直接实现
+  - 不引入 full mode
+  - 不触发 Notion 发布路径
 - 约束：
-  - 不回滚他人改动
-  - pipeline/contract 事实以 `PROJECT_MAP.md` 为准并同步文档
+  - pipeline/contract 事实以 `PROJECT_MAP.md` 为准
+  - 不回滚当前 worktree 里已有的未提交改动
+  - 新 agent 应默认运行在 no-publish / summary-only 约束下，除非用户后续另行确认
 - 受影响文件：
-  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
   - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
   - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_integration.py](./tests/test_integration.py)
+  - [src/yt2notion/storage/obsidian.py](./src/yt2notion/storage/obsidian.py)
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 验收标准：
-  - 关键 review 问题修复完成
-  - 全量测试通过
+  - 给出 2-3 个可实现方案及 tradeoff
+  - 给出推荐 MVP 边界与后续实现切分
+  - 获得用户对方向的确认，再进入设计/计划或实现
 - 建议命令：
-  - `uv run pytest tests/ -q`
-  - `uv run ruff check src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py tests/test_cli.py tests/test_pipeline.py tests/test_integration.py`
+  - `uv run yt2notion prepare "URL" --mode summary`
+  - `uv run yt2notion process "URL" --mode summary`
+  - `rg -n "resume|workspace|codex_cli|obsidian" src/yt2notion`
 - 未决问题：
-  - 无
+  - agent 是否需要常驻后台进程，还是接受“单前台 + 轮询查询”的轻量模型
+  - 终端通知是否只需 stdout / bell，还是要接入系统通知
+  - 用户 share 内容的入口形态是命令行 `add URL` 还是 stdin / clipboard 集成
 
 ## 当前执行记录
 
 - 已完成：
-  - 移除 `process`/`run_pipeline` 中 `no_confirm` 契约，`process` 明确默认自动发布
-  - `--from` 帮助文案更新为 `download/segment/transcribe/review/extract/summarize`
-  - `prepare` 复用 `pipeline.render_transcript_markdown()`，去除 CLI 重复实现
-  - 修复 `_merge_segments_into_groups` 与 `_redistribute_reviewed_text` 分组不一致导致的错位回填
-  - `resume_from="summarize"` 严格要求 `entities.json` 存在
-  - 修复 `codex exec` 失败时临时文件未清理的问题
-  - 删除未使用的 `_step_deferred_review`，避免行为误导
-  - 同步更新 `PROJECT_MAP.md` / `README.md` 的实际 pipeline 与发布语义说明
+  - 读取 `AGENTS.md`、`handoff.md`、`CLAUDE.md`、`PROJECT_MAP.md`、`.cursorrules`
+  - 阅读 `cli.py`、`pipeline.py`、`workspace.py`、`models/codex_cli.py`、`models/llm.py`、`storage/obsidian.py`、`config.py`
+  - 确认现有基础能力：`codex_cli` backend、`obsidian` storage、workspace artifact 持久化、resume from step、prepare no-publish 输出
+  - 确认现有缺口：没有任务队列、没有统一状态文件、没有进度查询命令、没有完成通知机制
+  - 与用户确认 agent 采用“命令触发 + 本地文件状态衔接”的轻量模型，不做常驻进程
+  - 与用户确认运行时控制面独立于仓库开发控制面：使用极简 `agent.yaml` 与独立 runtime `AGENTS.md`
+  - 将此前遗留的 `RetryExhaustedError` 代码清理单独拆分为 PR #11 并已合入 `main`
 - 当前阻塞：
   - 无
 - 已修改文件：
-  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_integration.py](./tests/test_integration.py)
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `uv run ruff check src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py tests/test_cli.py tests/test_pipeline.py tests/test_integration.py` -> `All checks passed`
-  - `uv run pytest tests/ -q` -> `234 passed`
+  - `git status --short`
+  - `git diff --stat`
+  - 多个 `sed` / `rg` 只读检查命令
 - 风险/回滚点：
-  - 仓库全量 `ruff check src tests` 仍有历史基线问题（`RetryExhausted` 命名、`tests/test_retry.py` import 排序），与本次修复无关
+  - 本任务尚未产出设计文档与实现计划；当前只同步了交接状态
 - 下一步：
-  - 使用 `gh` 提交 commit 并推送到 PR #10 分支
+  - 为 CLI agent 撰写正式设计文档，细化命令集、状态文件、runtime 目录和执行约束
 
 ## 接手检查清单
 
