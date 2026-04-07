@@ -69,6 +69,23 @@ def test_codex_caller_passes_workdir_to_subprocess_run(mock_run):
 
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
+def test_codex_caller_skips_git_repo_check_when_workdir_is_set(mock_run):
+    workdir = "/tmp/yt2notion-codex-runtime"
+
+    def _side_effect(cmd, **kwargs):
+        _write_output_from_cmd(cmd, "ok")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = _side_effect
+    caller = CodexCLICaller(model="gpt-5.2", workdir=workdir)
+    result = caller.call("system", "user")
+
+    assert result == "ok"
+    cmd = mock_run.call_args[0][0]
+    assert "--skip-git-repo-check" in cmd
+
+
+@patch("yt2notion.models.codex_cli.subprocess.run")
 @patch("yt2notion.retry.time.sleep", return_value=None)
 def test_codex_caller_retries_on_called_process_error(mock_sleep, mock_run):
     call_count = {"n": 0}

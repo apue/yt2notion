@@ -71,6 +71,14 @@
     - 后续若要强化一致性，优先引入 SQLite 而不是继续补 JSON 事务语义
   - PR #13 已合入 `main`
   - README 已补充 `agent` 最终使用方式与最小 `agent.yaml` 示例
+  - 已完成真实 smoke test：
+    - 使用 Apple Podcasts 链接 `https://podcasts.apple.com/us/podcast/id1493503146?i=1000755738136`
+    - 在临时 `agent_home=/tmp/yt2notion-agent-smoke.dSz2u5/agent-home` 与临时 Obsidian vault 下完成 `agent add -> download -> segment -> transcribe -> extract -> summarize -> publish`
+    - 成功产物：`/tmp/yt2notion-agent-smoke.dSz2u5/vault/summaries/2026-04-07 460 与李菁漫谈海外「中国学」大家访谈录.md`
+  - 已修复真实运行暴露的问题：
+    - `codex exec` 在 agent runtime 非 git 目录下缺少 `--skip-git-repo-check`，会导致后续 Codex 调用失败
+    - 修复位置：`src/yt2notion/models/codex_cli.py`
+    - 回归测试：`tests/test_codex_cli.py::test_codex_caller_skips_git_repo_check_when_workdir_is_set`
 - 当前阻塞：
   - 无
 - 已修改文件：
@@ -91,11 +99,16 @@
 - 已运行验证：
   - `uv run pytest tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py -q` → `88 passed, 4 warnings`
   - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py src/yt2notion/models/llm.py src/yt2notion/models/__init__.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py` → pass
+  - `uv run pytest tests/test_codex_cli.py -q` → `17 passed`
+  - 真实 CLI smoke test：
+    - `uv run yt2notion agent add 'https://podcasts.apple.com/us/podcast/id1493503146?i=1000755738136' --agent-home /tmp/yt2notion-agent-smoke.dSz2u5/agent-home -c config.yaml`
+    - 任务 `20260407-164715-retry-71aa6a` 最终 `completed`
+    - `result_path=/tmp/yt2notion-agent-smoke.dSz2u5/vault/summaries/2026-04-07 460 与李菁漫谈海外「中国学」大家访谈录.md`
 - 风险/回滚点：
   - file-backed queue / worker state 是 best-effort，本轮不承诺数据库级事务一致性
   - 少量 reviewer 指出的极端多进程竞争/崩溃窗口被有意接受为 MVP residual risk，而不是继续在 JSON 文件上过度工程
 - 下一步：
-  - 基于真实本地 vault 做一轮 `agent init/add/status/run` smoke test
+  - 如需保留本次修复，提交 `src/yt2notion/models/codex_cli.py` 与 `tests/test_codex_cli.py`
   - 后续若需要更强状态一致性，优先将 file-backed state layer 替换为 SQLite
 
 ## 接手检查清单
