@@ -16,7 +16,7 @@ from yt2notion.models._parsers import (
     parse_synthesized_markdown,
 )
 from yt2notion.prompts import load_prompt, render_prompt
-from yt2notion.retry import RetryExhausted, retry
+from yt2notion.retry import RetryExhaustedError, retry
 
 if TYPE_CHECKING:
     from yt2notion.models.base import (
@@ -145,7 +145,7 @@ class CodexCLICaller:
                 ),
                 label=f"codex exec {self.model}",
             )
-        except RetryExhausted:
+        except RetryExhaustedError:
             raise
 
 

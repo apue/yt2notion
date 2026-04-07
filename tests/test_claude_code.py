@@ -11,7 +11,7 @@ import pytest
 from yt2notion.models._parsers import parse_chinese_markdown, parse_summary_json
 from yt2notion.models.base import VideoMeta
 from yt2notion.models.claude_code import ClaudeCodeError, ClaudeCodeModel
-from yt2notion.retry import RetryExhausted
+from yt2notion.retry import RetryExhaustedError
 
 SAMPLE_SUMMARY_JSON = {
     "sections": [
@@ -171,7 +171,7 @@ def test_claude_not_found(mock_run, meta):
 def test_claude_cli_error_exhausts_retries(mock_sleep, mock_run, meta):
     mock_run.side_effect = subprocess.CalledProcessError(1, "claude", stderr="error msg")
     model = ClaudeCodeModel()
-    with pytest.raises(RetryExhausted):
+    with pytest.raises(RetryExhaustedError):
         model.summarize("text", meta)
     assert mock_run.call_count == 3
 

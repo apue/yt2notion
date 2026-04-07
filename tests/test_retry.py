@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from yt2notion.retry import RetryExhausted, retry
+
+from yt2notion.retry import RetryExhaustedError, retry
 
 
 def test_retry_succeeds_first_try():
@@ -36,7 +37,7 @@ def test_retry_exhausted():
     def fn():
         raise ValueError("always fails")
 
-    with pytest.raises(RetryExhausted) as exc_info:
+    with pytest.raises(RetryExhaustedError) as exc_info:
         retry(fn, max_retries=3, base_delay=0.0, retryable=(ValueError,))
     assert exc_info.value.attempts == 3
     assert isinstance(exc_info.value.__cause__, ValueError)

@@ -12,7 +12,7 @@ import pytest
 from yt2notion.models.base import Summary, VideoMeta
 from yt2notion.models.codex_cli import CodexCLICaller, CodexCLIError, CodexCLIModel
 from yt2notion.models.llm import create_llm_caller
-from yt2notion.retry import RetryExhausted
+from yt2notion.retry import RetryExhaustedError
 
 
 def _write_output_from_cmd(cmd: list[str], text: str) -> None:
@@ -107,7 +107,7 @@ def test_codex_caller_no_retry_on_missing_binary(mock_run):
 def test_codex_caller_exhausts_retries(mock_sleep, mock_run):
     mock_run.side_effect = subprocess.CalledProcessError(1, "codex")
     caller = CodexCLICaller(model="gpt-5.2")
-    with pytest.raises(RetryExhausted):
+    with pytest.raises(RetryExhaustedError):
         caller.call("system", "user")
     assert mock_run.call_count == 3
     assert mock_sleep.call_count == 2
@@ -143,9 +143,7 @@ def test_codex_model_summarize_parses_json(mock_run, meta):
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
 def test_codex_model_to_chinese_parses_markdown(mock_run):
-    sample_md = (
-        "## 概要\n\n测试概要\n\n## 关键节点\n\n- [0:00] **介绍**：测试\n\n## 标签\n\n测试"
-    )
+    sample_md = "## 概要\n\n测试概要\n\n## 关键节点\n\n- [0:00] **介绍**：测试\n\n## 标签\n\n测试"
 
     def _side_effect(cmd, **kwargs):
         _write_output_from_cmd(cmd, sample_md)

@@ -27,7 +27,7 @@ from yt2notion.process import (
     parse_subtitle_file,
     seconds_to_display,
 )
-from yt2notion.retry import RetryExhausted
+from yt2notion.retry import RetryExhaustedError
 from yt2notion.storage import create_storage
 from yt2notion.topic_segment import segment_transcript
 from yt2notion.workspace import STEPS, Workspace
@@ -939,8 +939,7 @@ def _summarize_long(
     else:
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
-                executor.submit(_summarize_group, i, group)
-                for i, group in enumerate(groups)
+                executor.submit(_summarize_group, i, group) for i, group in enumerate(groups)
             ]
             for future in as_completed(futures):
                 i, cs = future.result()
@@ -1060,7 +1059,7 @@ def _review_transcript_with_summary_context(
                 typer.echo(f"  Review [{i + 1}/{len(groups)}] {group.get('title', '')}")
             cleaned = review_segment(group["text"], metadata, config, review_context)
             reviewed_groups.append(cleaned)
-    except RetryExhausted as exc:
+    except RetryExhaustedError as exc:
         typer.echo(
             f"  Warning: review retries exhausted ({exc}), using unreviewed transcript",
             err=True,
@@ -1121,11 +1120,11 @@ def render_transcript_markdown(metadata: VideoMeta, transcript_segments: list[di
 
 
 def _is_retries_exhausted(exc: Exception) -> bool:
-    """Detect whether an exception chain contains RetryExhausted."""
+    """Detect whether an exception chain contains RetryExhaustedError."""
     current: Exception | None = exc
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
-        if isinstance(current, RetryExhausted):
+        if isinstance(current, RetryExhaustedError):
             return True
         seen.add(id(current))
         next_exc = current.__cause__ or current.__context__

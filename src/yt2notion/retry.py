@@ -10,7 +10,7 @@ from typing import TypeVar
 T = TypeVar("T")
 
 
-class RetryExhausted(Exception):
+class RetryExhaustedError(Exception):
     """All retry attempts failed."""
 
     def __init__(self, attempts: int, last_error: Exception) -> None:
@@ -40,7 +40,7 @@ def retry(
         The return value of fn() on success.
 
     Raises:
-        RetryExhausted: If all attempts fail with a retryable error.
+        RetryExhaustedError: If all attempts fail with a retryable error.
         Exception: If fn() raises a non-retryable error (immediately).
     """
     last_error: Exception | None = None
@@ -58,4 +58,4 @@ def retry(
                     file=sys.stderr,
                 )
                 time.sleep(delay)
-    raise RetryExhausted(max_retries, last_error)  # type: ignore[arg-type]
+    raise RetryExhaustedError(max_retries, last_error)  # type: ignore[arg-type]

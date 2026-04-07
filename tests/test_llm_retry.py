@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from yt2notion.models.llm import ClaudeCodeCaller
-from yt2notion.retry import RetryExhausted
+from yt2notion.retry import RetryExhaustedError
 
 
 @patch("subprocess.run")
@@ -63,10 +63,10 @@ def test_caller_no_retry_on_file_not_found(mock_run):
 
 @patch("subprocess.run")
 def test_caller_exhausts_retries(mock_run):
-    """ClaudeCodeCaller raises RetryExhausted after max retries."""
+    """ClaudeCodeCaller raises RetryExhaustedError after max retries."""
     mock_run.side_effect = subprocess.CalledProcessError(1, "claude", stderr="error")
     caller = ClaudeCodeCaller(model="haiku")
-    with pytest.raises(RetryExhausted):
+    with pytest.raises(RetryExhaustedError):
         caller.call("system", "user")
     assert mock_run.call_count == 3
 
