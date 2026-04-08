@@ -54,7 +54,8 @@ extract:
 
 - 固定远端 `PATH`（含 `/opt/homebrew/bin`，确保可找到 `ffmpeg`）
 - 重启 `server_mlx.py`
-- 轮询 `/health` 直到成功或超时
+- 启动前等待旧 `server_mlx.py` 进程和 `8930` listener 全部退出
+- 启动后同时验证：`/health` 成功 + `8930` listener PID 与新进程 PID 一致
 
 对应配置：
 
@@ -90,6 +91,30 @@ ssh mac-mini 'sudo systemctl restart asr.service'
 - `restart_before_transcribe=true`：首次调用 ASR 前执行一次 `restart_command`，随后等待健康检查通过。
 - `restart_on_unhealthy=true`：首次调用 ASR 前先探活，失败则自动重启并等待就绪。
 - 若 `healthcheck_path` 不存在（返回 404），会退化为 `restart_grace_seconds` 固定等待。
+
+## 已发现故障模式（benchmark）
+
+在 2026-04 的真实样本 benchmark 中，曾发现 remote ASR 重启存在“假阳性成功”窗口：
+
+- `pkill` 后旧 listener 还短暂占用 `8930`
+- 新进程尚未真正完成 bind
+- 这时单看 `/health` 可能仍返回成功，导致“重启成功”被误判
+
+`scripts/asr/restart_remote_asr.sh` 现在通过“旧进程/端口 drain + 新 PID listener 校验”规避该问题。
+
+## 手工验证（重启语义）
+
+在改动远程 ASR 服务或排查疑难故障时，建议按下面顺序人工验证一次：
+
+1. 执行重启脚本  
+   `scripts/asr/restart_remote_asr.sh <asr_host>`
+2. 在远端确认监听者  
+   `ssh <asr_host> "lsof -iTCP:8930 -sTCP:LISTEN -n -P"`
+3. 在本地确认健康检查  
+   `curl -fsS http://<asr_host>:8930/health`
+4. 用真实音频验证一次 `/transcribe` 可用（不要只看 `/health`）  
+   例如：  
+   `curl -fsS -X POST "http://<asr_host>:8930/transcribe" -F "file=@/path/to/sample.mp3"`
 
 ## 常见故障排查
 

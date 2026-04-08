@@ -4,112 +4,93 @@
 
 ## 当前任务卡
 
-- 任务：为 `yt2notion` 设计一个基于现有 pipeline 的简单 CLI agent（Codex 后端、Obsidian 存储、禁用 full mode、支持排队处理 / 进度查询 / 终端通知）
+- 任务：将 agent 默认 pipeline 配置迁移到 `~/.yt2notion-agent/config.yaml`，并初始化本机 runtime config
 - 状态：`done`
 - 当前 owner：User
 - 上一执行者：User
 - 下一执行者：User / Reviewer
-- 来源：用户提出新需求，已完成方案、spec、plan，并进入 subagent-driven implementation 与收口阶段
+- 来源：用户确认 agent 不应继续隐式依赖 repo 根目录 `config.yaml`，要求一次性改完代码、文档和本机 runtime 配置
 - 目标：
-  - 交付 file-backed CLI agent MVP：提交任务、查看状态、查看进度、查看日志、重试、前台/后台 drain
-  - 约束在 `model.backend=codex_cli`、`storage.backend=obsidian`、`output.mode=summary`
-  - 约束在独立 `agent.yaml` 与独立 runtime `AGENTS.md`
-  - 尽量复用现有 pipeline，避免改动核心步骤和 JSON 契约
-  - 以“单用户本地自用”标准收口，不继续追求 JSON 状态文件的强一致
+  - `uv run yt2notion agent ...` 默认读取 `~/.yt2notion-agent/config.yaml` 作为 pipeline 配置
+  - `~/.yt2notion-agent/agent.yaml` 继续只承载 runtime control plane
+  - `agent init` 自动生成 runtime `config.yaml`
+  - 显式 `--config` 仍然优先覆盖默认路径
+  - 初始化本机 `~/.yt2notion-agent/config.yaml`：保留当前 remote ASR endpoint / restart 配置不变，补入 `groq` primary + `remote` fallback，Groq key 留空
 - 非目标：
-  - 不引入 full mode
-  - 不触发 Notion 发布路径
-  - 不把当前 file-backed 状态层提升到数据库级事务一致性
-  - 不在本轮实现 SQLite 状态后端
+  - 不把完整 pipeline 配置并入 `agent.yaml`
+  - 不改变 `process` / `prepare` 主 CLI 的 `config.yaml` 默认语义
+  - 不变更 remote ASR 服务部署方式、endpoint 或 restart command
 - 约束：
   - pipeline/contract 事实以 `PROJECT_MAP.md` 为准
-  - 新 agent 应默认运行在 no-publish / summary-only 约束下，除非用户后续另行确认
-  - 当前 MVP 假设单用户使用；允许“worker 运行时继续 add 新任务”，但不把多 CLI 强并发作为硬性保证目标
+  - `agent.yaml` 与 runtime `config.yaml` 的职责必须分离
+  - 默认路径必须与 `agent_home` 对齐，不能继续依赖当前工作目录
+  - 不把真实 Groq key 写入仓库或本机 runtime config
 - 受影响文件：
   - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
-  - [src/yt2notion/agent_worker.py](./src/yt2notion/agent_worker.py)
   - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
-  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
   - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
-  - [tests/test_agent_worker.py](./tests/test_agent_worker.py)
   - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 验收标准：
-  - `agent` 命令组可用，且 runtime control plane 与 repo 开发控制面分离
-  - 现有 pipeline 可在 agent 模式下以 `codex_cli + obsidian + summary` 顺序处理队列
-  - 状态、日志、retry、stale worker 基础恢复可用
-  - `PROJECT_MAP.md` 与本文件同步到当前实现与已接受边界
+  - `agent init` 会生成 `~/.yt2notion-agent/config.yaml`
+  - `agent add/run/retry/_worker` 在未传 `--config` 时默认使用 `<agent_home>/config.yaml`
+  - 显式 `--config` 仍可覆盖默认路径
+  - `README.md` / `PROJECT_MAP.md` 同步新的 config 查找语义
+  - 本机 `~/.yt2notion-agent/config.yaml` 已存在并写入目标配置
 - 建议命令：
-  - `uv run pytest tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py -q`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py src/yt2notion/models/llm.py src/yt2notion/models/__init__.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py`
+  - `uv run pytest tests/test_agent_runtime.py tests/test_cli.py -q`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/cli.py tests/test_agent_runtime.py tests/test_cli.py`
 - 未决问题：
-  - 未来是否将 file-backed 状态层替换为 SQLite
-  - 是否需要系统通知而不只是 log / worker stdout / foreground terminal 输出
+  - 无
 
 ## 当前执行记录
 
 - 已完成：
-  - 方案确认：命令触发、文件状态衔接、无常驻 daemon
-  - 配置确认：独立 `agent.yaml`，独立 runtime `AGENTS.md`，固定 `codex_cli + obsidian + summary`
-  - spec 已完成：[docs/superpowers/specs/2026-04-07-cli-agent-design.md](./docs/superpowers/specs/2026-04-07-cli-agent-design.md)
-  - plan 已完成：[docs/superpowers/plans/2026-04-07-cli-agent.md](./docs/superpowers/plans/2026-04-07-cli-agent.md)
-  - 已完成实现：
-    - runtime config/state 层
-    - Codex runtime workdir 隔离
-    - pipeline progress callback
-    - file-backed worker / queue / retry / stale worker 基础恢复
-    - `agent` CLI 命令组
-  - 已与用户确认收口标准：
-    - 当前 file-backed 状态层按单用户本地自用 MVP 接受
-    - 不继续为 JSON 状态文件追求数据库级一致性
-    - 后续若要强化一致性，优先引入 SQLite 而不是继续补 JSON 事务语义
-  - PR #13 已合入 `main`
-  - README 已补充 `agent` 最终使用方式与最小 `agent.yaml` 示例
-  - 已完成真实 smoke test：
-    - 使用 Apple Podcasts 链接 `https://podcasts.apple.com/us/podcast/id1493503146?i=1000755738136`
-    - 在临时 `agent_home=/tmp/yt2notion-agent-smoke.dSz2u5/agent-home` 与临时 Obsidian vault 下完成 `agent add -> download -> segment -> transcribe -> extract -> summarize -> publish`
-    - 成功产物：`/tmp/yt2notion-agent-smoke.dSz2u5/vault/summaries/2026-04-07 460 与李菁漫谈海外「中国学」大家访谈录.md`
-  - 已修复真实运行暴露的问题：
-    - `codex exec` 在 agent runtime 非 git 目录下缺少 `--skip-git-repo-check`，会导致后续 Codex 调用失败
-    - 修复位置：`src/yt2notion/models/codex_cli.py`
-    - 回归测试：`tests/test_codex_cli.py::test_codex_caller_skips_git_repo_check_when_workdir_is_set`
+  - 用户已确认采用“双文件”方案：
+    - `~/.yt2notion-agent/agent.yaml` 只保留 runtime control plane
+    - `~/.yt2notion-agent/config.yaml` 承载完整 pipeline 配置
+  - 已确认当前本机默认运行路径：
+    - runtime home: `~/.yt2notion-agent`
+    - runtime agent config: `~/.yt2notion-agent/agent.yaml`
+    - 当前被 `agent` 默认命中的 base config 是 repo 根目录 `config.yaml`
+  - 已完成代码改造：
+    - `ensure_agent_home()` 现在会创建 `runtime_config_path = <agent_home>/config.yaml`
+    - `agent add` / `agent run` / `agent retry` / `agent _worker` 在未传 `--config` 时默认解析到 `<agent_home>/config.yaml`
+    - 显式 `--config` 仍优先覆盖默认路径
+    - `process` / `prepare` 的默认 `config.yaml` 语义未改
+  - 已完成文档同步：
+    - `README.md` 已补 runtime 双配置文件说明与默认 config 查找规则
+    - `PROJECT_MAP.md` 已把 `agent.yaml` / `config.yaml` 分工和默认路径写成 canonical truth
+  - 已完成本机 runtime 配置初始化：
+    - 已创建 `~/.yt2notion-agent/config.yaml`
+    - 内容已切成 `groq primary + remote fallback`
+    - 现有 remote ASR endpoint / restart 配置保持不变
+    - Groq `api_key` 留空，等待用户自行填写
 - 当前阻塞：
-  - 无
+  - 无代码阻塞
+  - Groq key 仍为空，实际 agent 转写在填写 key 前不会通过 config 校验
 - 已修改文件：
   - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
-  - [src/yt2notion/agent_worker.py](./src/yt2notion/agent_worker.py)
   - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
-  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
-  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
   - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
-  - [tests/test_agent_worker.py](./tests/test_agent_worker.py)
   - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_pipeline.py](./tests/test_pipeline.py)
-  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
 - 已运行验证：
-  - `uv run pytest tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py -q` → `88 passed, 4 warnings`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/models/codex_cli.py src/yt2notion/models/llm.py src/yt2notion/models/__init__.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_codex_cli.py` → pass
-  - `uv run pytest tests/test_codex_cli.py -q` → `17 passed`
-  - 真实 CLI smoke test：
-    - `uv run yt2notion agent add 'https://podcasts.apple.com/us/podcast/id1493503146?i=1000755738136' --agent-home /tmp/yt2notion-agent-smoke.dSz2u5/agent-home -c config.yaml`
-    - 任务 `20260407-164715-retry-71aa6a` 最终 `completed`
-    - `result_path=/tmp/yt2notion-agent-smoke.dSz2u5/vault/summaries/2026-04-07 460 与李菁漫谈海外「中国学」大家访谈录.md`
+  - `uv run pytest tests/test_agent_runtime.py tests/test_cli.py -q` → `45 passed`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/cli.py tests/test_agent_runtime.py tests/test_cli.py` → pass
+  - `uv run pytest tests/test_agent_runtime.py tests/test_config.py tests/test_transcribe_base.py tests/test_transcribe_groq.py tests/test_transcribe_factory.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py tests/test_cli.py -q` → `154 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/transcribe/__init__.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_transcribe_base.py tests/test_transcribe_factory.py tests/test_transcribe_groq.py tests/test_workspace.py` → pass
+  - `~/.yt2notion-agent/config.yaml` YAML parse → pass
 - 风险/回滚点：
-  - file-backed queue / worker state 是 best-effort，本轮不承诺数据库级事务一致性
-  - 少量 reviewer 指出的极端多进程竞争/崩溃窗口被有意接受为 MVP residual risk，而不是继续在 JSON 文件上过度工程
+  - 这次会改动本机 `~/.yt2notion-agent/` 下的实际 runtime 文件
+  - 如果用户长期同时维护 repo 根目录 `config.yaml` 和 runtime `~/.yt2notion-agent/config.yaml`，两者可能漂移；agent 路径以后只看 runtime 文件
 - 下一步：
-  - 如需保留本次修复，提交 `src/yt2notion/models/codex_cli.py` 与 `tests/test_codex_cli.py`
-  - 后续若需要更强状态一致性，优先将 file-backed state layer 替换为 SQLite
+  - 用户在 `~/.yt2notion-agent/config.yaml` 填入 Groq key
+  - 之后继续使用 agent 时无需再传 `--config`
 
 ## 接手检查清单
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import tempfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
 
 
 FULL_AUDIO_ASR_CHUNK_SECONDS = 300
+MIN_ASR_UPLOAD_CHUNK_SECONDS = 30
 ASR_CHUNK_PADDING_SECONDS = 0.5
 SUMMARY_GROUP_CHAR_LIMIT = 24_000
 SUMMARY_GROUP_SEGMENT_LIMIT = 6
@@ -227,6 +229,7 @@ def prepare_content(
 
         current_step = "transcribe"
         if start_idx <= 2:
+            ws.clear_asr_fallback_used()
             _emit_progress(progress_callback, "transcribe", "started")
             transcripts = _step_transcribe(ws, metadata, segments, raw_config, verbose)
             ws.save_transcripts(transcripts)  # Final save (incremental saves happen inside)
@@ -522,10 +525,46 @@ def _step_transcribe(
 
     if sub_path:
         return _transcribe_from_subtitles(sub_path, segments, metadata, config, verbose)
-    elif audio_path:
-        return _transcribe_from_audio(audio_path, segments, metadata, config, ws, verbose)
-    else:
+    if audio_path is None:
         raise ExtractionError("No subtitles or audio found in workspace")
+
+    from yt2notion.transcribe import create_fallback_transcriber, create_transcriber
+    from yt2notion.transcribe.errors import (
+        TranscriptionQuotaError,
+        TranscriptionServerError,
+    )
+
+    transcriber = create_transcriber(config)
+
+    try:
+        return _transcribe_from_audio(
+            audio_path,
+            segments,
+            metadata,
+            config,
+            ws,
+            verbose,
+            transcriber=transcriber,
+        )
+    except (TranscriptionQuotaError, TranscriptionServerError):
+        fallback_transcriber = create_fallback_transcriber(config)
+        if fallback_transcriber is None:
+            raise
+        if verbose:
+            typer.echo(
+                "  Primary ASR failed on quota/server error. Retrying with fallback backend..."
+            )
+        ws.discard_transcribe_artifacts(audio_path=audio_path)
+        ws.mark_asr_fallback_used()
+        return _transcribe_from_audio(
+            audio_path,
+            segments,
+            metadata,
+            config,
+            ws,
+            verbose,
+            transcriber=fallback_transcriber,
+        )
 
 
 def _transcribe_from_subtitles(
@@ -590,11 +629,14 @@ def _transcribe_from_audio(
     config: dict,
     ws: Workspace,
     verbose: bool,
+    *,
+    transcriber=None,
 ) -> list[dict]:
     """Transcribe audio via ASR, optionally per-segment."""
-    from yt2notion.transcribe import create_transcriber
+    if transcriber is None:
+        from yt2notion.transcribe import create_transcriber
 
-    transcriber = create_transcriber(config)
+        transcriber = create_transcriber(config)
     language = metadata.language or None
 
     if segments:
@@ -612,12 +654,21 @@ def _transcribe_from_audio(
         if start_from > 0 and verbose:
             typer.echo(f"  Resuming ASR from segment {start_from + 1}/{len(segments)}")
 
+        configured_chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
         for i, (seg, seg_file) in enumerate(zip(segments, seg_files, strict=True)):
             if i < start_from:
                 continue
             if verbose:
                 typer.echo(f"  ASR [{i + 1}/{len(segments)}] {seg.get('title', '')}")
-            entries = transcriber.transcribe(seg_file, language=language)
+            entries = _transcribe_segment_entries_with_byte_budget(
+                audio_path=audio_path,
+                segment=seg,
+                segment_file=seg_file,
+                transcriber=transcriber,
+                language=language,
+                configured_chunk_seconds=configured_chunk_seconds,
+                verbose=verbose,
+            )
             text = " ".join(e.text for e in entries).strip()
             result.append(
                 {
@@ -663,6 +714,116 @@ def _transcribe_from_audio(
         ]
 
 
+def _transcriber_max_upload_bytes(transcriber) -> int | None:
+    raw_value = getattr(transcriber, "max_upload_bytes", None)
+    if isinstance(raw_value, int) and raw_value > 0:
+        return raw_value
+    return None
+
+
+def _resolve_upload_budget_chunk_seconds(
+    duration_seconds: float,
+    *,
+    file_size_bytes: int,
+    configured_chunk_seconds: int,
+    max_upload_bytes: int,
+) -> int:
+    configured = max(MIN_ASR_UPLOAD_CHUNK_SECONDS, int(configured_chunk_seconds))
+    if duration_seconds <= 0 or file_size_bytes <= 0 or max_upload_bytes <= 0:
+        return configured
+
+    budget_seconds = duration_seconds * (max_upload_bytes / file_size_bytes) * 0.9
+    budget_chunk = max(MIN_ASR_UPLOAD_CHUNK_SECONDS, int(math.floor(budget_seconds)))
+    return max(MIN_ASR_UPLOAD_CHUNK_SECONDS, min(configured, budget_chunk))
+
+
+def _build_segment_subchunks(segment: dict, chunk_seconds: int) -> list[dict]:
+    start = float(segment["start_seconds"])
+    end = float(segment["end_seconds"])
+    chunk = max(1.0, float(chunk_seconds))
+    chunks: list[dict] = []
+    index = 1
+    cursor = start
+    while cursor < end:
+        chunk_end = min(cursor + chunk, end)
+        chunks.append(
+            {
+                "title": f"{segment.get('title', 'Segment')} chunk {index}",
+                "start_seconds": cursor,
+                "end_seconds": chunk_end,
+            }
+        )
+        cursor = chunk_end
+        index += 1
+    return chunks
+
+
+def _transcribe_segment_entries_with_byte_budget(
+    *,
+    audio_path: Path,
+    segment: dict,
+    segment_file: Path,
+    transcriber,
+    language: str | None,
+    configured_chunk_seconds: int,
+    verbose: bool,
+    should_rebase: bool = False,
+) -> list[SubtitleEntry]:
+    from yt2notion.audio import split_audio
+    from yt2notion.transcribe.errors import TranscriptionError
+
+    max_upload_bytes = _transcriber_max_upload_bytes(transcriber)
+    segment_duration = float(segment["end_seconds"] - segment["start_seconds"])
+    segment_size = segment_file.stat().st_size if segment_file.exists() else 0
+    if max_upload_bytes is not None and segment_file.exists() and segment_size > max_upload_bytes:
+        if segment_duration <= MIN_ASR_UPLOAD_CHUNK_SECONDS:
+            raise TranscriptionError(
+                f"ASR chunk {segment_file.name} ({segment_size} bytes) exceeds "
+                f"max_upload_bytes ({max_upload_bytes}) at minimum chunk size "
+                f"({MIN_ASR_UPLOAD_CHUNK_SECONDS}s)"
+            )
+
+        chunk_seconds = _resolve_upload_budget_chunk_seconds(
+            segment_duration,
+            file_size_bytes=segment_size,
+            configured_chunk_seconds=configured_chunk_seconds,
+            max_upload_bytes=max_upload_bytes,
+        )
+        if chunk_seconds >= segment_duration:
+            raise TranscriptionError(
+                f"ASR chunk {segment_file.name} ({segment_size} bytes) exceeds "
+                f"max_upload_bytes ({max_upload_bytes}); cannot subdivide further."
+            )
+        subchunks = _build_segment_subchunks(segment, chunk_seconds)
+        if verbose:
+            typer.echo(
+                "    Segment exceeds upload budget; subdividing "
+                f"into {len(subchunks)} chunk(s) (~{chunk_seconds}s)"
+            )
+        subchunk_dir = segment_file.parent / f"{segment_file.stem}_chunks"
+        subchunk_files = split_audio(audio_path, subchunks, subchunk_dir)
+        rebased_entries: list[SubtitleEntry] = []
+        for subchunk, subchunk_file in zip(subchunks, subchunk_files, strict=True):
+            rebased_entries.extend(
+                _transcribe_segment_entries_with_byte_budget(
+                    audio_path=audio_path,
+                    segment=subchunk,
+                    segment_file=subchunk_file,
+                    transcriber=transcriber,
+                    language=language,
+                    configured_chunk_seconds=configured_chunk_seconds,
+                    verbose=verbose,
+                    should_rebase=True,
+                )
+            )
+        return rebased_entries
+
+    entries = transcriber.transcribe(segment_file, language=language)
+    if should_rebase:
+        return _rebase_chunk_entries(entries, segment)
+    return entries
+
+
 def _transcribe_full_audio_entries(
     audio_path: Path,
     metadata: VideoMeta,
@@ -674,11 +835,33 @@ def _transcribe_full_audio_entries(
 ) -> list[SubtitleEntry]:
     """Transcribe full audio, chunking long files to keep remote ASR requests bounded."""
     from yt2notion.audio import get_duration, split_audio
+    from yt2notion.transcribe.errors import TranscriptionError
 
     duration_seconds = float(metadata.duration_seconds or get_duration(audio_path))
-    chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
+    configured_chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
+    chunk_seconds = configured_chunk_seconds
+    max_upload_bytes = _transcriber_max_upload_bytes(transcriber)
+    file_size = audio_path.stat().st_size
+    oversize_full_audio = False
+
+    if max_upload_bytes is not None:
+        if file_size <= max_upload_bytes:
+            return transcriber.transcribe(audio_path, language=language)
+        oversize_full_audio = True
+        chunk_seconds = _resolve_upload_budget_chunk_seconds(
+            duration_seconds,
+            file_size_bytes=file_size,
+            configured_chunk_seconds=configured_chunk_seconds,
+            max_upload_bytes=max_upload_bytes,
+        )
 
     if duration_seconds <= chunk_seconds:
+        if oversize_full_audio:
+            raise TranscriptionError(
+                f"ASR full audio {audio_path.name} ({file_size} bytes) exceeds "
+                f"max_upload_bytes ({max_upload_bytes}) at minimum chunk size "
+                f"({MIN_ASR_UPLOAD_CHUNK_SECONDS}s)"
+            )
         return transcriber.transcribe(audio_path, language=language)
 
     chunk_specs = _build_full_audio_chunk_specs(duration_seconds, chunk_seconds)
@@ -692,8 +875,17 @@ def _transcribe_full_audio_entries(
             end_label = seconds_to_display(chunk_spec["end_seconds"])
             typer.echo(f"  ASR chunk [{index + 1}/{len(chunk_specs)}] {start_label}-{end_label}")
 
-        chunk_entries = transcriber.transcribe(chunk_file, language=language)
-        all_entries.extend(_rebase_chunk_entries(chunk_entries, chunk_spec))
+        chunk_entries = _transcribe_segment_entries_with_byte_budget(
+            audio_path=audio_path,
+            segment=chunk_spec,
+            segment_file=chunk_file,
+            transcriber=transcriber,
+            language=language,
+            configured_chunk_seconds=chunk_seconds,
+            verbose=verbose,
+            should_rebase=True,
+        )
+        all_entries.extend(chunk_entries)
 
     return all_entries
 

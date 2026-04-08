@@ -5,7 +5,7 @@ Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to
 ## Features
 
 - **Smart subtitle extraction**: prioritizes Chinese subs > English subs > auto-generated captions
-- **Podcast ASR support**: local Qwen3-ASR on Apple Silicon, no cloud API needed
+- **Podcast ASR support**: Groq primary ASR with optional remote/local fallback
 - **Multi-stage LLM pipeline**: Haiku (review/segment) → Sonnet (map) → Opus (reduce)
 - **Topic-aware segmentation**: LLM finds natural topic boundaries for long content
 - **Dual output modes**: `summary` by default, optional `full` for reviewed transcript + summary
@@ -49,15 +49,20 @@ Fixed behavior for this workflow:
 - Storage backend is always `obsidian`
 - Output mode is always `summary`
 - Runtime state lives under `~/.yt2notion-agent/`
+- Runtime control plane lives in `~/.yt2notion-agent/agent.yaml`
+- Runtime pipeline config lives in `~/.yt2notion-agent/config.yaml`
 
-`config.yaml` is still required. The agent reuses the normal pipeline config for extraction and ASR settings, then overlays the fixed runtime choices above.
+Agent commands default to `~/.yt2notion-agent/config.yaml` for pipeline settings. Pass `--config` to override that default.
 
 ```bash
-# Create ~/.yt2notion-agent/agent.yaml and runtime AGENTS.md
+# Create ~/.yt2notion-agent/agent.yaml, ~/.yt2notion-agent/config.yaml, and runtime AGENTS.md
 uv run yt2notion agent init
 
-# Edit the minimal runtime config
+# Edit runtime control-plane config
 $EDITOR ~/.yt2notion-agent/agent.yaml
+
+# Edit runtime pipeline config (used by agent commands unless --config is set)
+$EDITOR ~/.yt2notion-agent/config.yaml
 
 # Queue work
 uv run yt2notion agent add "https://www.youtube.com/watch?v=VIDEO_ID"
@@ -122,7 +127,15 @@ See [config.example.yaml](config.example.yaml) for all options.
 Key options:
 - `output.mode: summary|full`
 - `model.backend: claude_code|codex_cli|anthropic_api|openai_api`
+- `extract.asr.backend: groq|remote` (recommended: `groq`)
+- `extract.asr.fallback_backend: remote|groq|null` (recommended with Groq primary: `remote`)
+- `extract.asr.groq.*` for Groq endpoint/model/limits (set key via `GROQ_API_KEY` or config)
 - `extract.asr.restart_before_transcribe` / `extract.asr.restart_on_unhealthy` for ASR self-healing
+
+ASR fallback behavior summary:
+- Subtitle path still bypasses ASR.
+- Audio path uses the primary ASR backend.
+- When primary is Groq, only retryable quota/server failures (`429` / `5xx`) trigger one per-job fallback rerun; request errors such as `400/401/403` fail directly.
 
 ASR auto-restart operations and runbook:
 - [docs/operations/asr-service.md](docs/operations/asr-service.md)

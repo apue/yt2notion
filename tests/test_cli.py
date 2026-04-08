@@ -188,6 +188,7 @@ def test_agent_init_creates_runtime_home_without_starting_worker(tmp_path: Path)
 
     assert result.exit_code == 0
     assert (agent_home / "agent.yaml").exists()
+    assert (agent_home / "config.yaml").exists()
     assert (agent_home / "AGENTS.md").exists()
     assert (agent_home / "queue.json").exists()
     assert not (agent_home / "worker.json").exists()
@@ -232,6 +233,57 @@ def test_agent_add_creates_job_and_starts_worker_when_idle(tmp_path: Path) -> No
     assert job_payload["status"] == "queued"
     mock_spawn.assert_called_once()
     assert Path(mock_spawn.call_args.kwargs["base_config_path"]).is_absolute()
+
+
+def test_agent_add_defaults_to_runtime_config_in_agent_home_when_config_omitted(
+    tmp_path: Path,
+) -> None:
+    agent_home = tmp_path / "agent-home"
+
+    with (
+        patch("yt2notion.cli._validate_agent_config_path", side_effect=lambda value: value)
+        as mock_validate,
+        patch("yt2notion.cli._start_worker_if_idle", return_value=False),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "add",
+                "https://example.com/watch?v=abc123",
+                "--agent-home",
+                str(agent_home),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert mock_validate.call_args.args[0] == str(agent_home / "config.yaml")
+
+
+def test_agent_add_prefers_explicit_config_over_runtime_default(tmp_path: Path) -> None:
+    agent_home = tmp_path / "agent-home"
+    explicit_config = tmp_path / "explicit-config.yaml"
+
+    with (
+        patch("yt2notion.cli._validate_agent_config_path", side_effect=lambda value: value)
+        as mock_validate,
+        patch("yt2notion.cli._start_worker_if_idle", return_value=False),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "add",
+                "https://example.com/watch?v=abc123",
+                "--agent-home",
+                str(agent_home),
+                "--config",
+                str(explicit_config),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert mock_validate.call_args.args[0] == str(explicit_config)
 
 
 def test_agent_status_reports_idle_queue_summary(tmp_path: Path) -> None:
@@ -434,6 +486,7 @@ def test_agent_list_show_and_logs_commands(tmp_path: Path) -> None:
             "channel": "Channel 1",
             "result_path": "/vault/summaries/1.md",
             "error": None,
+            "asr_fallback_used": True,
         },
     )
     _write_job(
@@ -454,6 +507,7 @@ def test_agent_list_show_and_logs_commands(tmp_path: Path) -> None:
             "channel": None,
             "result_path": None,
             "error": None,
+            "asr_fallback_used": False,
         },
     )
     (agent_home / "logs" / "job-2.log").write_text("line-1\nline-2\n", encoding="utf-8")
@@ -474,6 +528,7 @@ def test_agent_list_show_and_logs_commands(tmp_path: Path) -> None:
     show_payload = json.loads(show_result.output)
     assert show_payload["job_id"] == "job-1"
     assert show_payload["result_path"] == "/vault/summaries/1.md"
+    assert show_payload["asr_fallback_used"] is True
 
     logs_result = runner.invoke(app, ["agent", "logs", "job-2", "--agent-home", str(agent_home)])
     assert logs_result.exit_code == 0
@@ -624,6 +679,57 @@ def test_agent_run_foreground_marks_stale_worker_before_drain(tmp_path: Path) ->
     assert result.exit_code == 0
     mock_mark_stale.assert_called_once()
     assert mock_run_once.call_count == 1
+
+
+def test_agent_run_foreground_defaults_to_runtime_config_in_agent_home(
+    tmp_path: Path,
+) -> None:
+    agent_home = tmp_path / "agent-home"
+    runner.invoke(app, ["agent", "init", "--agent-home", str(agent_home)])
+    _write_job(
+        agent_home,
+        {
+            "job_id": "job-1",
+            "url": "https://example.com/1",
+            "status": "queued",
+            "created_at": "2026-04-07T10:00:00+08:00",
+            "updated_at": "2026-04-07T10:00:00+08:00",
+            "started_at": None,
+            "finished_at": None,
+            "current_step": None,
+            "completed_steps": [],
+            "workspace_dir": None,
+            "video_id": None,
+            "title": None,
+            "channel": None,
+            "result_path": None,
+            "error": None,
+        },
+    )
+    (agent_home / "queue.json").write_text(
+        json.dumps({"queued_job_ids": ["job-1"]}),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("yt2notion.cli._validate_agent_config_path", side_effect=lambda value: value)
+        as mock_validate,
+        patch("yt2notion.cli.claim_worker_slot", return_value=True),
+        patch("yt2notion.cli._drain_queue"),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "run",
+                "--foreground",
+                "--agent-home",
+                str(agent_home),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert mock_validate.call_args.args[0] == str(agent_home / "config.yaml")
 
 
 def test_agent_worker_entrypoint_requires_existing_config_before_drain(tmp_path: Path) -> None:
@@ -793,6 +899,36 @@ def test_agent_hidden_worker_entrypoint_marks_stale_worker_before_drain(tmp_path
     assert mock_run_once.call_count == 1
 
 
+def test_agent_worker_entrypoint_defaults_to_runtime_config_in_agent_home(
+    tmp_path: Path,
+) -> None:
+    agent_home = tmp_path / "agent-home"
+    runner.invoke(app, ["agent", "init", "--agent-home", str(agent_home)])
+    (agent_home / "queue.json").write_text(
+        json.dumps({"queued_job_ids": ["job-1"]}),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("yt2notion.cli._validate_agent_config_path", side_effect=lambda value: value)
+        as mock_validate,
+        patch("yt2notion.cli.claim_worker_slot", return_value=True),
+        patch("yt2notion.cli._drain_queue"),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "_worker",
+                "--agent-home",
+                str(agent_home),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert mock_validate.call_args.args[0] == str(agent_home / "config.yaml")
+
+
 def test_agent_retry_returns_clean_error_for_non_failed_job(tmp_path: Path) -> None:
     agent_home = tmp_path / "agent-home"
     runner.invoke(app, ["agent", "init", "--agent-home", str(agent_home)])
@@ -832,6 +968,31 @@ def test_agent_retry_returns_clean_error_for_non_failed_job(tmp_path: Path) -> N
 
     assert result.exit_code == 1
     assert "Only failed jobs can be retried" in result.output
+
+
+def test_agent_retry_defaults_to_runtime_config_in_agent_home(tmp_path: Path) -> None:
+    agent_home = tmp_path / "agent-home"
+    runner.invoke(app, ["agent", "init", "--agent-home", str(agent_home)])
+
+    with (
+        patch("yt2notion.cli._validate_agent_config_path", side_effect=lambda value: value)
+        as mock_validate,
+        patch("yt2notion.cli.retry_job", return_value="job-2"),
+        patch("yt2notion.cli._start_worker_if_idle", return_value=False),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "retry",
+                "job-1",
+                "--agent-home",
+                str(agent_home),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert mock_validate.call_args.args[0] == str(agent_home / "config.yaml")
 
 
 def test_agent_retry_returns_clean_error_for_unknown_job(tmp_path: Path) -> None:

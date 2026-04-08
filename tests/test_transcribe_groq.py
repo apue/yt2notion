@@ -20,8 +20,8 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *a, **k: None)
 
 
-def _make_audio(tmp_path: Path, size: int = 1024) -> Path:
-    p = tmp_path / "audio.mp3"
+def _make_audio(tmp_path: Path, size: int = 1024, filename: str = "audio.mp3") -> Path:
+    p = tmp_path / filename
     p.write_bytes(b"\x00" * size)
     return p
 
@@ -182,3 +182,52 @@ def test_invalid_json_raises_transcription_error(tmp_path, monkeypatch):
     )
     with pytest.raises(TranscriptionError):
         GroqTranscriber(api_key="k").transcribe(audio)
+
+
+def test_multipart_m4a_uses_audio_mp4_mime(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path, filename="episode.m4a")
+    captured: dict = {}
+
+    def fake_post(url, *, files, data, headers, timeout):
+        captured["file_payload"] = files["file"]
+        return _http_response(200, json_body={"segments": []})
+
+    monkeypatch.setattr("yt2notion.transcribe.groq.httpx.post", fake_post)
+    GroqTranscriber(api_key="k").transcribe(audio)
+
+    payload = captured["file_payload"]
+    assert payload[0] == "episode.m4a"
+    assert payload[2] == "audio/mp4"
+
+
+def test_multipart_mp3_uses_audio_mpeg_mime(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path, filename="episode.mp3")
+    captured: dict = {}
+
+    def fake_post(url, *, files, data, headers, timeout):
+        captured["file_payload"] = files["file"]
+        return _http_response(200, json_body={"segments": []})
+
+    monkeypatch.setattr("yt2notion.transcribe.groq.httpx.post", fake_post)
+    GroqTranscriber(api_key="k").transcribe(audio)
+
+    payload = captured["file_payload"]
+    assert payload[0] == "episode.mp3"
+    assert payload[2] == "audio/mpeg"
+
+
+def test_multipart_unknown_suffix_omits_or_uses_octet_stream(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path, filename="episode.foo")
+    captured: dict = {}
+
+    def fake_post(url, *, files, data, headers, timeout):
+        captured["file_payload"] = files["file"]
+        return _http_response(200, json_body={"segments": []})
+
+    monkeypatch.setattr("yt2notion.transcribe.groq.httpx.post", fake_post)
+    GroqTranscriber(api_key="k").transcribe(audio)
+
+    payload = captured["file_payload"]
+    assert payload[0] == "episode.foo"
+    if len(payload) == 3:
+        assert payload[2] == "application/octet-stream"

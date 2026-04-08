@@ -12,6 +12,7 @@ from uuid import uuid4
 import typer
 
 from yt2notion.agent_runtime import (
+    AgentPaths,
     ensure_agent_home,
     read_queue,
     write_job,
@@ -217,6 +218,7 @@ def _build_queued_job_record(url: str) -> dict:
         "channel": None,
         "result_path": None,
         "error": None,
+        "asr_fallback_used": False,
     }
 
 
@@ -331,6 +333,12 @@ def _validate_agent_config_path(config_path: str) -> str:
     return str(resolved)
 
 
+def _resolve_agent_base_config_path(paths: AgentPaths, config_path: str | None) -> str:
+    if config_path is not None:
+        return config_path
+    return str(paths.runtime_config_path)
+
+
 def _start_worker_if_idle(paths, *, config_path: str) -> bool:
     recover_orphaned_queued_jobs(paths)
     queue = read_queue(paths)
@@ -380,13 +388,15 @@ def agent_init(
 def agent_add(
     url: str = typer.Argument(help="YouTube or podcast URL"),
     agent_home: str = typer.Option(None, "--agent-home", help="Agent runtime directory"),
-    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
 ) -> None:
     """Enqueue a new agent job and start worker if idle."""
     paths = ensure_agent_home(_ensure_home(agent_home))
     mark_stale_worker_failed(paths)
     recover_orphaned_queued_jobs(paths)
-    resolved_config_path = _validate_agent_config_path(config_path)
+    resolved_config_path = _validate_agent_config_path(
+        _resolve_agent_base_config_path(paths, config_path)
+    )
     record = _build_queued_job_record(url)
     write_job(paths, record)
     enqueue_job(paths, record["job_id"])
@@ -493,13 +503,15 @@ def agent_logs(
 def agent_retry(
     job_id: str = typer.Argument(help="Failed job id"),
     agent_home: str = typer.Option(None, "--agent-home", help="Agent runtime directory"),
-    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
 ) -> None:
     """Retry a failed job and start worker if idle."""
     paths = ensure_agent_home(_ensure_home(agent_home))
     mark_stale_worker_failed(paths)
     recover_orphaned_queued_jobs(paths)
-    resolved_config_path = _validate_agent_config_path(config_path)
+    resolved_config_path = _validate_agent_config_path(
+        _resolve_agent_base_config_path(paths, config_path)
+    )
     try:
         new_job_id = retry_job(paths, job_id)
     except (FileNotFoundError, ValueError) as exc:
@@ -514,7 +526,7 @@ def agent_retry(
 def agent_run(
     foreground: bool = typer.Option(False, "--foreground", help="Run worker in foreground"),
     agent_home: str = typer.Option(None, "--agent-home", help="Agent runtime directory"),
-    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
 ) -> None:
     """Run worker in foreground or spawn a background worker."""
     paths = ensure_agent_home(_ensure_home(agent_home))
@@ -529,7 +541,9 @@ def agent_run(
         if not queued_job_ids:
             typer.echo("queue empty")
             return
-        resolved_config_path = _validate_agent_config_path(config_path)
+        resolved_config_path = _validate_agent_config_path(
+            _resolve_agent_base_config_path(paths, config_path)
+        )
         if not claim_worker_slot(
             paths,
             pid=os.getpid(),
@@ -544,7 +558,9 @@ def agent_run(
     if not queued_job_ids:
         typer.echo("queue empty")
         return
-    resolved_config_path = _validate_agent_config_path(config_path)
+    resolved_config_path = _validate_agent_config_path(
+        _resolve_agent_base_config_path(paths, config_path)
+    )
     if _start_worker_if_idle(paths, config_path=resolved_config_path):
         typer.echo("worker started")
         return
@@ -554,13 +570,15 @@ def agent_run(
 @agent_app.command("_worker", hidden=True)
 def agent_worker_entrypoint(
     agent_home: str = typer.Option(None, "--agent-home", help="Agent runtime directory"),
-    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
 ) -> None:
     """Hidden entrypoint for background worker process."""
     paths = ensure_agent_home(_ensure_home(agent_home))
     mark_stale_worker_failed(paths)
     recover_orphaned_queued_jobs(paths)
-    resolved_config_path = _validate_agent_config_path(config_path)
+    resolved_config_path = _validate_agent_config_path(
+        _resolve_agent_base_config_path(paths, config_path)
+    )
     queue = read_queue(paths)
     queued_job_ids = queue.get("queued_job_ids", [])
     if not queued_job_ids:

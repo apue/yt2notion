@@ -12,6 +12,11 @@ from yt2notion.extract import ExtractionError
 from yt2notion.models.base import ChineseContent, EntityResult, Section, Summary, VideoMeta
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
+from yt2notion.transcribe.errors import (
+    TranscriptionError,
+    TranscriptionQuotaError,
+    TranscriptionServerError,
+)
 
 
 @pytest.fixture
@@ -659,16 +664,14 @@ def test_transcribe_from_audio_chunks_long_full_audio(
         [SubtitleEntry(start_seconds=1.0, end_seconds=5.0, text="chunk-3-main")],
     ]
     mock_create_transcriber.return_value = transcriber
-    mock_split_by_duration.side_effect = (
-        lambda entries, _max_seconds: [
-            Segment(
-                title="Part 1",
-                start_seconds=int(entries[0].start_seconds),
-                end_seconds=int(entries[-1].end_seconds),
-                text=" | ".join(entry.text for entry in entries),
-            )
-        ]
-    )
+    mock_split_by_duration.side_effect = lambda entries, _max_seconds: [
+        Segment(
+            title="Part 1",
+            start_seconds=int(entries[0].start_seconds),
+            end_seconds=int(entries[-1].end_seconds),
+            text=" | ".join(entry.text for entry in entries),
+        )
+    ]
 
     from yt2notion.pipeline import _transcribe_from_audio
     from yt2notion.workspace import Workspace
@@ -698,6 +701,475 @@ def test_transcribe_from_audio_chunks_long_full_audio(
             "source": "asr",
         }
     ]
+
+
+@pytest.mark.parametrize("error_cls", [TranscriptionQuotaError, TranscriptionServerError])
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_fallback_transcriber")
+@patch("yt2notion.transcribe.create_transcriber")
+def test_step_transcribe_falls_back_on_retryable_groq_errors(
+    mock_create_transcriber,
+    mock_create_fallback_transcriber,
+    mock_split_audio,
+    error_cls,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _step_transcribe
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    source_audio = tmp_path / "episode.mp3"
+    source_audio.write_bytes(b"fake audio")
+    ws.save_audio(source_audio)
+    stale_chunk_dir = ws.dir / "full_audio_chunks"
+    stale_chunk_dir.mkdir(parents=True, exist_ok=True)
+    (stale_chunk_dir / "chunk_001.mp3").write_bytes(b"stale")
+
+    segment_file = ws.dir / "segments" / "segment_001.mp3"
+    segment_file.parent.mkdir(parents=True, exist_ok=True)
+    segment_file.write_bytes(b"segment")
+    mock_split_audio.side_effect = [[segment_file], [segment_file]]
+
+    primary = MagicMock()
+    primary.max_upload_bytes = None
+    primary.transcribe.side_effect = error_cls("retryable")
+    fallback = MagicMock()
+    fallback.max_upload_bytes = None
+    fallback.transcribe.return_value = [
+        SubtitleEntry(start_seconds=0.0, end_seconds=1.0, text="fallback text"),
+    ]
+    mock_create_transcriber.return_value = primary
+    mock_create_fallback_transcriber.return_value = fallback
+
+    result = _step_transcribe(
+        ws,
+        mock_meta,
+        [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+        {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+        verbose=False,
+    )
+
+    assert result[0]["text"] == "fallback text"
+    assert ws.asr_fallback_used() is True
+    assert mock_split_audio.call_count == 2
+    assert primary.transcribe.call_count == 1
+    assert fallback.transcribe.call_count == 1
+    assert not stale_chunk_dir.exists()
+
+
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_fallback_transcriber")
+@patch("yt2notion.transcribe.create_transcriber")
+def test_step_transcribe_does_not_fallback_for_non_retryable_transcription_error(
+    mock_create_transcriber,
+    mock_create_fallback_transcriber,
+    mock_split_audio,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _step_transcribe
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    source_audio = tmp_path / "episode.mp3"
+    source_audio.write_bytes(b"fake audio")
+    ws.save_audio(source_audio)
+
+    segment_file = ws.dir / "segments" / "segment_001.mp3"
+    segment_file.parent.mkdir(parents=True, exist_ok=True)
+    segment_file.write_bytes(b"segment")
+    mock_split_audio.return_value = [segment_file]
+
+    primary = MagicMock()
+    primary.max_upload_bytes = None
+    primary.transcribe.side_effect = TranscriptionError("bad request")
+    fallback = MagicMock()
+    fallback.max_upload_bytes = None
+    mock_create_transcriber.return_value = primary
+    mock_create_fallback_transcriber.return_value = fallback
+
+    with pytest.raises(TranscriptionError, match="bad request"):
+        _step_transcribe(
+            ws,
+            mock_meta,
+            [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+            {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+            verbose=False,
+        )
+
+    assert fallback.transcribe.call_count == 0
+    assert ws.asr_fallback_used() is False
+
+
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_fallback_transcriber")
+@patch("yt2notion.transcribe.create_transcriber")
+def test_step_transcribe_does_not_evaluate_fallback_config_when_primary_succeeds(
+    mock_create_transcriber,
+    mock_create_fallback_transcriber,
+    mock_split_audio,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _step_transcribe
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    source_audio = tmp_path / "episode.mp3"
+    source_audio.write_bytes(b"fake audio")
+    ws.save_audio(source_audio)
+
+    segment_file = ws.dir / "segments" / "segment_001.mp3"
+    segment_file.parent.mkdir(parents=True, exist_ok=True)
+    segment_file.write_bytes(b"segment")
+    mock_split_audio.return_value = [segment_file]
+
+    primary = MagicMock()
+    primary.max_upload_bytes = None
+    primary.transcribe.return_value = [
+        SubtitleEntry(start_seconds=0.0, end_seconds=1.0, text="primary ok"),
+    ]
+    mock_create_transcriber.return_value = primary
+    mock_create_fallback_transcriber.side_effect = ValueError("bad fallback config")
+
+    result = _step_transcribe(
+        ws,
+        mock_meta,
+        [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+        {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+        verbose=False,
+    )
+
+    assert result[0]["text"] == "primary ok"
+    mock_create_fallback_transcriber.assert_not_called()
+
+
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_fallback_transcriber")
+@patch("yt2notion.transcribe.create_transcriber")
+def test_step_transcribe_propagates_retryable_error_when_no_fallback_configured(
+    mock_create_transcriber,
+    mock_create_fallback_transcriber,
+    mock_split_audio,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _step_transcribe
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    source_audio = tmp_path / "episode.mp3"
+    source_audio.write_bytes(b"fake audio")
+    ws.save_audio(source_audio)
+
+    segment_file = ws.dir / "segments" / "segment_001.mp3"
+    segment_file.parent.mkdir(parents=True, exist_ok=True)
+    segment_file.write_bytes(b"segment")
+    mock_split_audio.return_value = [segment_file]
+
+    primary = MagicMock()
+    primary.max_upload_bytes = None
+    primary.transcribe.side_effect = TranscriptionQuotaError("quota")
+    mock_create_transcriber.return_value = primary
+    mock_create_fallback_transcriber.return_value = None
+
+    with pytest.raises(TranscriptionQuotaError, match="quota"):
+        _step_transcribe(
+            ws,
+            mock_meta,
+            [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+            {"extract": {"asr": {"backend": "groq"}}},
+            verbose=False,
+        )
+
+    assert ws.asr_fallback_used() is False
+
+
+@patch("yt2notion.audio.split_audio")
+def test_transcribe_full_audio_fast_path_when_file_fits_upload_budget(
+    mock_split_audio,
+    mock_meta,
+    tmp_path,
+):
+    from yt2notion.pipeline import _transcribe_full_audio_entries
+
+    audio_path = tmp_path / "episode.mp3"
+    audio_path.write_bytes(b"x" * 1024)
+    mock_meta.duration_seconds = 3600
+
+    transcriber = MagicMock()
+    transcriber.max_upload_bytes = 2048
+    transcriber.transcribe.return_value = [
+        SubtitleEntry(start_seconds=0.0, end_seconds=1.0, text="single request"),
+    ]
+
+    entries = _transcribe_full_audio_entries(
+        audio_path,
+        mock_meta,
+        {
+            "extract": {"asr": {"backend": "groq", "chunk_seconds": 300}},
+            "output": {"max_segment_seconds": 300},
+        },
+        transcriber,
+        language=None,
+        verbose=False,
+    )
+
+    assert [entry.text for entry in entries] == ["single request"]
+    transcriber.transcribe.assert_called_once_with(audio_path, language=None)
+    mock_split_audio.assert_not_called()
+
+
+@patch("yt2notion.audio.split_audio")
+def test_transcribe_full_audio_oversize_short_clip_does_not_direct_upload(
+    mock_split_audio,
+    mock_meta,
+    tmp_path,
+):
+    from yt2notion.pipeline import _transcribe_full_audio_entries
+
+    audio_path = tmp_path / "episode.mp3"
+    audio_path.write_bytes(b"x" * 200)
+    mock_meta.duration_seconds = 20
+
+    transcriber = MagicMock()
+    transcriber.max_upload_bytes = 100
+    transcriber.transcribe.side_effect = AssertionError(
+        "must not direct-upload oversize full audio"
+    )
+
+    with pytest.raises(TranscriptionError, match="minimum chunk size"):
+        _transcribe_full_audio_entries(
+            audio_path,
+            mock_meta,
+            {
+                "extract": {"asr": {"backend": "groq", "chunk_seconds": 300}},
+                "output": {"max_segment_seconds": 300},
+            },
+            transcriber,
+            language=None,
+            verbose=False,
+        )
+
+    transcriber.transcribe.assert_not_called()
+    mock_split_audio.assert_not_called()
+
+
+@patch("yt2notion.audio.split_audio")
+def test_transcribe_full_audio_chunk_mode_enforces_byte_budget_per_chunk(
+    mock_split_audio,
+    mock_meta,
+    tmp_path,
+):
+    from yt2notion.pipeline import _transcribe_full_audio_entries
+
+    audio_path = tmp_path / "episode.mp3"
+    audio_path.write_bytes(b"x" * 1000)
+    mock_meta.duration_seconds = 120
+
+    oversized_chunk = tmp_path / "chunk_001.mp3"
+    oversized_chunk.write_bytes(b"x" * 250)
+    ok_chunk = tmp_path / "chunk_002.mp3"
+    ok_chunk.write_bytes(b"x" * 80)
+    ok_chunk_2 = tmp_path / "chunk_003.mp3"
+    ok_chunk_2.write_bytes(b"x" * 80)
+    ok_chunk_3 = tmp_path / "chunk_004.mp3"
+    ok_chunk_3.write_bytes(b"x" * 80)
+    mock_split_audio.return_value = [oversized_chunk, ok_chunk, ok_chunk_2, ok_chunk_3]
+
+    transcriber = MagicMock()
+    transcriber.max_upload_bytes = 200
+    transcriber.transcribe.side_effect = AssertionError(
+        "must not transcribe oversized generated chunk directly"
+    )
+
+    with pytest.raises(TranscriptionError, match="minimum chunk size"):
+        _transcribe_full_audio_entries(
+            audio_path,
+            mock_meta,
+            {
+                "extract": {"asr": {"backend": "groq", "chunk_seconds": 300}},
+                "output": {"max_segment_seconds": 300},
+            },
+            transcriber,
+            language=None,
+            verbose=False,
+        )
+
+    transcriber.transcribe.assert_not_called()
+
+
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_transcriber")
+@patch("yt2notion.segment._split_by_duration")
+def test_transcribe_from_audio_subdivides_oversized_segment_files_by_byte_budget(
+    mock_split_by_duration,
+    mock_create_transcriber,
+    mock_split_audio,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _transcribe_from_audio
+    from yt2notion.workspace import Workspace
+
+    audio_path = tmp_path / "episode.mp3"
+    audio_path.write_bytes(b"fake audio")
+
+    mock_meta.subtitles_available = False
+    mock_meta.duration_seconds = 120
+
+    oversized_file = tmp_path / "segment_001.mp3"
+    oversized_file.write_bytes(b"x" * 180)
+    child_1 = tmp_path / "segment_001_child_1.mp3"
+    child_2 = tmp_path / "segment_001_child_2.mp3"
+    child_1.write_bytes(b"x" * 90)
+    child_2.write_bytes(b"x" * 90)
+
+    mock_split_audio.side_effect = [[oversized_file], [child_1, child_2]]
+
+    transcriber = MagicMock()
+    transcriber.max_upload_bytes = 100
+
+    def _transcribe_side_effect(path: Path, *, language: str | None = None):
+        if path == child_1:
+            return [SubtitleEntry(start_seconds=0.0, end_seconds=2.0, text="child one")]
+        if path == child_2:
+            return [SubtitleEntry(start_seconds=0.0, end_seconds=2.0, text="child two")]
+        raise AssertionError(f"unexpected transcription input: {path}")
+
+    transcriber.transcribe.side_effect = _transcribe_side_effect
+    mock_create_transcriber.return_value = transcriber
+    mock_split_by_duration.side_effect = lambda entries, _max_seconds: [
+        Segment(
+            title="Part 1",
+            start_seconds=int(entries[0].start_seconds),
+            end_seconds=int(entries[-1].end_seconds),
+            text=" | ".join(entry.text for entry in entries),
+        )
+    ]
+
+    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+
+    result = _transcribe_from_audio(
+        audio_path,
+        [{"title": "Long segment", "start_seconds": 100, "end_seconds": 220}],
+        mock_meta,
+        {
+            "extract": {"asr": {"backend": "groq", "chunk_seconds": 300}},
+            "output": {"max_segment_seconds": 300},
+        },
+        workspace,
+        verbose=False,
+    )
+
+    assert mock_split_audio.call_count == 2
+    assert transcriber.transcribe.call_count == 2
+    assert [call.args[0] for call in transcriber.transcribe.call_args_list] == [child_1, child_2]
+    assert result[0]["text"] == "child one child two"
+
+
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_transcriber")
+@patch("yt2notion.pipeline._rebase_chunk_entries")
+def test_transcribe_from_audio_segmented_legacy_path_keeps_direct_transcribe_behavior(
+    mock_rebase_chunk_entries,
+    mock_create_transcriber,
+    mock_split_audio,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _transcribe_from_audio
+    from yt2notion.workspace import Workspace
+
+    audio_path = tmp_path / "episode.mp3"
+    audio_path.write_bytes(b"fake audio")
+    segment_file = tmp_path / "segment_001.mp3"
+    segment_file.write_bytes(b"fake segment")
+    mock_split_audio.return_value = [segment_file]
+
+    transcriber = MagicMock()
+    transcriber.max_upload_bytes = None
+    transcriber.transcribe.return_value = [
+        SubtitleEntry(start_seconds=0.0, end_seconds=0.4, text="drop-if-rebased"),
+        SubtitleEntry(start_seconds=1.0, end_seconds=3.0, text="keep"),
+    ]
+    mock_create_transcriber.return_value = transcriber
+    mock_rebase_chunk_entries.side_effect = AssertionError("legacy path should not rebase")
+
+    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    result = _transcribe_from_audio(
+        audio_path,
+        [{"title": "Part 1", "start_seconds": 100, "end_seconds": 130}],
+        mock_meta,
+        {
+            "extract": {"asr": {"backend": "remote"}},
+            "output": {"max_segment_seconds": 300},
+        },
+        workspace,
+        verbose=False,
+    )
+
+    assert result[0]["text"] == "drop-if-rebased keep"
+    assert transcriber.transcribe.call_count == 1
+    mock_rebase_chunk_entries.assert_not_called()
+
+
+@patch("yt2notion.audio.split_audio")
+@patch("yt2notion.transcribe.create_transcriber")
+def test_transcribe_from_audio_raises_when_min_chunk_still_exceeds_upload_budget(
+    mock_create_transcriber,
+    mock_split_audio,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import _transcribe_from_audio
+    from yt2notion.workspace import Workspace
+
+    audio_path = tmp_path / "episode.mp3"
+    audio_path.write_bytes(b"fake audio")
+
+    mock_meta.subtitles_available = False
+    mock_meta.duration_seconds = 120
+
+    oversized_parent = tmp_path / "segment_001.mp3"
+    oversized_parent.write_bytes(b"x" * 200)
+    oversized_child_floor = tmp_path / "segment_001_child_floor.mp3"
+    oversized_child_floor.write_bytes(b"x" * 150)
+    child_small = tmp_path / "segment_001_child_small.mp3"
+    child_small.write_bytes(b"x" * 10)
+
+    mock_split_audio.side_effect = [[oversized_parent], [oversized_child_floor, child_small]]
+
+    transcriber = MagicMock()
+    transcriber.max_upload_bytes = 100
+    transcriber.transcribe.side_effect = AssertionError("should not transcribe oversized 30s child")
+    mock_create_transcriber.return_value = transcriber
+
+    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+
+    with pytest.raises(TranscriptionError, match="minimum chunk size"):
+        _transcribe_from_audio(
+            audio_path,
+            [{"title": "Long segment", "start_seconds": 100, "end_seconds": 140}],
+            mock_meta,
+            {
+                "extract": {"asr": {"backend": "groq", "chunk_seconds": 300}},
+                "output": {"max_segment_seconds": 300},
+            },
+            workspace,
+            verbose=False,
+        )
+
+    assert mock_split_audio.call_count == 2
+    assert transcriber.transcribe.call_count == 0
 
 
 @patch("yt2notion.pipeline.extract_metadata")
@@ -898,3 +1370,91 @@ def test_run_pipeline_long_full_adds_transcript_subpage(
     mock_storage.add_transcript_subpage.assert_called_once_with(
         "https://notion.so/page123", transcript_segments, metadata
     )
+
+
+@patch("yt2notion.pipeline._step_summarize")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_clears_stale_asr_fallback_marker_when_transcribe_runs_fresh(
+    mock_step_download,
+    mock_download_audio,
+    mock_download_webpage_transcript,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_step_summarize,
+    mock_meta,
+    mock_chinese,
+    config,
+):
+    from pathlib import Path
+
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    mock_meta.subtitles_available = False
+    mock_step_download.return_value = mock_meta
+    mock_download_audio.return_value = None
+    mock_download_webpage_transcript.return_value = False
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = [
+        {
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 20,
+            "text": "subtitle-like text",
+            "source": "subtitle",
+        }
+    ]
+    mock_step_summarize.return_value = mock_chinese
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    ws.mark_asr_fallback_used()
+    assert ws.asr_fallback_used() is True
+
+    prepared = prepare_content("https://example.com/video", config, mode="summary")
+
+    assert prepared.workspace.asr_fallback_used() is False
+
+
+@patch("yt2notion.pipeline._step_summarize")
+def test_prepare_content_resume_after_transcribe_preserves_fallback_marker(
+    mock_step_summarize,
+    mock_meta,
+    mock_chinese,
+    config,
+):
+    from pathlib import Path
+
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    ws.save_metadata(mock_meta)
+    ws.save_segments([])
+    ws.save_transcripts(
+        [
+            {
+                "title": "Part 1",
+                "start_seconds": 0,
+                "end_seconds": 20,
+                "text": "subtitle-like text",
+                "source": "subtitle",
+            }
+        ]
+    )
+    ws.mark_asr_fallback_used()
+    assert ws.asr_fallback_used() is True
+
+    mock_step_summarize.return_value = mock_chinese
+    prepared = prepare_content(
+        mock_meta.url,
+        config,
+        mode="summary",
+        resume_from="review",
+        workspace_dir=str(ws.dir),
+    )
+
+    assert prepared.workspace.asr_fallback_used() is True

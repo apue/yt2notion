@@ -36,6 +36,7 @@ class AgentPaths:
 
     home: Path
     config_path: Path
+    runtime_config_path: Path
     agents_path: Path
     queue_path: Path
     worker_path: Path
@@ -137,6 +138,11 @@ def default_agent_yaml(home: Path) -> str:
     )
 
 
+def default_runtime_config_yaml() -> str:
+    """Return starter runtime config.yaml content."""
+    return "{}\n"
+
+
 def ensure_agent_home(home: Path | None = None) -> AgentPaths:
     """Create runtime directories/files if missing and return resolved paths."""
     runtime_home = (home or DEFAULT_AGENT_HOME).expanduser()
@@ -150,12 +156,15 @@ def ensure_agent_home(home: Path | None = None) -> AgentPaths:
     workspace_dir.mkdir(exist_ok=True)
 
     config_path = runtime_home / "agent.yaml"
+    runtime_config_path = runtime_home / "config.yaml"
     agents_path = runtime_home / "AGENTS.md"
     queue_path = runtime_home / "queue.json"
     worker_path = runtime_home / "worker.json"
 
     if not config_path.exists():
         config_path.write_text(default_agent_yaml(runtime_home), encoding="utf-8")
+    if not runtime_config_path.exists():
+        runtime_config_path.write_text(default_runtime_config_yaml(), encoding="utf-8")
     if not agents_path.exists():
         agents_path.write_text(default_runtime_agents_md(), encoding="utf-8")
     if not queue_path.exists():
@@ -171,6 +180,7 @@ def ensure_agent_home(home: Path | None = None) -> AgentPaths:
     return AgentPaths(
         home=runtime_home,
         config_path=config_path,
+        runtime_config_path=runtime_config_path,
         agents_path=agents_path,
         queue_path=queue_path,
         worker_path=worker_path,

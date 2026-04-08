@@ -50,14 +50,22 @@ extract:
   cookies_from: chrome
   # ASR 语音识别 fallback（无字幕时自动启用）
   asr:
-    backend: remote              # 可选: remote
-    endpoint: ""                 # ASR 服务地址，或设置 ASR_ENDPOINT 环境变量
+    backend: groq                # 推荐: groq (primary), 可选: remote
+    fallback_backend: remote     # 推荐 fallback: remote（每个 job 独立触发）
+    endpoint: ""                 # remote backend/fallback 的服务地址，或设置 ASR_ENDPOINT 环境变量
+    groq:
+      api_key: ""                # 留空并改用 GROQ_API_KEY 环境变量（不要把真实 key 写入文件）
+      model: "whisper-large-v3-turbo"
+      max_upload_bytes: 24000000
+      endpoint: "https://api.groq.com/openai/v1/audio/transcriptions"
+      timeout_seconds: 600
     # 健康检查（用于自动重启场景）
     healthcheck_path: "/health"
     healthcheck_timeout_seconds: 3.0
-    # 启用后：每次进入 ASR 流程前先执行一次重启命令
+    # 下面重启参数作用于 remote backend/fallback
+    # 启用后：每次进入 remote ASR 流程前先执行一次重启命令
     restart_before_transcribe: false
-    # 启用后：仅在健康检查失败时重启
+    # 启用后：仅在 remote 健康检查失败时重启
     restart_on_unhealthy: false
     # 推荐：使用仓库脚本（固定 PATH + 健康检查）
     # restart_command: "<repo_root>/scripts/asr/restart_remote_asr.sh <asr_host>"

@@ -53,6 +53,7 @@ Runtime files live under `~/.yt2notion-agent/` by default, overridable via `--ag
 
 ```text
 agent.yaml
+config.yaml
 AGENTS.md
 queue.json
 worker.json
@@ -61,6 +62,14 @@ logs/<job-id>.log
 logs/worker.log
 workspace/<video-id>/
 ```
+
+Runtime config split:
+- `agent.yaml`: runtime control plane only
+- `config.yaml`: pipeline config for agent jobs
+
+Agent config default:
+- `agent add` / `agent run` / `agent retry` / `agent _worker` read pipeline config from `<agent_home>/config.yaml` by default
+- `--config` overrides that default path
 
 MVP scope note:
 
@@ -81,6 +90,7 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 3. `TRANSCRIBE`
    `transcripts.json`
    Branch: subtitle assignment → per-segment ASR → full-audio ASR then duration split
+   ASR backend rule: primary backend comes from `extract.asr.backend`; if Groq raises retryable quota/server failures and `extract.asr.fallback_backend` is configured, rerun only transcribe step with fallback backend
 4. `TOPIC SEGMENT`
    rewrites `transcripts.json` only after transcription
    Trigger: oversized transcript segments
@@ -103,7 +113,7 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 |---|---|---|---|---|
 | `DOWNLOAD` | `pipeline._step_download()` + subtitle/audio download helpers | URL | `metadata.json`, `subtitles.*` or `audio.*` | Uses `subtitles_available` to choose subtitle vs audio path |
 | `SEGMENT` | `pipeline._step_segment()` | `VideoMeta` | `segments.json` | LLM may be used here before ASR when description exists and chapters do not |
-| `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely |
+| `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely; audio path uses `create_transcriber()` and may rerun transcribe with `create_fallback_transcriber()` on Groq retryable quota/server errors |
 | `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription, never before |
 | `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers to context review step |
 | `EXTRACT` | `pipeline._step_extract()` | reviewed transcripts | `entities.json` | Uses `LLMCaller` |
@@ -127,6 +137,11 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
   - topic segmentation may refine them afterwards
 - subtitle-sourced transcripts:
   - skip blocking review
+- audio-sourced transcripts:
+  - primary transcriber from `extract.asr.backend`
+  - when primary is `groq`, only `429`/`5xx`-mapped errors (`TranscriptionQuotaError` / `TranscriptionServerError`) can trigger fallback rerun
+  - fallback reruns `TRANSCRIBE` only (no re-download / re-segment), using `extract.asr.fallback_backend` when configured
+  - Groq non-retryable request errors (e.g. `400/401/403`) fail directly without fallback
 - long content:
   - skip blocking review in `REVIEW`
   - summarize first
@@ -159,6 +174,10 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 
 ## Config ↔ Code Map
 
+Path resolution note:
+- Main CLI (`process` / `prepare`) uses normal `config.yaml` resolution.
+- Agent commands use `<agent_home>/config.yaml` by default unless `--config` is provided.
+
 | `config.yaml` path | Consumer | Purpose |
 |---|---|---|
 | `model.backend` | `models/__init__.py:create_summarizer()` | choose `Summarizer` backend |
@@ -169,8 +188,9 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 | `storage.notion.*` | `storage/notion.py:NotionStorage.__init__()` | token / database / parent / rules |
 | `storage.obsidian.*` | `storage/obsidian.py:ObsidianStorage.__init__()` | vault and directory paths |
 | `extract.subtitle_priority` | `extract.py:extract_subtitles()` | subtitle language preference |
-| `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | choose ASR backend |
-| `extract.asr.endpoint` | `transcribe/remote.py:RemoteTranscriber` | remote ASR endpoint or `ASR_ENDPOINT` env override |
+| `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | choose primary ASR backend (`remote` / `groq`) |
+| `extract.asr.fallback_backend` | `transcribe/__init__.py:create_fallback_transcriber()` | choose optional fallback ASR backend (must differ from primary) |
+| `extract.asr.endpoint` | `transcribe/remote.py:RemoteTranscriber` | remote ASR endpoint or `ASR_ENDPOINT` env override (primary/fallback when backend is `remote`) |
 | `extract.asr.healthcheck_path` | `transcribe/remote.py:RemoteTranscriber` | ASR health endpoint (default `/health`) |
 | `extract.asr.healthcheck_timeout_seconds` | `transcribe/remote.py:RemoteTranscriber` | timeout for ASR health checks |
 | `extract.asr.restart_before_transcribe` | `transcribe/remote.py:RemoteTranscriber` | restart ASR once before first transcription call |
@@ -179,6 +199,11 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 | `extract.asr.restart_readiness_timeout_seconds` | `transcribe/remote.py:RemoteTranscriber` | max wait time for ASR to become healthy after restart |
 | `extract.asr.restart_readiness_interval_seconds` | `transcribe/remote.py:RemoteTranscriber` | polling interval for post-restart health checks |
 | `extract.asr.restart_grace_seconds` | `transcribe/remote.py:RemoteTranscriber` | fallback fixed wait when health endpoint is unavailable |
+| `extract.asr.groq.api_key` | `transcribe/__init__.py:_create_groq_transcriber()` | Groq API key (or `GROQ_API_KEY` env override) |
+| `extract.asr.groq.model` | `transcribe/groq.py:GroqTranscriber` | Groq transcription model name |
+| `extract.asr.groq.max_upload_bytes` | `transcribe/groq.py:GroqTranscriber` + `pipeline.py` audio chunking helpers | max bytes per Groq upload; drives chunk/sub-chunk split behavior |
+| `extract.asr.groq.endpoint` | `transcribe/groq.py:GroqTranscriber` | Groq OpenAI-compatible transcription endpoint |
+| `extract.asr.groq.timeout_seconds` | `transcribe/groq.py:GroqTranscriber` | HTTP timeout for Groq transcription requests |
 | `output.mode` | `pipeline.py:_resolve_output_mode()` | `summary` or `full` output behavior |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
@@ -198,7 +223,7 @@ All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`
 - sets `model._runtime.codex_workdir = <agent_home>`
 - sets `storage.obsidian.*` from `agent.yaml`
 - sets `workspace.base_dir` from `agent.yaml`
-- preserves repo `config.yaml` values outside that override set, especially `extract.asr.*`
+- preserves runtime `config.yaml` values outside that override set, especially `extract.asr.*` (including `backend`, `fallback_backend`, and `groq.*`)
 
 This is how the agent reuses current ASR self-healing behavior without exposing those knobs in the minimal runtime config.
 
@@ -213,7 +238,8 @@ Backends are selected by explicit `if/elif` factories, not registries:
 |---|---|---|---|
 | `create_summarizer(config)` | `models/__init__.py` | `model.backend` | `claude_code`, `anthropic_api`, `codex_cli`, `openai_api` alias |
 | `create_storage(config)` | `storage/__init__.py` | `storage.backend` | `notion`, `obsidian` |
-| `create_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.backend` | `remote` |
+| `create_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.backend` | `remote`, `groq` |
+| `create_fallback_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.fallback_backend` | optional `remote` / `groq` fallback transcriber |
 | `create_llm_caller(config, model_key=)` | `models/llm.py` | `model.backend` + `model.{model_key}` | `claude_code`, `codex_cli`, `openai_api` alias |
 
 ## Prompt Templates ↔ Code Bindings

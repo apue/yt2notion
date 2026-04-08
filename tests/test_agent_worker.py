@@ -41,6 +41,7 @@ def _seed_job(paths, job_id: str, *, status: str = "queued") -> None:
             "channel": None,
             "result_path": None,
             "error": None,
+            "asr_fallback_used": False,
         },
     )
 
@@ -362,12 +363,12 @@ def test_background_notifications_are_written_to_each_job_log(tmp_path: Path) ->
             is True
         )
 
-    assert "JOB job-1 COMPLETED /vault/summaries/1.md" in (
-        paths.logs_dir / "job-1.log"
-    ).read_text(encoding="utf-8")
-    assert "JOB job-2 COMPLETED /vault/summaries/2.md" in (
-        paths.logs_dir / "job-2.log"
-    ).read_text(encoding="utf-8")
+    assert "JOB job-1 COMPLETED /vault/summaries/1.md" in (paths.logs_dir / "job-1.log").read_text(
+        encoding="utf-8"
+    )
+    assert "JOB job-2 COMPLETED /vault/summaries/2.md" in (paths.logs_dir / "job-2.log").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_spawn_background_worker_uses_active_job_log_when_queue_non_empty(tmp_path: Path) -> None:
@@ -401,3 +402,172 @@ def test_claim_worker_slot_is_exclusive(tmp_path: Path) -> None:
 
     assert claim_worker_slot(paths, pid=111, job_id=None, mode="foreground") is True
     assert claim_worker_slot(paths, pid=222, job_id=None, mode="foreground") is False
+
+
+def test_run_worker_once_persists_asr_fallback_used_on_success(tmp_path: Path) -> None:
+    from yt2notion.models.base import VideoMeta
+    from yt2notion.workspace import Workspace
+
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+    ws = Workspace(paths.workspace_dir, "video-1")
+    ws.save_metadata(
+        VideoMeta(
+            video_id="video-1",
+            title="Video 1",
+            channel="Channel 1",
+            url="https://example.com/watch?v=abc",
+        )
+    )
+    ws.mark_asr_fallback_used()
+
+    record = _read_job(paths, "job-1")
+    record["workspace_dir"] = str(ws.dir)
+    write_job(paths, record)
+
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.3-codex",
+        "low",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch("yt2notion.agent_worker.run_pipeline", return_value="/vault/summaries/note.md"),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    updated = _read_job(paths, "job-1")
+    assert updated["status"] == "completed"
+    assert updated["asr_fallback_used"] is True
+
+
+def test_run_worker_once_persists_asr_fallback_used_on_failure(tmp_path: Path) -> None:
+    from yt2notion.models.base import VideoMeta
+    from yt2notion.workspace import Workspace
+
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+    ws = Workspace(paths.workspace_dir, "video-1")
+    ws.save_metadata(
+        VideoMeta(
+            video_id="video-1",
+            title="Video 1",
+            channel="Channel 1",
+            url="https://example.com/watch?v=abc",
+        )
+    )
+    ws.mark_asr_fallback_used()
+    record = _read_job(paths, "job-1")
+    record["workspace_dir"] = str(ws.dir)
+    write_job(paths, record)
+
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.3-codex",
+        "low",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch("yt2notion.agent_worker.run_pipeline", side_effect=RuntimeError("pipeline failed")),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    updated = _read_job(paths, "job-1")
+    assert updated["status"] == "failed"
+    assert updated["asr_fallback_used"] is True
+
+
+def test_run_worker_once_failure_does_not_misattributed_old_workspace_fallback_by_url(
+    tmp_path: Path,
+) -> None:
+    from yt2notion.models.base import VideoMeta
+    from yt2notion.workspace import Workspace
+
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+
+    old_ws = Workspace(paths.workspace_dir, "old-video")
+    old_ws.save_metadata(
+        VideoMeta(
+            video_id="old-video",
+            title="Old Title",
+            channel="Old Channel",
+            url="https://example.com/watch?v=abc",
+        )
+    )
+    old_ws.mark_asr_fallback_used()
+
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.3-codex",
+        "low",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch("yt2notion.agent_worker.run_pipeline", side_effect=RuntimeError("pipeline failed")),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    updated = _read_job(paths, "job-1")
+    assert updated["status"] == "failed"
+    assert updated["asr_fallback_used"] is False
+
+
+def test_run_worker_once_does_not_inherit_fallback_marker_from_old_workspace_on_early_failure(
+    tmp_path: Path,
+) -> None:
+    from yt2notion.models.base import VideoMeta
+    from yt2notion.workspace import Workspace
+
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+
+    old_ws = Workspace(paths.workspace_dir, "video-old")
+    old_ws.save_metadata(
+        VideoMeta(
+            video_id="video-old",
+            title="Old Video",
+            channel="Old Channel",
+            url="https://example.com/watch?v=abc",
+        )
+    )
+    old_ws.mark_asr_fallback_used()
+
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.3-codex",
+        "low",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch("yt2notion.agent_worker.run_pipeline", side_effect=RuntimeError("early failure")),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    updated = _read_job(paths, "job-1")
+    assert updated["status"] == "failed"
+    assert updated["workspace_dir"] is None
+    assert updated["video_id"] is None
+    assert updated["title"] is None
+    assert updated["channel"] is None
+    assert updated["asr_fallback_used"] is False

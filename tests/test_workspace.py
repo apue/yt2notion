@@ -135,3 +135,37 @@ def test_step_done_extract(tmp_path):
     )
     ws.save_entities(result)
     assert ws.step_done("extract")
+
+
+def test_discard_transcribe_artifacts_removes_transcripts_and_chunk_dirs(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    ws.save_transcripts(
+        [
+            {
+                "title": "Part 1",
+                "start_seconds": 0,
+                "end_seconds": 10,
+                "text": "before",
+                "source": "asr",
+            }
+        ]
+    )
+    (ws.dir / "segments").mkdir(parents=True, exist_ok=True)
+    (ws.dir / "segments" / "segment_001.mp3").write_bytes(b"fake")
+    (ws.dir / "full_audio_chunks").mkdir(parents=True, exist_ok=True)
+    (ws.dir / "full_audio_chunks" / "chunk_001.mp3").write_bytes(b"fake")
+
+    ws.discard_transcribe_artifacts()
+
+    assert ws.load_transcripts() is None
+    assert not (ws.dir / "segments").exists()
+    assert not (ws.dir / "full_audio_chunks").exists()
+
+
+def test_asr_fallback_marker_roundtrip(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    assert ws.asr_fallback_used() is False
+
+    ws.mark_asr_fallback_used()
+
+    assert ws.asr_fallback_used() is True

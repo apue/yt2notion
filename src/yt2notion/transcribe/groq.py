@@ -15,6 +15,19 @@ from yt2notion.transcribe.errors import (
     TranscriptionServerError,
 )
 
+_SUFFIX_TO_MIME: dict[str, str] = {
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".webm": "audio/webm",
+}
+
+
+def _mime_type_for_audio(path: Path) -> str | None:
+    return _SUFFIX_TO_MIME.get(path.suffix.lower())
+
 
 class GroqTranscriber:
     """Transcriber that calls Groq's OpenAI-compatible audio transcription endpoint."""
@@ -60,7 +73,11 @@ class GroqTranscriber:
 
         def _post() -> httpx.Response:
             with open(audio_path, "rb") as f:
-                files = {"file": (audio_path.name, f, "audio/mpeg")}
+                mime_type = _mime_type_for_audio(audio_path)
+                if mime_type is None:
+                    files = {"file": (audio_path.name, f)}
+                else:
+                    files = {"file": (audio_path.name, f, mime_type)}
                 response = httpx.post(
                     self.endpoint,
                     files=files,

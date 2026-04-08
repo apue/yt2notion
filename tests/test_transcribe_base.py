@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from yt2notion.process import SubtitleEntry
+from yt2notion.transcribe.base import Transcriber
 from yt2notion.transcribe.errors import (
     TranscriptionError,
     TranscriptionQuotaError,
@@ -13,9 +13,6 @@ from yt2notion.transcribe.errors import (
 )
 from yt2notion.transcribe.remote import RemoteTranscriber
 from yt2notion.transcribe.remote import TranscriptionError as RemoteTranscriptionError
-
-if TYPE_CHECKING:
-    from yt2notion.transcribe.base import Transcriber
 
 
 def test_quota_error_subclass() -> None:
@@ -28,6 +25,11 @@ def test_server_error_subclass() -> None:
 
 def test_remote_reexports_same_error_class() -> None:
     assert RemoteTranscriptionError is TranscriptionError
+
+
+def test_protocol_and_error_import_paths() -> None:
+    assert Transcriber.__module__ == "yt2notion.transcribe.base"
+    assert TranscriptionError.__module__ == "yt2notion.transcribe.errors"
 
 
 def test_remote_transcriber_max_upload_bytes_default_none() -> None:
