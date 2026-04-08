@@ -89,3 +89,97 @@ def test_asr_restart_defaults_present(tmp_path):
     assert asr["restart_before_transcribe"] is False
     assert asr["restart_on_unhealthy"] is False
     assert asr["restart_command"] == ""
+
+
+def _write_yaml(path, data: dict) -> None:
+    import yaml as _yaml
+
+    path.write_text(_yaml.safe_dump(data))
+
+
+def _base_config(**overrides) -> dict:
+    base = {
+        "model": {"backend": "claude_code"},
+        "storage": {"backend": "notion", "notion": {"token": "t", "database_id": "d"}},
+        "extract": {"asr": {"backend": "remote", "endpoint": "http://asr"}},
+        "output": {"mode": "summary"},
+    }
+    for k, v in overrides.items():
+        base[k] = v
+    return base
+
+
+def test_legacy_remote_only_config_loads(tmp_path):
+    cfg_file = tmp_path / "c.yaml"
+    _write_yaml(cfg_file, _base_config())
+    config = load_config(str(cfg_file))
+    assert config.extract["asr"]["fallback_backend"] is None
+    assert config.extract["asr"]["groq"]["model"] == "whisper-large-v3-turbo"
+
+
+def test_invalid_asr_backend_rejected(tmp_path):
+    cfg_file = tmp_path / "c.yaml"
+    data = _base_config()
+    data["extract"]["asr"]["backend"] = "bogus"
+    _write_yaml(cfg_file, data)
+    with pytest.raises(ConfigError, match="Invalid ASR backend"):
+        load_config(str(cfg_file))
+
+
+def test_fallback_equals_primary_rejected(tmp_path):
+    cfg_file = tmp_path / "c.yaml"
+    data = _base_config()
+    data["extract"]["asr"]["fallback_backend"] = "remote"
+    _write_yaml(cfg_file, data)
+    with pytest.raises(ConfigError, match="differ"):
+        load_config(str(cfg_file))
+
+
+def test_invalid_fallback_backend_rejected(tmp_path):
+    cfg_file = tmp_path / "c.yaml"
+    data = _base_config()
+    data["extract"]["asr"] = {
+        "backend": "groq",
+        "fallback_backend": "nope",
+        "groq": {"api_key": "sk-x"},
+    }
+    _write_yaml(cfg_file, data)
+    with pytest.raises(ConfigError, match="Invalid ASR fallback_backend"):
+        load_config(str(cfg_file))
+
+
+def test_groq_requires_api_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    cfg_file = tmp_path / "c.yaml"
+    data = _base_config()
+    data["extract"]["asr"] = {"backend": "groq"}
+    _write_yaml(cfg_file, data)
+    with pytest.raises(ConfigError, match="api_key"):
+        load_config(str(cfg_file))
+
+
+def test_groq_env_var_satisfies_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "sk-test")
+    cfg_file = tmp_path / "c.yaml"
+    data = _base_config()
+    data["extract"]["asr"] = {"backend": "groq"}
+    _write_yaml(cfg_file, data)
+    config = load_config(str(cfg_file))
+    assert config.extract["asr"]["backend"] == "groq"
+
+
+def test_groq_primary_with_remote_fallback(tmp_path, monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    cfg_file = tmp_path / "c.yaml"
+    data = _base_config()
+    data["extract"]["asr"] = {
+        "backend": "groq",
+        "fallback_backend": "remote",
+        "endpoint": "http://asr",
+        "groq": {"api_key": "sk-x"},
+    }
+    _write_yaml(cfg_file, data)
+    config = load_config(str(cfg_file))
+    assert config.extract["asr"]["backend"] == "groq"
+    assert config.extract["asr"]["fallback_backend"] == "remote"
+    assert config.extract["asr"]["groq"]["api_key"] == "sk-x"
