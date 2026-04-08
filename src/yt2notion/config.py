@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,7 @@ class ConfigError(Exception):
 
 VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "codex_cli", "openai_api"}
 VALID_STORAGE_BACKENDS = {"notion", "obsidian", "markdown"}
+VALID_ASR_BACKENDS: set[str] = {"remote", "groq"}
 
 DEFAULTS: dict = {
     "model": {
@@ -48,6 +50,14 @@ DEFAULTS: dict = {
             "restart_readiness_timeout_seconds": 90.0,
             "restart_readiness_interval_seconds": 3.0,
             "restart_grace_seconds": 5.0,
+            "fallback_backend": None,
+            "groq": {
+                "api_key": "",
+                "model": "whisper-large-v3-turbo",
+                "max_upload_bytes": 24_000_000,
+                "endpoint": "https://api.groq.com/openai/v1/audio/transcriptions",
+                "timeout_seconds": 600,
+            },
         },
     },
     "credit": {
@@ -131,6 +141,30 @@ def load_config(path: str) -> AppConfig:
         vault = Path(vault_path)
         if not vault.is_dir():
             raise ConfigError(f"Obsidian vault path does not exist: {vault_path}")
+
+    # Validate ASR backend(s)
+    asr_cfg = merged.get("extract", {}).get("asr", {})
+    primary = asr_cfg.get("backend", "remote")
+    if primary not in VALID_ASR_BACKENDS:
+        raise ConfigError(
+            f"Invalid ASR backend: {primary!r}. Must be one of: {sorted(VALID_ASR_BACKENDS)}"
+        )
+    fallback = asr_cfg.get("fallback_backend")
+    if fallback is not None:
+        if fallback not in VALID_ASR_BACKENDS:
+            raise ConfigError(
+                f"Invalid ASR fallback_backend: {fallback!r}. "
+                f"Must be one of: {sorted(VALID_ASR_BACKENDS)}"
+            )
+        if fallback == primary:
+            raise ConfigError("extract.asr.fallback_backend must differ from extract.asr.backend")
+    if "groq" in {primary, fallback}:
+        api_key = asr_cfg.get("groq", {}).get("api_key", "") or os.environ.get("GROQ_API_KEY", "")
+        if not api_key:
+            raise ConfigError(
+                "extract.asr.groq.api_key is required when groq is used "
+                "(or set GROQ_API_KEY env var)"
+            )
 
     return AppConfig(
         model=merged["model"],

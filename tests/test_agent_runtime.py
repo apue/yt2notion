@@ -18,6 +18,7 @@ def test_ensure_agent_home_creates_runtime_files(tmp_path: Path) -> None:
 
     assert paths.home == tmp_path
     assert paths.config_path.exists()
+    assert paths.runtime_config_path.exists()
     assert paths.agents_path.exists()
     assert paths.queue_path.exists()
     assert paths.jobs_dir.is_dir()
@@ -25,6 +26,12 @@ def test_ensure_agent_home_creates_runtime_files(tmp_path: Path) -> None:
 
     queue = json.loads(paths.queue_path.read_text(encoding="utf-8"))
     assert queue["queued_job_ids"] == []
+
+
+def test_ensure_agent_home_uses_agent_home_config_yaml_for_runtime_config(tmp_path: Path) -> None:
+    paths = ensure_agent_home(tmp_path)
+
+    assert paths.runtime_config_path == tmp_path / "config.yaml"
 
 
 def test_load_agent_config_reads_minimal_yaml(tmp_path: Path) -> None:

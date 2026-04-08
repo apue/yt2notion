@@ -21,6 +21,7 @@ _STEP_ARTIFACTS: dict[str, str] = {
     "extract": "entities.json",
     "summarize": "summary.json",
 }
+_ASR_FALLBACK_MARKER = "asr_fallback_used.json"
 
 STEPS = ("download", "segment", "transcribe", "review", "extract", "summarize")
 
@@ -207,6 +208,47 @@ class Workspace:
         path = self.dir / "failed.json"
         if path.exists():
             path.unlink()
+
+    # --- ASR fallback / transcribe cleanup ---
+
+    def discard_transcribe_artifacts(self, audio_path: Path | None = None) -> None:
+        """Remove transcribe-stage artifacts so ASR can rerun cleanly."""
+        transcript_path = self.dir / "transcripts.json"
+        if transcript_path.exists():
+            transcript_path.unlink()
+
+        dirs_to_remove: set[Path] = {
+            self.dir / "segments",
+            self.dir / "full_audio_chunks",
+        }
+        dirs_to_remove.update(self.dir.glob("segment_*_chunks"))
+
+        if audio_path is not None:
+            audio_parent = audio_path.parent
+            dirs_to_remove.add(audio_parent / "segments")
+            dirs_to_remove.add(audio_parent / "full_audio_chunks")
+            dirs_to_remove.update(audio_parent.glob("segment_*_chunks"))
+
+        for path in dirs_to_remove:
+            if path.exists():
+                shutil.rmtree(path, ignore_errors=True)
+
+    def mark_asr_fallback_used(self) -> None:
+        """Persist that this workspace used ASR fallback."""
+        self._write_json(_ASR_FALLBACK_MARKER, {"used": True})
+
+    def clear_asr_fallback_used(self) -> None:
+        """Clear persisted ASR fallback marker for a fresh transcribe execution."""
+        path = self.dir / _ASR_FALLBACK_MARKER
+        if path.exists():
+            path.unlink()
+
+    def asr_fallback_used(self) -> bool:
+        """Return whether this workspace used ASR fallback."""
+        payload = self._read_json(_ASR_FALLBACK_MARKER)
+        if not isinstance(payload, dict):
+            return False
+        return bool(payload.get("used", False))
 
     # --- Internal helpers ---
 

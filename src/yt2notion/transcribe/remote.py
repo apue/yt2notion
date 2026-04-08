@@ -11,14 +11,13 @@ import httpx
 
 from yt2notion.process import SubtitleEntry
 from yt2notion.retry import RetryExhaustedError, retry
-
-
-class TranscriptionError(Exception):
-    """Raised when ASR transcription fails."""
+from yt2notion.transcribe.errors import TranscriptionError
 
 
 class RemoteTranscriber:
     """Transcriber that calls a remote FastAPI ASR endpoint."""
+
+    max_upload_bytes: int | None = None
 
     def __init__(
         self,

@@ -114,6 +114,34 @@ def _backfill_job_metadata(paths: AgentPaths, agent_config: AgentConfig, job_id:
     write_job(paths, current)
 
 
+def _persist_asr_fallback_used(paths: AgentPaths, job_id: str) -> None:
+    current = _read_job(paths, job_id)
+    workspace_dir = current.get("workspace_dir")
+    used = False
+    if isinstance(workspace_dir, str) and workspace_dir:
+        workspace_path = Path(workspace_dir)
+        if workspace_path.exists():
+            from yt2notion.workspace import Workspace
+
+            workspace = Workspace(workspace_path.parent, workspace_path.name)
+            used = workspace.asr_fallback_used()
+    current["asr_fallback_used"] = used
+    current["updated_at"] = _now_iso()
+    write_job(paths, current)
+
+
+def _backfill_job_metadata_if_workspace_known(
+    paths: AgentPaths,
+    agent_config: AgentConfig,
+    job_id: str,
+) -> None:
+    current = _read_job(paths, job_id)
+    workspace_dir = current.get("workspace_dir")
+    if not isinstance(workspace_dir, str) or not workspace_dir:
+        return
+    _backfill_job_metadata(paths, agent_config, job_id)
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -341,6 +369,7 @@ def retry_job(paths: AgentPaths, job_id: str) -> str:
         "channel": None,
         "result_path": None,
         "error": None,
+        "asr_fallback_used": False,
     }
     write_job(paths, new_record)
     enqueue_job(paths, new_job_id)
@@ -400,7 +429,6 @@ def run_worker_once(
 
     try:
         app_config = build_runtime_app_config(base_config_path, agent_config, paths.home)
-        _backfill_job_metadata(paths, agent_config, job_id)
         with ExitStack() as stack:
             log_handle = stack.enter_context(
                 _job_log_path(paths, job_id).open("a", encoding="utf-8")
@@ -426,7 +454,8 @@ def run_worker_once(
         failed["finished_at"] = _now_iso()
         failed["updated_at"] = _now_iso()
         write_job(paths, failed)
-        _backfill_job_metadata(paths, agent_config, job_id)
+        _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
+        _persist_asr_fallback_used(paths, job_id)
         notification = _notification_line(job_id, "FAILED", str(exc))
         _emit_notification(paths, job_id, notification)
         return True
@@ -438,7 +467,8 @@ def run_worker_once(
         completed["updated_at"] = _now_iso()
         completed["error"] = completed.get("error") or "pipeline reported failed progress event"
         write_job(paths, completed)
-        _backfill_job_metadata(paths, agent_config, job_id)
+        _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
+        _persist_asr_fallback_used(paths, job_id)
         notification = _notification_line(job_id, "FAILED", str(completed["error"]))
         _emit_notification(paths, job_id, notification)
         return True
@@ -450,7 +480,8 @@ def run_worker_once(
     completed["finished_at"] = _now_iso()
     completed["updated_at"] = _now_iso()
     write_job(paths, completed)
-    _backfill_job_metadata(paths, agent_config, job_id)
+    _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
+    _persist_asr_fallback_used(paths, job_id)
     notification = _notification_line(job_id, "COMPLETED", str(result_path))
     _emit_notification(paths, job_id, notification)
     return True
