@@ -68,6 +68,10 @@
     - 内容已切成 `groq primary + remote fallback`
     - 现有 remote ASR endpoint / restart 配置保持不变
     - Groq `api_key` 留空，等待用户自行填写
+  - 已提交并推送分支：
+    - branch: `feat/groq-asr-fallback`
+    - commit: `03c4835`
+    - PR: `#16`
 - 当前阻塞：
   - 无代码阻塞
   - Groq key 仍为空，实际 agent 转写在填写 key 前不会通过 config 校验
