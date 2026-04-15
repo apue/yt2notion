@@ -133,6 +133,10 @@ def load_config(path: str) -> AppConfig:
     if output_mode not in {"summary", "full"}:
         raise ConfigError("output.mode must be either 'summary' or 'full'")
 
+    output_note_mode = merged.get("output", {}).get("note_mode")
+    if output_note_mode is not None and output_note_mode not in {"single", "source_ab_bundle"}:
+        raise ConfigError("output.note_mode must be either 'single' or 'source_ab_bundle'")
+
     # Validate obsidian vault_path when backend is obsidian
     if storage_backend == "obsidian":
         vault_path = merged.get("storage", {}).get("obsidian", {}).get("vault_path", "")

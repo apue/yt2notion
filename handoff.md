@@ -4,97 +4,96 @@
 
 ## 当前任务卡
 
-- 任务：将 agent 默认 pipeline 配置迁移到 `~/.yt2notion-agent/config.yaml`，并初始化本机 runtime config
+- 任务：将 source / A / B + tags 的实验流程正式产品化为 `note_bundle` pipeline，并接入 Obsidian 三文件发布
 - 状态：`done`
 - 当前 owner：User
-- 上一执行者：User
-- 下一执行者：User / Reviewer
-- 来源：用户确认 agent 不应继续隐式依赖 repo 根目录 `config.yaml`，要求一次性改完代码、文档和本机 runtime 配置
+- 上一执行者：Codex
+- 下一执行者：User / Codex
+- 来源：用户确认 Ferrari 样本的 source/A/B 阅读体验可用，希望把这套模式固化为正式流水线：统一产出 `source + A导读 + B扩展 + tags`，并直接发布到 Obsidian
 - 目标：
-  - `uv run yt2notion agent ...` 默认读取 `~/.yt2notion-agent/config.yaml` 作为 pipeline 配置
-  - `~/.yt2notion-agent/agent.yaml` 继续只承载 runtime control plane
-  - `agent init` 自动生成 runtime `config.yaml`
-  - 显式 `--config` 仍然优先覆盖默认路径
-  - 初始化本机 `~/.yt2notion-agent/config.yaml`：保留当前 remote ASR endpoint / restart 配置不变，补入 `groq` primary + `remote` fallback，Groq key 留空
+  - 新增 `output.note_mode = source_ab_bundle`
+  - 在 summarize 阶段产出 `note_bundle.json`
+  - 正式引入 `compose_guide / compose_longform / compose_note_metadata` 三个生产 prompt
+  - 让 `prepare` / dry-run / `process` 都能理解 `note_bundle`
+  - 在 Obsidian backend 下正式发布 `source / 导读 / 扩展` 三篇互链笔记
 - 非目标：
-  - 不把完整 pipeline 配置并入 `agent.yaml`
-  - 不改变 `process` / `prepare` 主 CLI 的 `config.yaml` 默认语义
-  - 不变更 remote ASR 服务部署方式、endpoint 或 restart command
+  - 不扩展到 Notion bundle publish
+  - 不在这轮接 bundle transcript 子页
+  - 不清理实验脚本或旧实验 prompt
 - 约束：
-  - pipeline/contract 事实以 `PROJECT_MAP.md` 为准
-  - `agent.yaml` 与 runtime `config.yaml` 的职责必须分离
-  - 默认路径必须与 `agent_home` 对齐，不能继续依赖当前工作目录
-  - 不把真实 Groq key 写入仓库或本机 runtime config
+  - `PROJECT_MAP.md` 是唯一事实锚点，涉及 pipeline / artifact / prompt binding 变化必须先更新
+  - bundle mode 当前只支持 `output.mode = summary`
+  - bundle publish 当前只支持 `storage.backend = obsidian`
+  - 不回退工作树里已有实验改动
 - 受影响文件：
-  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
-  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
-  - [tests/test_cli.py](./tests/test_cli.py)
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [README.md](./README.md)
   - [handoff.md](./handoff.md)
+  - [src/yt2notion/config.py](./src/yt2notion/config.py)
+  - [src/yt2notion/models/base.py](./src/yt2notion/models/base.py)
+  - [src/yt2notion/models/_parsers.py](./src/yt2notion/models/_parsers.py)
+  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
+  - [src/yt2notion/models/anthropic_api.py](./src/yt2notion/models/anthropic_api.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [src/yt2notion/note_bundle.py](./src/yt2notion/note_bundle.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/storage/base.py](./src/yt2notion/storage/base.py)
+  - [src/yt2notion/storage/obsidian.py](./src/yt2notion/storage/obsidian.py)
+  - [src/yt2notion/prompts/compose_guide.md](./src/yt2notion/prompts/compose_guide.md)
+  - [src/yt2notion/prompts/compose_longform.md](./src/yt2notion/prompts/compose_longform.md)
+  - [src/yt2notion/prompts/compose_note_metadata.md](./src/yt2notion/prompts/compose_note_metadata.md)
+  - [tests/test_config.py](./tests/test_config.py)
+  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [tests/test_prompts.py](./tests/test_prompts.py)
+  - [tests/test_note_bundle.py](./tests/test_note_bundle.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
+  - [tests/test_obsidian_storage.py](./tests/test_obsidian_storage.py)
 - 验收标准：
-  - `agent init` 会生成 `~/.yt2notion-agent/config.yaml`
-  - `agent add/run/retry/_worker` 在未传 `--config` 时默认使用 `<agent_home>/config.yaml`
-  - 显式 `--config` 仍可覆盖默认路径
-  - `README.md` / `PROJECT_MAP.md` 同步新的 config 查找语义
-  - 本机 `~/.yt2notion-agent/config.yaml` 已存在并写入目标配置
+  - `config.output.note_mode` 在 Obsidian 下默认 `source_ab_bundle`；其它 backend 默认 `single`，仍可显式覆盖
+  - workspace summarize artifact 支持 `note_bundle.json`
+  - `prepare` 在 bundle mode 下返回 `note_bundle` payload
+  - `process` 在 `storage.backend = obsidian` + bundle mode 下正式发布 source/A/B 三篇
+  - `PROJECT_MAP.md` 已同步新的 pipeline / artifact / config / prompt 事实
 - 建议命令：
-  - `uv run pytest tests/test_agent_runtime.py tests/test_cli.py -q`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/cli.py tests/test_agent_runtime.py tests/test_cli.py`
+  - `uv run pytest tests/test_config.py tests/test_workspace.py -q`
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py -q`
+  - `uv run pytest tests/test_obsidian_storage.py tests/test_pipeline.py -q`
+  - `uv run ruff check src/yt2notion tests`
 - 未决问题：
-  - 无
+  - 是否后续支持 bundle mode 的 transcript 子页
+  - 是否保留 `single` 作为长期兼容模式，还是未来继续收敛 bundle-only
 
 ## 当前执行记录
 
 - 已完成：
-  - 用户已确认采用“双文件”方案：
-    - `~/.yt2notion-agent/agent.yaml` 只保留 runtime control plane
-    - `~/.yt2notion-agent/config.yaml` 承载完整 pipeline 配置
-  - 已确认当前本机默认运行路径：
-    - runtime home: `~/.yt2notion-agent`
-    - runtime agent config: `~/.yt2notion-agent/agent.yaml`
-    - 当前被 `agent` 默认命中的 base config 是 repo 根目录 `config.yaml`
-  - 已完成代码改造：
-    - `ensure_agent_home()` 现在会创建 `runtime_config_path = <agent_home>/config.yaml`
-    - `agent add` / `agent run` / `agent retry` / `agent _worker` 在未传 `--config` 时默认解析到 `<agent_home>/config.yaml`
-    - 显式 `--config` 仍优先覆盖默认路径
-    - `process` / `prepare` 的默认 `config.yaml` 语义未改
-  - 已完成文档同步：
-    - `README.md` 已补 runtime 双配置文件说明与默认 config 查找规则
-    - `PROJECT_MAP.md` 已把 `agent.yaml` / `config.yaml` 分工和默认路径写成 canonical truth
-  - 已完成本机 runtime 配置初始化：
-    - 已创建 `~/.yt2notion-agent/config.yaml`
-    - 内容已切成 `groq primary + remote fallback`
-    - 现有 remote ASR endpoint / restart 配置保持不变
-    - Groq `api_key` 留空，等待用户自行填写
-  - 已提交并推送分支：
-    - branch: `feat/groq-asr-fallback`
-    - commit: `03c4835`
-    - PR: `#16`
+  - Task 1：`note_mode` config、`NoteDocument/NoteBundle` typed artifact、workspace `note_bundle.json` 保存/加载完成
+  - Task 2：三套生产 prompt、严格 JSON parser、三种 Summarizer backend 的 `compose_*` 接口完成
+  - Task 3：`note_bundle.py` 编排、pipeline summarize 分支、CLI `prepare` payload、dry-run 渲染完成
+  - Task 4：Obsidian `save_note_bundle()`、source/A/B 三文件互链发布、bundle publish backend guard 完成
+  - 所有关键 review findings 已收口：
+    - bundle short ASR 不再绕过 review
+    - `full + source_ab_bundle` 早拒绝
+    - bundle 文件名锚定 `metadata.title`，frontmatter/title 仍保留 note 自身标题
 - 当前阻塞：
-  - 无代码阻塞
-  - Groq key 仍为空，实际 agent 转写在填写 key 前不会通过 config 校验
+  - 无
 - 已修改文件：
-  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
-  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
-  - [tests/test_cli.py](./tests/test_cli.py)
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [README.md](./README.md)
-  - [handoff.md](./handoff.md)
+  - 见上面的“受影响文件”；当前工作树还包含更早的实验文件和文档脏改动，未回退
 - 已运行验证：
-  - `uv run pytest tests/test_agent_runtime.py tests/test_cli.py -q` → `45 passed`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/cli.py tests/test_agent_runtime.py tests/test_cli.py` → pass
-  - `uv run pytest tests/test_agent_runtime.py tests/test_config.py tests/test_transcribe_base.py tests/test_transcribe_groq.py tests/test_transcribe_factory.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py tests/test_cli.py -q` → `154 passed, 4 warnings`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/agent_worker.py src/yt2notion/cli.py src/yt2notion/pipeline.py src/yt2notion/transcribe/__init__.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py tests/test_agent_runtime.py tests/test_agent_worker.py tests/test_cli.py tests/test_pipeline.py tests/test_transcribe_base.py tests/test_transcribe_factory.py tests/test_transcribe_groq.py tests/test_workspace.py` → pass
-  - `~/.yt2notion-agent/config.yaml` YAML parse → pass
+  - `uv run pytest tests/test_config.py tests/test_workspace.py -q` → `37 passed`
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py -q` → `26 passed`
+  - `uv run pytest tests/test_note_bundle.py tests/test_pipeline.py -q` → `51 passed`
+  - `uv run pytest tests/test_obsidian_storage.py tests/test_pipeline.py -q` → `65 passed`
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py -q` → `97 passed`
+  - `uv run ruff check src/yt2notion/models/_parsers.py src/yt2notion/prompts/compose_guide.md src/yt2notion/prompts/compose_longform.md tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py` → pass
+  - Real sample verification: `prepare_content(..., resume_from='extract', workspace_dir='~/.yt2notion-agent/workspace/1000761027849', mode='summary')` with `config.output['note_mode'] = 'source_ab_bundle'` completed and wrote `note_bundle.json`
 - 风险/回滚点：
-  - 这次会改动本机 `~/.yt2notion-agent/` 下的实际 runtime 文件
-  - 如果用户长期同时维护 repo 根目录 `config.yaml` 和 runtime `~/.yt2notion-agent/config.yaml`，两者可能漂移；agent 路径以后只看 runtime 文件
+  - bundle mode 目前只支持 `output.mode = summary`
+  - bundle transcript 子页还未接，source 侧当前只保证原始 source URL 和 A/B 跳转
+  - note prompts now avoid long-body-in-JSON by using `<note_json>` + `<note_markdown>` tagged output; metadata prompt remains strict JSON
+  - 真实大样本下的文风质量仍需用户用真实内容继续验证；当前代码层风险已通过 review 收口
 - 下一步：
-  - 用户在 `~/.yt2notion-agent/config.yaml` 填入 Groq key
-  - 之后继续使用 agent 时无需再传 `--config`
+  - 用户体验新流程，决定是否让 runtime 默认走 `source_ab_bundle`
+  - 如需继续扩展，可补 bundle transcript 子页或 Notion 侧 bundle publish
 
 ## 接手检查清单
 
@@ -141,3 +140,4 @@
 | 2026-04-03 | User | Codex | 把工作流接入 Claude 入口并修正交接机制 | 完成 |
 | 2026-04-03 | User | Codex | 审计三项需求测试覆盖并补测，输出开发计划 | 完成 |
 | 2026-04-04 | User | Codex | 修复 PR #10 review 问题并同步文档/测试 | 完成 |
+| 2026-04-10 | User | Codex | 新增长内容总结 prompt 变体并在真实 workspace 生成对比产物 | 完成 |

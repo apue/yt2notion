@@ -22,6 +22,7 @@ from yt2notion.extract import (
 )
 from yt2notion.models import create_summarizer
 from yt2notion.models.llm import create_llm_caller
+from yt2notion.note_bundle import build_note_bundle
 from yt2notion.process import (
     SubtitleEntry,
     format_chapters_transcript,
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
         ChineseContent,
         ChunkSummary,
         EntityResult,
+        NoteBundle,
         Summarizer,
         VideoMeta,
     )
@@ -60,12 +62,13 @@ class PreparedContent:
     """Structured pipeline output before storage publish."""
 
     metadata: VideoMeta
-    chinese_content: ChineseContent
+    chinese_content: ChineseContent | None
     transcript_segments: list[dict] | None
     entities: EntityResult | None
     workspace: Workspace
     is_long: bool
     output_mode: str
+    note_bundle: NoteBundle | None = None
 
 
 def run_pipeline(
@@ -95,8 +98,12 @@ def run_pipeline(
         typer.echo(output)
         return output
 
+    storage_backend = config.storage.get("backend", "notion")
+    if prepared.note_bundle is not None and storage_backend != "obsidian":
+        raise ValueError("source_ab_bundle publish requires obsidian backend")
+
     if verbose:
-        typer.echo(f"Publishing to {config.storage['backend']}...")
+        typer.echo(f"Publishing to {storage_backend}...")
 
     raw_config = {
         "extract": config.extract,
@@ -112,19 +119,32 @@ def run_pipeline(
         transcript_segments = None
 
     _emit_progress(progress_callback, "publish", "started")
-    result_url = storage.save(
-        prepared.chinese_content,
-        prepared.metadata,
-        transcript_segments=transcript_segments,
-        entities=prepared.entities,
-    )
+    if prepared.note_bundle is not None:
+        result_url = storage.save_note_bundle(
+            prepared.note_bundle,
+            prepared.metadata,
+            transcript_segments=transcript_segments,
+            entities=prepared.entities,
+        )
+    else:
+        result_url = storage.save(
+            prepared.chinese_content,
+            prepared.metadata,
+            transcript_segments=transcript_segments,
+            entities=prepared.entities,
+        )
     _emit_progress(progress_callback, "publish", "completed")
     if verbose:
         typer.echo(f"  Published: {result_url}")
 
     prepared.workspace.clear_failure()
 
-    if prepared.is_long and prepared.output_mode == "full" and prepared.transcript_segments:
+    if (
+        prepared.note_bundle is None
+        and prepared.is_long
+        and prepared.output_mode == "full"
+        and prepared.transcript_segments
+    ):
         if verbose:
             typer.echo("  Adding transcript sub-page...")
         storage.add_transcript_subpage(result_url, prepared.transcript_segments, prepared.metadata)
@@ -153,6 +173,9 @@ def prepare_content(
         "output": config.output,
     }
     output_mode = _resolve_output_mode(config, mode)
+    note_mode = _resolve_note_mode(config)
+    if output_mode == "full" and note_mode == "source_ab_bundle":
+        raise ValueError("source_ab_bundle currently supports summary mode only")
 
     # Determine which steps to run
     start_idx = 0
@@ -274,6 +297,16 @@ def prepare_content(
                 reviewed = ws.load_reviewed()
                 if reviewed is None:
                     raise ValueError("Cannot resume: no reviewed.json in workspace")
+        elif note_mode == "source_ab_bundle" and not is_long:
+            if start_idx <= 3:
+                _emit_progress(progress_callback, "review", "started")
+                reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
+                ws.save_reviewed(reviewed)
+                _emit_progress(progress_callback, "review", "completed")
+            else:
+                reviewed = ws.load_reviewed()
+                if reviewed is None:
+                    raise ValueError("Cannot resume: no reviewed.json in workspace")
         else:
             reviewed = transcripts
             if verbose:
@@ -303,19 +336,28 @@ def prepare_content(
         # --- Step 6: SUMMARIZE ---
         current_step = "summarize"
         _emit_progress(progress_callback, "summarize", "started")
-        chinese_content = _step_summarize(
-            analysis_segments,
-            metadata,
-            raw_config,
-            verbose,
-            output_mode=output_mode,
-        )
-        ws.save_summary(chinese_content)
+        note_bundle: NoteBundle | None = None
+        if note_mode == "source_ab_bundle":
+            if verbose:
+                typer.echo("Summarizing source/A/B note bundle...")
+            summarizer = create_summarizer(raw_config)
+            note_bundle = build_note_bundle(reviewed, metadata, summarizer)
+            ws.save_note_bundle(note_bundle)
+            chinese_content: ChineseContent | None = None
+        else:
+            chinese_content = _step_summarize(
+                analysis_segments,
+                metadata,
+                raw_config,
+                verbose,
+                output_mode=output_mode,
+            )
+            ws.save_summary(chinese_content)
         _emit_progress(progress_callback, "summarize", "completed")
 
         transcript_segments: list[dict] | None = None
         if output_mode == "full":
-            if is_long:
+            if is_long and note_mode == "single":
                 current_step = "deferred_review"
                 _emit_progress(progress_callback, "review", "started")
                 transcript_segments = _review_transcript_with_summary_context(
@@ -341,6 +383,7 @@ def prepare_content(
             workspace=ws,
             is_long=is_long,
             output_mode=output_mode,
+            note_bundle=note_bundle,
         )
     except Exception as exc:
         if ws is not None:
@@ -1317,6 +1360,17 @@ def _resolve_output_mode(config: AppConfig, override: str | None) -> str:
     return mode
 
 
+def _resolve_note_mode(config: AppConfig) -> str:
+    """Resolve the note generation mode from config."""
+    mode = config.output.get("note_mode")
+    if mode is None:
+        storage_backend = config.storage.get("backend", "notion")
+        mode = "source_ab_bundle" if storage_backend == "obsidian" else "single"
+    if mode not in {"single", "source_ab_bundle"}:
+        raise ValueError(f"Unknown note mode: {mode!r}. Valid: single, source_ab_bundle")
+    return mode
+
+
 def render_prepared_output(prepared: PreparedContent, config: AppConfig) -> str:
     """Render human-readable dry-run output from prepared content."""
     credit_format = config.credit.get("format", "来源：{channel} 「{title}」\n链接：{url}")
@@ -1325,7 +1379,20 @@ def render_prepared_output(prepared: PreparedContent, config: AppConfig) -> str:
         title=prepared.metadata.title,
         url=prepared.metadata.url,
     )
-    parts = [credit, prepared.chinese_content.raw_markdown]
+    if prepared.note_bundle is not None:
+        parts = [
+            credit,
+            "# Source",
+            prepared.note_bundle.source.markdown,
+            "# A / Guide",
+            prepared.note_bundle.guide.markdown,
+            "# B / Longform",
+            prepared.note_bundle.longform.markdown,
+        ]
+    else:
+        if prepared.chinese_content is None:
+            raise RuntimeError("Prepared content is missing summary output")
+        parts = [credit, prepared.chinese_content.raw_markdown]
     if prepared.output_mode == "full" and prepared.transcript_segments:
         parts.append(render_transcript_markdown(prepared.metadata, prepared.transcript_segments))
     return "\n\n".join(parts)

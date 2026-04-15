@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 from yt2notion.models._parsers import (
     parse_chinese_markdown,
     parse_chunk_summary_json,
+    parse_note_document_json,
+    parse_note_metadata_json,
     parse_review_summary_json,
     parse_summary_json,
     parse_synthesized_markdown,
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
     from yt2notion.models.base import (
         ChineseContent,
         ChunkSummary,
+        NoteDocument,
+        NoteMetadata,
         ReviewSummaryResult,
         Summary,
         VideoMeta,
@@ -30,6 +34,29 @@ if TYPE_CHECKING:
 
 class CodexCLIError(Exception):
     """Raised when codex CLI invocation fails."""
+
+
+def _source_context(metadata: VideoMeta) -> dict[str, object]:
+    """Build compact source context for note composition prompts."""
+    return {
+        "video_id": metadata.video_id,
+        "title": metadata.title,
+        "channel": metadata.channel,
+        "url": metadata.url,
+        "duration_seconds": metadata.duration_seconds,
+        "description": metadata.description,
+        "series": metadata.series,
+    }
+
+
+def _note_document_payload(note: NoteDocument) -> dict[str, object]:
+    """Serialize a note document for prompt input."""
+    return {
+        "title": note.title,
+        "markdown": note.markdown,
+        "tags": note.tags,
+        "variant": note.variant,
+    }
 
 
 _CLAUDE_ALIASES = {"sonnet", "opus", "haiku"}
@@ -230,14 +257,18 @@ class CodexCLIModel:
         return parse_chunk_summary_json(raw)
 
     def synthesize(
-        self, chunk_summaries: list[ChunkSummary], metadata: VideoMeta
+        self,
+        chunk_summaries: list[ChunkSummary],
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "synthesize",
     ) -> ChineseContent:
         """Reduce phase: synthesize all chunk summaries into final Chinese output."""
         from yt2notion.process import seconds_to_display
 
         duration_display = seconds_to_display(metadata.duration_seconds)
         system_prompt = render_prompt(
-            "synthesize",
+            prompt_name,
             title=metadata.title,
             channel=metadata.channel,
             duration=duration_display,
@@ -260,3 +291,86 @@ class CodexCLIModel:
         )
         raw = self._translate_caller.call(system_prompt, user_prompt)
         return parse_synthesized_markdown(raw)
+
+    def summarize_transcript_to_markdown(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str,
+    ) -> ChineseContent:
+        """Generate final Chinese markdown directly from transcript input."""
+        system_prompt = load_prompt(prompt_name)
+        user_prompt = (
+            f"Video: {metadata.title} by {metadata.channel}\nURL: {metadata.url}\n\n{transcript}"
+        )
+        raw = self._translate_caller.call(system_prompt, user_prompt)
+        return parse_chinese_markdown(raw)
+
+    def compose_guide_note(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        target_chars: int,
+        prompt_name: str = "compose_guide",
+    ) -> NoteDocument:
+        """Compose a strict JSON guide note from transcript input."""
+        system_prompt = load_prompt(prompt_name)
+        user_prompt = json.dumps(
+            {
+                "source": _source_context(metadata),
+                "target_chars": target_chars,
+                "transcript": transcript,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        raw = self._translate_caller.call(system_prompt, user_prompt)
+        return parse_note_document_json(raw, expected_variant="a_guide")
+
+    def compose_longform_note(
+        self,
+        transcript: str,
+        guide_note: NoteDocument,
+        metadata: VideoMeta,
+        *,
+        target_chars: int,
+        prompt_name: str = "compose_longform",
+    ) -> NoteDocument:
+        """Compose a strict JSON longform note from guide + transcript input."""
+        system_prompt = load_prompt(prompt_name)
+        user_prompt = json.dumps(
+            {
+                "source": _source_context(metadata),
+                "guide_note": _note_document_payload(guide_note),
+                "target_chars": target_chars,
+                "transcript": transcript,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        raw = self._translate_caller.call(system_prompt, user_prompt)
+        return parse_note_document_json(raw, expected_variant="b_longform")
+
+    def compose_note_metadata(
+        self,
+        guide_note: NoteDocument,
+        longform_note: NoteDocument,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "compose_note_metadata",
+    ) -> NoteMetadata:
+        """Compose strict note metadata from guide and longform notes."""
+        system_prompt = load_prompt(prompt_name)
+        user_prompt = json.dumps(
+            {
+                "source": _source_context(metadata),
+                "guide_note": _note_document_payload(guide_note),
+                "longform_note": _note_document_payload(longform_note),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        raw = self._translate_caller.call(system_prompt, user_prompt)
+        return parse_note_metadata_json(raw)

@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from typer.testing import CliRunner
 
+from yt2notion.cli import app
 from yt2notion.config import AppConfig
 from yt2notion.extract import ExtractionError
-from yt2notion.models.base import ChineseContent, EntityResult, Section, Summary, VideoMeta
+from yt2notion.models.base import (
+    ChineseContent,
+    EntityResult,
+    NoteBundle,
+    NoteDocument,
+    Section,
+    Summary,
+    VideoMeta,
+)
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
 from yt2notion.transcribe.errors import (
@@ -17,6 +28,8 @@ from yt2notion.transcribe.errors import (
     TranscriptionQuotaError,
     TranscriptionServerError,
 )
+
+runner = CliRunner()
 
 
 @pytest.fixture
@@ -289,6 +302,135 @@ def test_pipeline_full_mock(
     assert not failed_file.exists()
 
 
+@patch("yt2notion.pipeline.create_storage")
+@patch("yt2notion.pipeline.prepare_content")
+def test_run_pipeline_bundle_mode_publishes_to_obsidian(
+    mock_prepare_content,
+    mock_create_storage,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import PreparedContent, run_pipeline
+    from yt2notion.workspace import Workspace
+
+    config.storage = {
+        "backend": "obsidian",
+        "obsidian": {"vault_path": str(tmp_path / "vault")},
+    }
+    config.output["note_mode"] = "source_ab_bundle"
+
+    workspace = Workspace(tmp_path / "workspace", "abc123")
+    bundle = NoteBundle(
+        source=NoteDocument(
+            title="Test Video",
+            markdown="# Source",
+            tags=["AI"],
+            variant="source",
+        ),
+        guide=NoteDocument(
+            title="Test Video - 导读",
+            markdown="# Guide",
+            tags=["AI", "guide"],
+            variant="a_guide",
+        ),
+        longform=NoteDocument(
+            title="Test Video - 扩展",
+            markdown="# Longform",
+            tags=["AI", "longform"],
+            variant="b_longform",
+        ),
+        stable_tags=["AI"],
+        source_topics=["topic"],
+    )
+    mock_prepare_content.return_value = PreparedContent(
+        metadata=VideoMeta(
+            video_id="abc123",
+            title="Test Video",
+            channel="TestChannel",
+            url="https://www.youtube.com/watch?v=abc123",
+        ),
+        chinese_content=None,
+        transcript_segments=None,
+        entities=None,
+        workspace=workspace,
+        is_long=False,
+        output_mode="summary",
+        note_bundle=bundle,
+    )
+
+    mock_storage = MagicMock()
+    mock_storage.save_note_bundle.return_value = "/vault/yt2notion/summaries/Test Video.md"
+    mock_create_storage.return_value = mock_storage
+
+    result = run_pipeline("https://www.youtube.com/watch?v=abc123", config)
+
+    assert result == "/vault/yt2notion/summaries/Test Video.md"
+    mock_create_storage.assert_called_once()
+    mock_storage.save_note_bundle.assert_called_once()
+    mock_storage.save.assert_not_called()
+
+
+@patch("yt2notion.pipeline.create_storage")
+@patch("yt2notion.pipeline.prepare_content")
+def test_run_pipeline_bundle_mode_rejects_non_obsidian_backend(
+    mock_prepare_content,
+    mock_create_storage,
+    config,
+    tmp_path,
+):
+    from yt2notion.pipeline import PreparedContent, run_pipeline
+    from yt2notion.workspace import Workspace
+
+    config.storage = {
+        "backend": "notion",
+        "notion": {"token": "x", "database_id": "y"},
+    }
+    config.output["note_mode"] = "source_ab_bundle"
+
+    workspace = Workspace(tmp_path / "workspace", "abc123")
+    mock_prepare_content.return_value = PreparedContent(
+        metadata=VideoMeta(
+            video_id="abc123",
+            title="Test Video",
+            channel="TestChannel",
+            url="https://www.youtube.com/watch?v=abc123",
+        ),
+        chinese_content=None,
+        transcript_segments=None,
+        entities=None,
+        workspace=workspace,
+        is_long=False,
+        output_mode="summary",
+        note_bundle=NoteBundle(
+            source=NoteDocument(
+                title="Test Video",
+                markdown="# Source",
+                tags=["AI"],
+                variant="source",
+            ),
+            guide=NoteDocument(
+                title="Test Video - 导读",
+                markdown="# Guide",
+                tags=["AI", "guide"],
+                variant="a_guide",
+            ),
+            longform=NoteDocument(
+                title="Test Video - 扩展",
+                markdown="# Longform",
+                tags=["AI", "longform"],
+                variant="b_longform",
+            ),
+            stable_tags=["AI"],
+            source_topics=["topic"],
+        ),
+    )
+
+    with pytest.raises(ValueError, match="obsidian"):
+        run_pipeline("https://www.youtube.com/watch?v=abc123", config)
+
+    mock_create_storage.assert_not_called()
+
+
 @patch("yt2notion.pipeline.create_llm_caller")
 @patch("yt2notion.pipeline.create_summarizer")
 @patch("yt2notion.pipeline.extract_subtitles")
@@ -406,6 +548,175 @@ def test_prepare_content_emits_progress_callbacks_for_key_steps_summary_mode(
     ]
 
     mock_step_review.assert_not_called()
+
+
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline._step_extract")
+@patch("yt2notion.pipeline._step_review")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_bundle_mode_builds_note_bundle(
+    mock_step_download,
+    mock_download_audio,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_download_webpage_transcript,
+    mock_step_review,
+    mock_step_extract,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+    tmp_path,
+):
+    mock_meta.subtitles_available = False
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_download_audio.return_value = None
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = [
+        {
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 300,
+            "text": "raw asr text",
+            "source": "asr",
+        }
+    ]
+    reviewed_segments = [
+        {
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 300,
+            "text": "cleaned asr text",
+            "source": "asr",
+        }
+    ]
+    mock_step_review.return_value = reviewed_segments
+    mock_step_extract.return_value = EntityResult(
+        domain="General",
+        is_entity_centric=False,
+        entity_types=[],
+        entities=[],
+        relations=[],
+    )
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = NoteBundle(
+        source=NoteDocument(
+            title="Ferrari",
+            markdown="# Ferrari",
+            tags=["法拉利"],
+            variant="source",
+        ),
+        guide=NoteDocument(
+            title="Ferrari 导读",
+            markdown="# Ferrari 导读",
+            tags=["法拉利", "导读版"],
+            variant="a_guide",
+        ),
+        longform=NoteDocument(
+            title="Ferrari 扩展",
+            markdown="# Ferrari 扩展",
+            tags=["法拉利", "扩展版"],
+            variant="b_longform",
+        ),
+        stable_tags=["法拉利", "赛车"],
+        source_topics=["赛车文化", "品牌叙事"],
+    )
+
+    from yt2notion.pipeline import prepare_content
+
+    config.output["note_mode"] = "source_ab_bundle"
+    prepared = prepare_content(
+        "https://example.com/video",
+        config,
+        mode="summary",
+        workspace_dir=str(tmp_path / "workspace"),
+    )
+
+    assert prepared.note_bundle is not None
+    assert prepared.chinese_content is None
+    assert (prepared.workspace.dir / "note_bundle.json").exists()
+    mock_create_summarizer.assert_called_once()
+    mock_build_note_bundle.assert_called_once()
+    mock_step_review.assert_called_once()
+    assert mock_build_note_bundle.call_args.args[0] == reviewed_segments
+
+
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_bundle_mode_rejects_full_mode_early(
+    mock_step_download,
+    mock_meta,
+    config,
+):
+    from yt2notion.pipeline import prepare_content
+
+    config.output["note_mode"] = "source_ab_bundle"
+
+    with pytest.raises(ValueError, match="source_ab_bundle"):
+        prepare_content("https://example.com/video", config, mode="full")
+
+    mock_step_download.assert_not_called()
+
+
+@patch("yt2notion.pipeline.prepare_content")
+def test_cli_prepare_bundle_mode_outputs_note_bundle(mock_prepare_content, tmp_path):
+    from yt2notion.config import AppConfig
+    from yt2notion.pipeline import PreparedContent
+    from yt2notion.workspace import Workspace
+
+    workspace = Workspace(tmp_path, "abc123")
+    mock_prepare_content.return_value = PreparedContent(
+        metadata=VideoMeta(
+            video_id="abc123",
+            title="Test Video",
+            channel="TestChannel",
+            url="https://www.youtube.com/watch?v=abc123",
+        ),
+        chinese_content=None,
+        transcript_segments=None,
+        entities=None,
+        workspace=workspace,
+        is_long=False,
+        output_mode="summary",
+        note_bundle=NoteBundle(
+            source=NoteDocument(
+                title="Ferrari",
+                markdown="# Ferrari",
+                tags=["法拉利"],
+                variant="source",
+            ),
+            guide=NoteDocument(
+                title="Ferrari 导读",
+                markdown="# Ferrari 导读",
+                tags=["法拉利", "导读版"],
+                variant="a_guide",
+            ),
+            longform=NoteDocument(
+                title="Ferrari 扩展",
+                markdown="# Ferrari 扩展",
+                tags=["法拉利", "扩展版"],
+                variant="b_longform",
+            ),
+            stable_tags=["法拉利", "赛车"],
+            source_topics=["赛车文化", "品牌叙事"],
+        ),
+    )
+
+    with patch("yt2notion.cli.load_config", return_value=AppConfig()):
+        result = runner.invoke(
+            app,
+            ["prepare", "https://www.youtube.com/watch?v=abc123", "--mode", "summary"],
+        )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["note_bundle"] is not None
+    assert payload["summary"] is None
 
 
 @patch("yt2notion.pipeline._step_summarize")
@@ -1238,6 +1549,23 @@ def test_resolve_output_mode_rejects_invalid(config):
 
     with pytest.raises(ValueError, match="Unknown output mode"):
         _resolve_output_mode(config, "invalid-mode")
+
+
+def test_resolve_note_mode_defaults_to_single_for_non_obsidian(config):
+    from yt2notion.pipeline import _resolve_note_mode
+
+    config.output.pop("note_mode", None)
+
+    assert _resolve_note_mode(config) == "single"
+
+
+def test_resolve_note_mode_defaults_to_source_ab_bundle_for_obsidian(config):
+    from yt2notion.pipeline import _resolve_note_mode
+
+    config.storage["backend"] = "obsidian"
+    config.output.pop("note_mode", None)
+
+    assert _resolve_note_mode(config) == "source_ab_bundle"
 
 
 def test_prepare_content_resume_summarize_requires_entities(config, mock_meta):
