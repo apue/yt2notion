@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
 
-from yt2notion.models.base import ChineseContent, VideoMeta
+from yt2notion.models.base import ChineseContent, NoteBundle, NoteDocument, VideoMeta
 from yt2notion.storage.obsidian import (
     ObsidianStorage,
     ObsidianStorageError,
@@ -74,6 +75,9 @@ def segments() -> list[dict]:
 class TestSanitizeTitle:
     def test_removes_unsafe_chars(self):
         assert _sanitize_title('foo/bar\\baz:qux*"<>|') == "foobarbazqux"
+
+    def test_removes_wikilink_sensitive_chars(self):
+        assert _sanitize_title("foo[bar]#baz") == "foobarbaz"
 
     def test_truncates_long_title(self):
         long = "A" * 200
@@ -280,6 +284,114 @@ class TestSave:
         # Podcast timestamps should be plain, not hyperlinked
         assert "[5:30]" in text
         assert "youtube.com" not in text.split("---", 2)[2]  # body only
+
+    def test_save_note_bundle_writes_three_linked_notes(self, vault: Path, meta: VideoMeta):
+        storage = ObsidianStorage(vault_path=str(vault))
+        bundle = NoteBundle(
+            source=NoteDocument(
+                title="Edited Source Title",
+                markdown="# Source note\n\n轻索引内容。",
+                tags=["AI", "math"],
+                variant="source",
+            ),
+            guide=NoteDocument(
+                title=f"{meta.title} - 导读",
+                markdown="# 导读正文\n\nA 版内容。",
+                tags=["AI", "guide"],
+                variant="a_guide",
+            ),
+            longform=NoteDocument(
+                title=f"{meta.title} - 扩展",
+                markdown="# 扩展正文\n\nB 版内容。",
+                tags=["AI", "longform"],
+                variant="b_longform",
+            ),
+            stable_tags=["AI", "math"],
+            source_topics=["attention", "embedding"],
+        )
+        # The source note builder is covered in note_bundle tests; here we validate publish output.
+        result = storage.save_note_bundle(bundle, meta)
+
+        today = date.today().isoformat()
+        safe_title = _sanitize_title(meta.title)
+        source_path = Path(result)
+        guide_path = source_path.with_name(f"{today} {safe_title} - 导读.md")
+        longform_path = source_path.with_name(f"{today} {safe_title} - 扩展.md")
+
+        assert source_path.exists()
+        assert guide_path.exists()
+        assert longform_path.exists()
+        assert source_path.name == f"{today} {safe_title}.md"
+        assert result == str(source_path)
+
+        source_text = source_path.read_text(encoding="utf-8")
+        guide_text = guide_path.read_text(encoding="utf-8")
+        longform_text = longform_path.read_text(encoding="utf-8")
+
+        source_fm = yaml.safe_load(source_text.split("---", 2)[1])
+        guide_fm = yaml.safe_load(guide_text.split("---", 2)[1])
+        longform_fm = yaml.safe_load(longform_text.split("---", 2)[1])
+
+        assert source_fm["source_url"] == meta.url
+        assert source_fm["channel"] == meta.channel
+        assert source_fm["title"] == "Edited Source Title"
+        assert source_fm["media_type"] == "youtube"
+        assert source_fm["duration"] == "26:14"
+        assert source_fm["date_processed"] == today
+        assert source_fm["tags"] == ["AI", "math"]
+        assert source_fm["variant"] == "source"
+
+        assert guide_fm["variant"] == "a_guide"
+        assert guide_fm["tags"] == ["AI", "guide"]
+        assert longform_fm["variant"] == "b_longform"
+        assert longform_fm["tags"] == ["AI", "longform"]
+
+        source_body = source_text.split("---", 2)[2]
+        guide_body = guide_text.split("---", 2)[2]
+        longform_body = longform_text.split("---", 2)[2]
+
+        assert f"[[{guide_path.stem}]]" in source_body
+        assert f"[[{longform_path.stem}]]" in source_body
+        assert f"[[{source_path.stem}]]" in guide_body
+        assert f"[[{longform_path.stem}]]" in guide_body
+        assert f"[[{source_path.stem}]]" in longform_body
+        assert f"[[{guide_path.stem}]]" in longform_body
+        assert "轻索引内容。" in source_body
+        assert "A 版内容。" in guide_body
+        assert "B 版内容。" in longform_body
+
+    def test_save_note_bundle_uses_metadata_title_for_bundle_stem(
+        self, vault: Path, meta: VideoMeta
+    ):
+        storage = ObsidianStorage(vault_path=str(vault))
+        bundle = NoteBundle(
+            source=NoteDocument(
+                title="LLM 改写后的 Source 标题",
+                markdown="# Source note",
+                tags=["AI"],
+                variant="source",
+            ),
+            guide=NoteDocument(
+                title="Guide title",
+                markdown="# Guide",
+                tags=["AI", "guide"],
+                variant="a_guide",
+            ),
+            longform=NoteDocument(
+                title="Longform title",
+                markdown="# Longform",
+                tags=["AI", "longform"],
+                variant="b_longform",
+            ),
+            stable_tags=["AI"],
+            source_topics=["topic"],
+        )
+
+        result = storage.save_note_bundle(bundle, meta)
+
+        today = date.today().isoformat()
+        safe_title = _sanitize_title(meta.title)
+        assert Path(result).name == f"{today} {safe_title}.md"
 
 
 # --- add_transcript_subpage ---

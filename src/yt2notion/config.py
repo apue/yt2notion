@@ -66,6 +66,7 @@ DEFAULTS: dict = {
     },
     "output": {
         "mode": "summary",
+        "note_mode": "source_ab_bundle",
         "chunk_duration_seconds": 120,
         "target_language": "zh-CN",
         "long_content_threshold_seconds": 1800,
@@ -132,6 +133,10 @@ def load_config(path: str) -> AppConfig:
     output_mode = merged.get("output", {}).get("mode", "summary")
     if output_mode not in {"summary", "full"}:
         raise ConfigError("output.mode must be either 'summary' or 'full'")
+
+    output_note_mode = merged.get("output", {}).get("note_mode", "source_ab_bundle")
+    if output_note_mode not in {"single", "source_ab_bundle"}:
+        raise ConfigError("output.note_mode must be either 'single' or 'source_ab_bundle'")
 
     # Validate obsidian vault_path when backend is obsidian
     if storage_backend == "obsidian":

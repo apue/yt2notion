@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 from yt2notion.process import seconds_to_display
 
@@ -128,6 +128,45 @@ class ChineseContent:
     fun_facts: dict[str, list[str]] = field(default_factory=dict)
 
 
+@dataclass
+class NoteMetadata:
+    """Structured metadata for the source/A/B bundle."""
+
+    source_title: str
+    stable_tags: list[str]
+    guide_tags: list[str]
+    longform_tags: list[str]
+    source_summary: str
+    source_topics: list[str]
+
+
+NOTE_VARIANT_SOURCE = "source"
+NOTE_VARIANT_GUIDE = "a_guide"
+NOTE_VARIANT_LONGFORM = "b_longform"
+NoteVariant = Literal["source", "a_guide", "b_longform"]
+
+
+@dataclass
+class NoteDocument:
+    """A single note within a source/A/B bundle."""
+
+    title: str
+    markdown: str
+    tags: list[str]
+    variant: NoteVariant
+
+
+@dataclass
+class NoteBundle:
+    """Structured source plus A/B note bundle output."""
+
+    source: NoteDocument
+    guide: NoteDocument
+    longform: NoteDocument
+    stable_tags: list[str]
+    source_topics: list[str]
+
+
 FUN_FACTS_CATEGORIES: dict[str, str] = {
     "hot_takes": "🔥 犀利观点",
     "nerd_stats": "🤓 极客冷知识",
@@ -186,7 +225,55 @@ class Summarizer(Protocol):
         ...
 
     def synthesize(
-        self, chunk_summaries: list[ChunkSummary], metadata: VideoMeta
+        self,
+        chunk_summaries: list[ChunkSummary],
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "synthesize",
     ) -> ChineseContent:
         """Reduce phase: synthesize all chunk summaries into final Chinese output."""
+        ...
+
+    def summarize_transcript_to_markdown(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str,
+    ) -> ChineseContent:
+        """Generate final Chinese markdown directly from transcript input."""
+        ...
+
+    def compose_guide_note(
+        self,
+        transcript: str,
+        metadata: VideoMeta,
+        *,
+        target_chars: int,
+        prompt_name: str = "compose_guide",
+    ) -> NoteDocument:
+        """Compose the guide note as strict JSON output."""
+        ...
+
+    def compose_longform_note(
+        self,
+        transcript: str,
+        guide_note: NoteDocument,
+        metadata: VideoMeta,
+        *,
+        target_chars: int,
+        prompt_name: str = "compose_longform",
+    ) -> NoteDocument:
+        """Compose the longform note using the guide note as a scaffold."""
+        ...
+
+    def compose_note_metadata(
+        self,
+        guide_note: NoteDocument,
+        longform_note: NoteDocument,
+        metadata: VideoMeta,
+        *,
+        prompt_name: str = "compose_note_metadata",
+    ) -> NoteMetadata:
+        """Compose note-bundle metadata from guide and longform notes."""
         ...

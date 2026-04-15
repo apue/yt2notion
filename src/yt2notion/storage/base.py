@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, NoteBundle, VideoMeta
 
 
 class Storage(Protocol):
@@ -29,4 +29,15 @@ class Storage(Protocol):
         metadata: VideoMeta,
     ) -> None:
         """Add transcript as child of summary. summary_ref is the value returned by save()."""
+        ...
+
+    def save_note_bundle(
+        self,
+        bundle: NoteBundle,
+        metadata: VideoMeta,
+        *,
+        transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
+    ) -> str:
+        """Save a source/A/B note bundle and return the source note path."""
         ...

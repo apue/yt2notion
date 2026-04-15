@@ -13,7 +13,7 @@ from yt2notion.models.base import FUN_FACTS_CATEGORIES
 from yt2notion.process import display_to_seconds, seconds_to_display
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, NoteBundle, VideoMeta
 
 
 class ObsidianStorageError(Exception):
@@ -21,7 +21,7 @@ class ObsidianStorageError(Exception):
 
 
 # Characters not allowed in file names across OS
-_INVALID_FILENAME_CHARS = re.compile(r'[/\\:*?"<>|]')
+_INVALID_FILENAME_CHARS = re.compile(r'[/\\:*?"<>|\[\]#]')
 _MAX_TITLE_LEN = 100
 
 
@@ -71,6 +71,68 @@ def _detect_media_type(url: str) -> str:
     if "youtube.com" in url or "youtu.be" in url:
         return "youtube"
     return "podcast"
+
+
+def _bundle_nav_links(
+    source_stem: str,
+    guide_stem: str,
+    longform_stem: str,
+    current_variant: str,
+) -> list[str]:
+    """Build bundle navigation links for a note variant."""
+    if current_variant == "source":
+        targets = [guide_stem, longform_stem]
+    elif current_variant == "a_guide":
+        targets = [source_stem, longform_stem]
+    else:
+        targets = [source_stem, guide_stem]
+    return [f"- [[{target}]]" for target in targets]
+
+
+def _render_bundle_note(
+    note,
+    metadata: VideoMeta,
+    today: str,
+    *,
+    source_stem: str,
+    guide_stem: str,
+    longform_stem: str,
+) -> str:
+    """Render one note in the source/A/B bundle."""
+    url = metadata.url
+    channel = metadata.channel or metadata.series or "Unknown"
+    duration = seconds_to_display(metadata.duration_seconds)
+    media_type = _detect_media_type(url)
+    frontmatter: dict[str, object] = {
+        "source_url": url,
+        "channel": channel,
+        "title": note.title,
+        "media_type": media_type,
+        "duration": duration,
+        "date_processed": today,
+        "tags": note.tags,
+        "variant": note.variant,
+    }
+    frontmatter_yaml = yaml.dump(
+        frontmatter,
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    ).rstrip()
+    fm = (
+        "---\n"
+        + frontmatter_yaml
+        + "\n---"
+    )
+    nav = "\n".join(
+        [
+            "## 导航",
+            "",
+            *_bundle_nav_links(source_stem, guide_stem, longform_stem, note.variant),
+        ]
+    )
+    body = note.markdown.strip()
+    return "\n\n".join([fm, nav, body]).strip() + "\n"
 
 
 class ObsidianStorage:
@@ -131,6 +193,50 @@ class ObsidianStorage:
             transcript_file.write_text(transcript_md, encoding="utf-8")
 
         return str(summary_file)
+
+    def save_note_bundle(
+        self,
+        bundle: NoteBundle,
+        metadata: VideoMeta,
+        *,
+        transcript_segments: list[dict] | None = None,
+        entities: EntityResult | None = None,
+    ) -> str:
+        """Write source/A/B bundle files to the Obsidian summaries directory."""
+        del transcript_segments, entities
+        today = date.today().isoformat()
+        source_file, guide_file, longform_file = self._resolve_bundle_paths(metadata, today)
+
+        source_md = _render_bundle_note(
+            bundle.source,
+            metadata,
+            today,
+            source_stem=source_file.stem,
+            guide_stem=guide_file.stem,
+            longform_stem=longform_file.stem,
+        )
+        guide_md = _render_bundle_note(
+            bundle.guide,
+            metadata,
+            today,
+            source_stem=source_file.stem,
+            guide_stem=guide_file.stem,
+            longform_stem=longform_file.stem,
+        )
+        longform_md = _render_bundle_note(
+            bundle.longform,
+            metadata,
+            today,
+            source_stem=source_file.stem,
+            guide_stem=guide_file.stem,
+            longform_stem=longform_file.stem,
+        )
+
+        source_file.write_text(source_md, encoding="utf-8")
+        guide_file.write_text(guide_md, encoding="utf-8")
+        longform_file.write_text(longform_md, encoding="utf-8")
+
+        return str(source_file)
 
     def add_transcript_subpage(
         self,
@@ -314,6 +420,21 @@ class ObsidianStorage:
             + parts[2]
         )
         summary_file.write_text(updated, encoding="utf-8")
+
+    def _resolve_bundle_paths(self, metadata: VideoMeta, today: str) -> tuple[Path, Path, Path]:
+        """Resolve a conflict-free set of bundle file paths with shared stem."""
+        summaries_path = self.vault_path / self.summaries_dir
+        summaries_path.mkdir(parents=True, exist_ok=True)
+        base = _sanitize_title(metadata.title)
+        counter = 1
+        while True:
+            stem = f"{today} {base}" if counter == 1 else f"{today} {base}-{counter}"
+            source_file = summaries_path / f"{stem}.md"
+            guide_file = summaries_path / f"{stem} - 导读.md"
+            longform_file = summaries_path / f"{stem} - 扩展.md"
+            if not any(path.exists() for path in (source_file, guide_file, longform_file)):
+                return source_file, guide_file, longform_file
+            counter += 1
 
     def _render_transcript(
         self,

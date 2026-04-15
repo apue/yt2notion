@@ -125,19 +125,24 @@ def prepare(
         "mode": prepared.output_mode,
         "is_long": prepared.is_long,
         "metadata": asdict(prepared.metadata),
-        "summary": {
+        "transcript_segments": prepared.transcript_segments,
+        "transcript_markdown": transcript_markdown,
+        "entities": asdict(prepared.entities) if prepared.entities else None,
+        "workspace_dir": str(prepared.workspace.dir),
+    }
+    if prepared.chinese_content is not None:
+        payload["summary"] = {
             "overview": prepared.chinese_content.overview,
             "key_points": prepared.chinese_content.key_points,
             "tags": prepared.chinese_content.tags,
             "fun_facts": prepared.chinese_content.fun_facts,
             "mindmap": prepared.chinese_content.mindmap,
             "raw_markdown": prepared.chinese_content.raw_markdown,
-        },
-        "transcript_segments": prepared.transcript_segments,
-        "transcript_markdown": transcript_markdown,
-        "entities": asdict(prepared.entities) if prepared.entities else None,
-        "workspace_dir": str(prepared.workspace.dir),
-    }
+        }
+    else:
+        payload["summary"] = None
+    if prepared.note_bundle is not None:
+        payload["note_bundle"] = asdict(prepared.note_bundle)
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

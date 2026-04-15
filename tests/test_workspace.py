@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from yt2notion.models.base import ChineseContent, Entity, EntityResult, VideoMeta
+import json
+
+import pytest
+
+from yt2notion.models.base import (
+    ChineseContent,
+    Entity,
+    EntityResult,
+    NoteBundle,
+    NoteDocument,
+    VideoMeta,
+)
 from yt2notion.workspace import STEPS, Workspace
 
 
@@ -169,3 +180,137 @@ def test_asr_fallback_marker_roundtrip(tmp_path):
     ws.mark_asr_fallback_used()
 
     assert ws.asr_fallback_used() is True
+
+
+def test_note_bundle_roundtrip(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    bundle = NoteBundle(
+        source=NoteDocument(
+            title="source",
+            markdown="# source",
+            tags=["法拉利"],
+            variant="source",
+        ),
+        guide=NoteDocument(
+            title="guide",
+            markdown="# guide",
+            tags=["导读版"],
+            variant="a_guide",
+        ),
+        longform=NoteDocument(
+            title="long",
+            markdown="# long",
+            tags=["扩展版"],
+            variant="b_longform",
+        ),
+        stable_tags=["法拉利", "赛车"],
+        source_topics=["稀缺机制", "电动化挑战"],
+    )
+
+    ws.save_note_bundle(bundle)
+    loaded = ws.load_note_bundle()
+
+    assert loaded is not None
+    assert loaded == bundle
+    assert ws.step_done("summarize") is True
+
+
+def test_load_note_bundle_rejects_variant_mismatch(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    ws.dir.mkdir(parents=True, exist_ok=True)
+    (ws.dir / "note_bundle.json").write_text(
+        json.dumps(
+            {
+                "source": {
+                    "title": "source",
+                    "markdown": "# source",
+                    "tags": ["法拉利"],
+                    "variant": "source",
+                },
+                "guide": {
+                    "title": "guide",
+                    "markdown": "# guide",
+                    "tags": ["导读版"],
+                    "variant": "wrong",
+                },
+                "longform": {
+                    "title": "long",
+                    "markdown": "# long",
+                    "tags": ["扩展版"],
+                    "variant": "b_longform",
+                },
+                "stable_tags": ["法拉利", "赛车"],
+                "source_topics": ["稀缺机制", "电动化挑战"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+    with pytest.raises(ValueError, match="variant"):
+        ws.load_note_bundle()
+
+
+def test_save_note_bundle_rejects_variant_mismatch_before_write(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    bundle = NoteBundle(
+        source=NoteDocument(
+            title="source",
+            markdown="# source",
+            tags=["法拉利"],
+            variant="source",
+        ),
+        guide=NoteDocument(
+            title="guide",
+            markdown="# guide",
+            tags=["导读版"],
+            variant="wrong",
+        ),
+        longform=NoteDocument(
+            title="long",
+            markdown="# long",
+            tags=["扩展版"],
+            variant="b_longform",
+        ),
+        stable_tags=["法拉利", "赛车"],
+        source_topics=["稀缺机制", "电动化挑战"],
+    )
+
+    with pytest.raises(ValueError, match="variant"):
+        ws.save_note_bundle(bundle)
+
+    assert not (ws.dir / "note_bundle.json").exists()
+
+
+def test_load_note_bundle_requires_stable_tags_and_source_topics(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    ws.dir.mkdir(parents=True, exist_ok=True)
+    (ws.dir / "note_bundle.json").write_text(
+        json.dumps(
+            {
+                "source": {
+                    "title": "source",
+                    "markdown": "# source",
+                    "tags": ["法拉利"],
+                    "variant": "source",
+                },
+                "guide": {
+                    "title": "guide",
+                    "markdown": "# guide",
+                    "tags": ["导读版"],
+                    "variant": "a_guide",
+                },
+                "longform": {
+                    "title": "long",
+                    "markdown": "# long",
+                    "tags": ["扩展版"],
+                    "variant": "b_longform",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+    with pytest.raises(ValueError, match="stable_tags"):
+        ws.load_note_bundle()

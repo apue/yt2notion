@@ -9,8 +9,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from yt2notion.models.base import (
+    NOTE_VARIANT_GUIDE,
+    NOTE_VARIANT_LONGFORM,
+    NOTE_VARIANT_SOURCE,
+)
+
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, EntityResult, VideoMeta
+    from yt2notion.models.base import ChineseContent, EntityResult, NoteBundle, VideoMeta
 
 # Step name → output artifact filename
 _STEP_ARTIFACTS: dict[str, str] = {
@@ -21,6 +27,7 @@ _STEP_ARTIFACTS: dict[str, str] = {
     "extract": "entities.json",
     "summarize": "summary.json",
 }
+_SUMMARY_ARTIFACTS = ("summary.json", "note_bundle.json")
 _ASR_FALLBACK_MARKER = "asr_fallback_used.json"
 
 STEPS = ("download", "segment", "transcribe", "review", "extract", "summarize")
@@ -41,6 +48,8 @@ class Workspace:
 
     def step_done(self, step: str) -> bool:
         """Check if a step's output artifact exists."""
+        if step == "summarize":
+            return any((self.dir / filename).exists() for filename in _SUMMARY_ARTIFACTS)
         filename = _STEP_ARTIFACTS.get(step, "")
         if not filename:
             return False
@@ -179,6 +188,39 @@ class Workspace:
         }
         self._write_json("summary.json", d)
 
+    # --- Note bundle ---
+
+    def save_note_bundle(self, bundle: NoteBundle) -> None:
+        """Persist a source/A/B note bundle as one workspace artifact."""
+        _validate_note_bundle(bundle)
+        self._write_json("note_bundle.json", asdict(bundle))
+
+    def load_note_bundle(self) -> NoteBundle | None:
+        """Load the persisted source/A/B note bundle, if present."""
+        d = self._read_json("note_bundle.json")
+        if d is None:
+            return None
+        from yt2notion.models.base import NoteBundle, NoteDocument
+
+        source = NoteDocument(**d["source"])
+        guide = NoteDocument(**d["guide"])
+        longform = NoteDocument(**d["longform"])
+        _validate_note_document(source, NOTE_VARIANT_SOURCE, "source")
+        _validate_note_document(guide, NOTE_VARIANT_GUIDE, "guide")
+        _validate_note_document(longform, NOTE_VARIANT_LONGFORM, "longform")
+        if "stable_tags" not in d:
+            raise ValueError("Invalid note_bundle.json: missing required field 'stable_tags'")
+        if "source_topics" not in d:
+            raise ValueError("Invalid note_bundle.json: missing required field 'source_topics'")
+
+        return NoteBundle(
+            source=source,
+            guide=guide,
+            longform=longform,
+            stable_tags=d["stable_tags"],
+            source_topics=d["source_topics"],
+        )
+
     # --- Failure tracking ---
 
     def save_failure(
@@ -261,3 +303,22 @@ class Workspace:
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_note_document(note: object, expected_variant: str, label: str) -> None:
+    """Reject persisted note bundles whose variants drift from their slot."""
+    actual_variant = getattr(note, "variant", None)
+    if actual_variant != expected_variant:
+        raise ValueError(
+            f"Invalid {label} note variant: expected {expected_variant!r}, got {actual_variant!r}"
+        )
+
+
+def _validate_note_bundle(bundle: object) -> None:
+    """Validate note-bundle slot/variant alignment before persisting."""
+    source = getattr(bundle, "source", None)
+    guide = getattr(bundle, "guide", None)
+    longform = getattr(bundle, "longform", None)
+    _validate_note_document(source, NOTE_VARIANT_SOURCE, "source")
+    _validate_note_document(guide, NOTE_VARIANT_GUIDE, "guide")
+    _validate_note_document(longform, NOTE_VARIANT_LONGFORM, "longform")

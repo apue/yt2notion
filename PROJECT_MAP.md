@@ -100,12 +100,12 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 6. `EXTRACT`
    `entities.json`
 7. `SUMMARIZE`
-   `summary.json`
+   `summary.json` or `note_bundle.json`
 8. `CONTEXT REVIEW`
    long ASR content in `full` mode only; review transcript with summary context before publish
 9. `PUBLISH`
-   summary page/note via storage backend
-   For long content, publish summary first without transcript subpage
+   summary page/note via storage backend, or source/A/B bundle via Obsidian bundle publish
+   For long single-note content, publish summary first without transcript subpage
 
 ### Pipeline Truth by Step
 
@@ -117,9 +117,9 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 | `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription, never before |
 | `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers to context review step |
 | `EXTRACT` | `pipeline._step_extract()` | reviewed transcripts | `entities.json` | Uses `LLMCaller` |
-| `SUMMARIZE` | `pipeline._step_summarize()` | reviewed transcripts | `summary.json` | Short content single pass or chapter-aware; long content map-reduce |
+| `SUMMARIZE` | `pipeline._step_summarize()` or `note_bundle.build_note_bundle()` | reviewed transcripts | `summary.json` or `note_bundle.json` | Default `output.note_mode = source_ab_bundle` builds `source -> A导读 -> B扩展`; `single` keeps the legacy Chinese summary path |
 | `CONTEXT REVIEW` | `pipeline._review_transcript_with_summary_context()` | long-form transcripts + summary context | rewritten `reviewed.json` | `full` mode long ASR only; retries-exhausted falls back to unreviewed transcript with warning note |
-| `PUBLISH` | `storage.save()` | summary + metadata + optional transcript/entities | backend artifact | Long content omits transcript subpage in this call |
+| `PUBLISH` | `storage.save()` or `storage.save_note_bundle()` | summary or note bundle + metadata + optional transcript/entities | backend artifact | Bundle publish currently requires `storage.backend = obsidian`; long transcript subpage remains single-note only |
 
 ### Branch Rules
 
@@ -147,6 +147,11 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
   - summarize first
   - in `full` mode, run context review before publish
   - publish summary first, then attach transcript subpage/file
+- `output.note_mode = source_ab_bundle`:
+  - only supported with `output.mode = summary`
+  - short ASR content runs blocking transcript review before bundle generation so A/B notes do not regress versus single-note mode
+  - summarize step builds `NoteBundle` from reviewed transcript via `note_bundle.build_note_bundle()`
+  - publish currently requires `storage.backend = obsidian`
 
 ## Workspace Artifacts and Contracts
 
@@ -160,6 +165,7 @@ Canonical workspace artifacts:
 | `reviewed.json` | `REVIEW` / `CONTEXT REVIEW` | same shape as `transcripts.json`; `text` cleaned or context-reviewed |
 | `entities.json` | `EXTRACT` | `EntityResult {domain, is_entity_centric, entity_types, entities, relations}` |
 | `summary.json` | `SUMMARIZE` | `ChineseContent {overview, key_points, tags, fun_facts, raw_markdown, ?mindmap}` |
+| `note_bundle.json` | `SUMMARIZE` | `NoteBundle {source, guide, longform, stable_tags, source_topics}` where each note is `NoteDocument {title, markdown, tags, variant}` |
 | `failed.json` | top-level pipeline error handling | `{url, step, error_type, error_message, retries_exhausted, timestamp}` style failure record |
 
 Common non-JSON side artifacts:
@@ -170,7 +176,7 @@ Common non-JSON side artifacts:
 | `audio.mp3` | audio download | used for ASR path |
 | `segments/*.mp3` | per-segment ASR | transient workspace split files |
 
-All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`, `ChunkSummary`, `ChineseContent`, `Entity`, `EntityResult`, `FUN_FACTS_CATEGORIES`.
+All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`, `ChunkSummary`, `ChineseContent`, `NoteMetadata`, `NoteDocument`, `NoteBundle`, `Entity`, `EntityResult`, `FUN_FACTS_CATEGORIES`.
 
 ## Config ↔ Code Map
 
@@ -205,6 +211,7 @@ Path resolution note:
 | `extract.asr.groq.endpoint` | `transcribe/groq.py:GroqTranscriber` | Groq OpenAI-compatible transcription endpoint |
 | `extract.asr.groq.timeout_seconds` | `transcribe/groq.py:GroqTranscriber` | HTTP timeout for Groq transcription requests |
 | `output.mode` | `pipeline.py:_resolve_output_mode()` | `summary` or `full` output behavior |
+| `output.note_mode` | `pipeline.py:_resolve_note_mode()` | default `source_ab_bundle` source/A/B note artifact, or `single` legacy Chinese summary artifact |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
 | `output.chunk_duration_seconds` | `process.py` | timestamp chunking granularity |
@@ -218,6 +225,7 @@ Path resolution note:
 - forces `model.backend = "codex_cli"`
 - forces `storage.backend = "obsidian"`
 - forces `output.mode = "summary"`
+- uses configured `output.note_mode`; repo default is `source_ab_bundle`
 - sets `model.summarize_model`, `model.translate_model`, `model.review_model` from `agent.yaml`
 - sets `model.reasoning_effort` from `agent.yaml`
 - sets `model._runtime.codex_workdir = <agent_home>`
@@ -256,13 +264,23 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 | `reduce_entities.md` | `entity_extract.py` reduce phase | entity reduction | none |
 | `summarize.md` | summarizer | short content with chapters | none |
 | `summarize_freeform.md` | summarizer | short content without chapters | none |
-| `summarize_asr.md` | `pipeline._summarize_short_asr_single_pass()` | short ASR internal review+summary (chapters, summary mode) | none |
-| `summarize_asr_freeform.md` | `pipeline._summarize_short_asr_single_pass()` | short ASR internal review+summary (freeform, summary mode) | none |
 | `summarize_reviewed.md` | summarizer | short ASR review+summary (chapters) | none |
 | `summarize_reviewed_freeform.md` | summarizer | short ASR review+summary (freeform) | none |
 | `summarize_chunk.md` | summarizer map phase | long-form chunk summary | `{segment_title}`, `{start_time}`, `{end_time}`, `{segment_index}`, `{total_segments}` |
 | `chinese.md` | summarizer reduce phase | Chinese synthesis | none |
 | `synthesize.md` | summarizer final synthesis | output polishing | `{title}`, `{channel}`, `{duration}`, `{url}` |
+| `compose_guide.md` | `Summarizer.compose_guide_note()` | A note / 导读版 tagged output: `<note_json>` metadata + `<note_markdown>` body | user payload contains `source`, `transcript`, `target_chars` |
+| `compose_longform.md` | `Summarizer.compose_longform_note()` | B note / 扩展成稿 tagged output: `<note_json>` metadata + `<note_markdown>` body | user payload contains `source`, `guide_note`, `transcript`, `target_chars` |
+| `compose_note_metadata.md` | `Summarizer.compose_note_metadata()` | source-note metadata strict JSON output | user payload contains `source`, `guide_note`, `longform_note` |
+| `synthesize_reading_guide.md` | `prompt_experiments.py` | experimental long-form reduce variant: reading guide | `{title}`, `{channel}`, `{duration}`, `{url}` |
+| `synthesize_guided_notes.md` | `prompt_experiments.py` | experimental long-form reduce variant: guided notes | `{title}`, `{channel}`, `{duration}`, `{url}` |
+| `summarize_long_direct_evidence.md` | `prompt_experiments.py` via `Summarizer.summarize_transcript_to_markdown()` | experimental long-form direct-from-transcript variant with evidence anchors | none |
+
+Experimental helper:
+- `src/yt2notion/prompt_experiments.py` supports two experimental paths on an existing long-form workspace:
+  - reuse map-phase chunk summaries and run alternate reduce prompts for side-by-side comparison
+  - bypass map-reduce and feed the transcript artifacts directly into an experimental final-markdown prompt with evidence anchors
+- These experiments do not change the canonical pipeline default, which still binds long-form reduce to `synthesize.md`.
 
 ## Extension Checklist
 
@@ -303,9 +321,10 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 
 ```text
 cli.py -> config.py, pipeline.py
-pipeline.py -> extract.py, process.py, workspace.py,
+pipeline.py -> extract.py, process.py, workspace.py, note_bundle.py,
                chapter_extract.py, segment.py, topic_segment.py, review.py, entity_extract.py,
                models/__init__.py, storage/__init__.py, transcribe/__init__.py
+note_bundle.py -> models/base.py, process.py
 chapter_extract.py, review.py, topic_segment.py, entity_extract.py -> models/llm.py, prompts/
 models/claude_code.py, models/anthropic_api.py -> prompts/, models/_parsers.py
 models/codex_cli.py -> prompts/, models/_parsers.py

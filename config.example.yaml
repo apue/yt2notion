@@ -84,6 +84,8 @@ credit:
 output:
   # 输出模式：summary 只输出总结；full 输出总结 + 校对后的逐字稿
   mode: summary
+  # note 输出模式：默认 source/source+A导读+B扩展 三件套；single 保留旧单篇总结路径
+  note_mode: source_ab_bundle
   # chunk 分段长度（秒），用于时间戳关联
   chunk_duration_seconds: 120
   # 最终输出语言
