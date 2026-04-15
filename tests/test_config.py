@@ -32,7 +32,7 @@ def test_default_values(tmp_path):
     assert config.storage["backend"] == "notion"
     assert config.extract["subtitle_priority"] == ["zh-Hans", "zh-Hant", "en"]
     assert config.output["mode"] == "summary"
-    assert config.output["note_mode"] == "source_ab_bundle"
+    assert config.output.get("note_mode") is None
     assert config.output["chunk_duration_seconds"] == 120
     assert config.credit["always_include"] is True
 

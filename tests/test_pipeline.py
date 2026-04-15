@@ -1551,9 +1551,18 @@ def test_resolve_output_mode_rejects_invalid(config):
         _resolve_output_mode(config, "invalid-mode")
 
 
-def test_resolve_note_mode_defaults_to_source_ab_bundle(config):
+def test_resolve_note_mode_defaults_to_single_for_non_obsidian(config):
     from yt2notion.pipeline import _resolve_note_mode
 
+    config.output.pop("note_mode", None)
+
+    assert _resolve_note_mode(config) == "single"
+
+
+def test_resolve_note_mode_defaults_to_source_ab_bundle_for_obsidian(config):
+    from yt2notion.pipeline import _resolve_note_mode
+
+    config.storage["backend"] = "obsidian"
     config.output.pop("note_mode", None)
 
     assert _resolve_note_mode(config) == "source_ab_bundle"

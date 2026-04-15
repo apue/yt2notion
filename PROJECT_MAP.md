@@ -117,7 +117,7 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 | `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription, never before |
 | `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers to context review step |
 | `EXTRACT` | `pipeline._step_extract()` | reviewed transcripts | `entities.json` | Uses `LLMCaller` |
-| `SUMMARIZE` | `pipeline._step_summarize()` or `note_bundle.build_note_bundle()` | reviewed transcripts | `summary.json` or `note_bundle.json` | Default `output.note_mode = source_ab_bundle` builds `source -> A导读 -> B扩展`; `single` keeps the legacy Chinese summary path |
+| `SUMMARIZE` | `pipeline._step_summarize()` or `note_bundle.build_note_bundle()` | reviewed transcripts | `summary.json` or `note_bundle.json` | Obsidian workflows default to `source_ab_bundle` (`source -> A导读 -> B扩展`); other backends default to legacy `single` unless explicitly overridden |
 | `CONTEXT REVIEW` | `pipeline._review_transcript_with_summary_context()` | long-form transcripts + summary context | rewritten `reviewed.json` | `full` mode long ASR only; retries-exhausted falls back to unreviewed transcript with warning note |
 | `PUBLISH` | `storage.save()` or `storage.save_note_bundle()` | summary or note bundle + metadata + optional transcript/entities | backend artifact | Bundle publish currently requires `storage.backend = obsidian`; long transcript subpage remains single-note only |
 
@@ -211,7 +211,7 @@ Path resolution note:
 | `extract.asr.groq.endpoint` | `transcribe/groq.py:GroqTranscriber` | Groq OpenAI-compatible transcription endpoint |
 | `extract.asr.groq.timeout_seconds` | `transcribe/groq.py:GroqTranscriber` | HTTP timeout for Groq transcription requests |
 | `output.mode` | `pipeline.py:_resolve_output_mode()` | `summary` or `full` output behavior |
-| `output.note_mode` | `pipeline.py:_resolve_note_mode()` | default `source_ab_bundle` source/A/B note artifact, or `single` legacy Chinese summary artifact |
+| `output.note_mode` | `pipeline.py:_resolve_note_mode()` | explicit override when set; otherwise defaults to `source_ab_bundle` for Obsidian and `single` for other backends |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
 | `output.chunk_duration_seconds` | `process.py` | timestamp chunking granularity |
@@ -225,7 +225,7 @@ Path resolution note:
 - forces `model.backend = "codex_cli"`
 - forces `storage.backend = "obsidian"`
 - forces `output.mode = "summary"`
-- uses configured `output.note_mode`; repo default is `source_ab_bundle`
+- uses configured `output.note_mode`; because agent runtime forces Obsidian, its effective default is `source_ab_bundle`
 - sets `model.summarize_model`, `model.translate_model`, `model.review_model` from `agent.yaml`
 - sets `model.reasoning_effort` from `agent.yaml`
 - sets `model._runtime.codex_workdir = <agent_home>`

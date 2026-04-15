@@ -1362,7 +1362,10 @@ def _resolve_output_mode(config: AppConfig, override: str | None) -> str:
 
 def _resolve_note_mode(config: AppConfig) -> str:
     """Resolve the note generation mode from config."""
-    mode = config.output.get("note_mode", "source_ab_bundle")
+    mode = config.output.get("note_mode")
+    if mode is None:
+        storage_backend = config.storage.get("backend", "notion")
+        mode = "source_ab_bundle" if storage_backend == "obsidian" else "single"
     if mode not in {"single", "source_ab_bundle"}:
         raise ValueError(f"Unknown note mode: {mode!r}. Valid: single, source_ab_bundle")
     return mode

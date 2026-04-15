@@ -49,7 +49,7 @@
   - [tests/test_pipeline.py](./tests/test_pipeline.py)
   - [tests/test_obsidian_storage.py](./tests/test_obsidian_storage.py)
 - 验收标准：
-  - `config.output.note_mode` 默认 `source_ab_bundle`，仍接受 `single`
+  - `config.output.note_mode` 在 Obsidian 下默认 `source_ab_bundle`；其它 backend 默认 `single`，仍可显式覆盖
   - workspace summarize artifact 支持 `note_bundle.json`
   - `prepare` 在 bundle mode 下返回 `note_bundle` payload
   - `process` 在 `storage.backend = obsidian` + bundle mode 下正式发布 source/A/B 三篇
