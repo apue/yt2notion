@@ -176,42 +176,7 @@ Codex 执行时应遵守：
 ### 读代码时的约束
 ## 大文件与代码阅读约束 (Large File Reading Constraints)
 
-当接手任务需要阅读代码库或大于 500 行的长文件时，**严禁使用 `nl` 配合 `sed` 进行盲目的分页通读**（如 `sed -n '1,200p'`）。这种行为极度浪费计算资源且容易丢失上下文。
-
-在阅读和检索大文件时，必须严格遵守“先骨架，后精准切片”的原则：
-
-1. **先看骨架 (Skeleton First)**：
-   - 面对陌生大文件，必须先提取代码的结构定义（类名、函数签名），而非直接读取正文。
-   - 必须优先使用 `rg -n` (ripgrep) 获取大纲与行号。
-   - Python 示例：`rg -n "^(class|def|async def) " filepath.py`
-   - TypeScript 示例：`rg -n "^(export |const |function |class )" filepath.ts`
-
-2. **精准切片 (Targeted Reading)**：
-   - 只有在通过骨架检索确定了目标逻辑所在的**具体行号**后，才可以提取该片段。
-   - 示例：确认 `_step_summarize` 函数在第 1069 到 1224 行，执行 `sed -n '1069,1224p' filepath.py`。
-
-3. **全域搜索优先 (Search > Read)**：
-   - 如果为了寻找某个特定变量、配置项或逻辑的调用化，直接使用 `rg -n "keyword" src/` 跨文件检索，而不是把整个大文件加载进来用肉眼找。
-
-4. **AST 与高级逻辑检索 (ast-grep/sg 强制优先)**：
-   - 环境中已安装 `ast-grep` (`sg`) 工具。在检索**跨多行的函数调用**、**复杂的参数传递**、**提取完整函数体**时，严禁使用脆弱的正则 (`rg`)，必须使用 `sg` 进行结构化查询。
-   - **`sg` 的基础语法约定**：使用 `$VAR` 匹配单个语法节点，使用 `$$$ARGS` 匹配多个连续节点（如多个参数或多行代码块）。
-   
-   - **Example 1: 查找特定方法的所有调用（无视换行和格式）**
-     当排查某个函数在哪里被调用时，直接提取调用点：
-     `sg -p 'summarizer.compose_guide_note($$$ARGS)' -l python src/`
-     
-   - **Example 2: 查找带有特定特征的函数调用**
-     例如，只想找 `run_pipeline` 且其中 `dry_run` 参数被显式设置为 `True` 的地方（`$_` 表示忽略某个位置的参数）：
-     `sg -p 'run_pipeline($_, $_, dry_run=True)' -l python tests/`
-     
-   - **Example 3: 提取某个函数的完整定义（彻底替代粗暴的 sed 切片）**
-     如果你只想看某个函数的完整代码，不需要先用 rg 找行号再用 sed 截取，直接用 sg 打印完整块：
-     `sg -p 'def _step_summarize($$$ARGS): $$$BODY' -l python src/yt2notion/pipeline.py`
-     
-   - **Example 4: 检索特定的代码模式（如异常捕获）**
-     排查所有捕获了特定异常的代码块：
-     `sg -p 'try: $$$TRY_BODY except ConfigError as $E: $$$CATCH_BODY' -l python src/`
+当阅读代码或排查问题时，请优先调用 code-exploration skill 进行智能代码检索。
 
 ### 改代码时的约束
 
