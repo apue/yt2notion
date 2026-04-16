@@ -26,6 +26,9 @@ def test_ensure_agent_home_creates_runtime_files(tmp_path: Path) -> None:
 
     queue = json.loads(paths.queue_path.read_text(encoding="utf-8"))
     assert queue["queued_job_ids"] == []
+    agent_yaml = paths.config_path.read_text(encoding="utf-8")
+    assert 'codex_model: "gpt-5.4"' in agent_yaml
+    assert 'codex_profile: ""' in agent_yaml
 
 
 def test_ensure_agent_home_uses_agent_home_config_yaml_for_runtime_config(tmp_path: Path) -> None:
@@ -43,7 +46,8 @@ def test_load_agent_config_reads_minimal_yaml(tmp_path: Path) -> None:
                 'summaries_dir: "notes/summaries"',
                 'transcripts_dir: "notes/transcripts"',
                 f'workspace_dir: "{tmp_path / "workspace"}"',
-                'codex_model: "gpt-5.3-codex"',
+                'codex_model: "gpt-5.4"',
+                'codex_profile: "goodhope"',
                 'reasoning_effort: "low"',
             ]
         ),
@@ -57,7 +61,8 @@ def test_load_agent_config_reads_minimal_yaml(tmp_path: Path) -> None:
         summaries_dir="notes/summaries",
         transcripts_dir="notes/transcripts",
         workspace_dir=str(tmp_path / "workspace"),
-        codex_model="gpt-5.3-codex",
+        codex_model="gpt-5.4",
+        codex_profile="goodhope",
         reasoning_effort="low",
     )
 
@@ -89,7 +94,8 @@ def test_build_runtime_app_config_preserves_asr_settings(tmp_path: Path) -> None
         summaries_dir="summaries",
         transcripts_dir="transcripts",
         workspace_dir=str(paths.home / "workspace"),
-        codex_model="gpt-5.3-codex",
+        codex_model="gpt-5.4",
+        codex_profile="goodhope",
         reasoning_effort="low",
     )
     app_cfg = build_runtime_app_config(str(base_config), agent_cfg, paths.home)
@@ -99,6 +105,7 @@ def test_build_runtime_app_config_preserves_asr_settings(tmp_path: Path) -> None
     assert app_cfg.output["mode"] == "summary"
     assert app_cfg.extract["asr"]["restart_before_transcribe"] is True
     assert app_cfg.extract["asr"]["restart_command"] == "/tmp/restart-asr.sh host"
+    assert app_cfg.model["_runtime"]["codex_profile"] == "goodhope"
 
 
 def test_write_job_persists_json(tmp_path: Path) -> None:
@@ -170,7 +177,8 @@ def test_build_runtime_app_config_uses_normalized_agent_config_paths(
         summaries_dir="summaries",
         transcripts_dir="transcripts",
         workspace_dir="~/custom-workspace",
-        codex_model="gpt-5.3-codex",
+        codex_model="gpt-5.4",
+        codex_profile="goodhope",
         reasoning_effort="low",
     )
     app_cfg = build_runtime_app_config(str(base_config), agent_cfg, paths.home)
@@ -200,7 +208,8 @@ def test_build_runtime_app_config_fails_early_for_missing_vault_dir(tmp_path: Pa
         summaries_dir="summaries",
         transcripts_dir="transcripts",
         workspace_dir=str(paths.workspace_dir),
-        codex_model="gpt-5.3-codex",
+        codex_model="gpt-5.4",
+        codex_profile="goodhope",
         reasoning_effort="low",
     )
 
@@ -304,7 +313,8 @@ def test_build_runtime_app_config_rejects_workspace_file_path(tmp_path: Path) ->
         summaries_dir="summaries",
         transcripts_dir="transcripts",
         workspace_dir=str(workspace_file),
-        codex_model="gpt-5.3-codex",
+        codex_model="gpt-5.4",
+        codex_profile="goodhope",
         reasoning_effort="low",
     )
 

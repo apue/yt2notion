@@ -228,6 +228,7 @@ Path resolution note:
 - uses configured `output.note_mode`; because agent runtime forces Obsidian, its effective default is `source_ab_bundle`
 - sets `model.summarize_model`, `model.translate_model`, `model.review_model` from `agent.yaml`
 - sets `model.reasoning_effort` from `agent.yaml`
+- sets optional `model._runtime.codex_profile` from `agent.yaml`
 - sets `model._runtime.codex_workdir = <agent_home>`
 - sets `storage.obsidian.*` from `agent.yaml`
 - sets `workspace.base_dir` from `agent.yaml`

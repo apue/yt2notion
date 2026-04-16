@@ -17,6 +17,7 @@ def create_summarizer(config: dict) -> Any:
     reasoning_effort = model_config.get("reasoning_effort", "low")
     runtime_cfg = model_config.get("_runtime", {})
     codex_workdir = runtime_cfg.get("codex_workdir")
+    codex_profile = runtime_cfg.get("codex_profile")
 
     if backend == "claude_code":
         from yt2notion.models.claude_code import ClaudeCodeModel
@@ -29,9 +30,10 @@ def create_summarizer(config: dict) -> Any:
         from yt2notion.models.codex_cli import CodexCLIModel
 
         return CodexCLIModel(
-            summarize_model=summarize_model or "gpt-5.2",
-            translate_model=translate_model or "gpt-5.2",
+            summarize_model=summarize_model or "gpt-5.4",
+            translate_model=translate_model or "gpt-5.4",
             reasoning_effort=reasoning_effort,
+            profile=codex_profile,
             workdir=codex_workdir,
         )
     elif backend == "anthropic_api":

@@ -4,6 +4,85 @@
 
 ## 当前任务卡
 
+- 任务：修复 agent runtime 在 goodhope provider 下的 Codex model/profile 配置问题
+- 状态：`done`
+- 当前 owner：User
+- 上一执行者：Codex
+- 下一执行者：User / Codex
+- 来源：在完成 failed job 根因分析后，用户要求直接改掉 model 和 command line 两块，使 runtime 能显式走 goodhope profile
+- 目标：
+  - `agent.yaml` 支持可选 `codex_profile`
+  - runtime 把 profile 透传到 `codex exec -p <profile>`
+  - agent 默认 `codex_model` 改成 `gpt-5.4`
+  - 用户本机 `~/.yt2notion-agent/agent.yaml` 改成可直接跑 goodhope
+- 非目标：
+  - 不修改 pipeline 主流程语义
+  - 不发起发布动作
+  - 不调整外部服务配置
+- 约束：
+  - 仅修改 runtime config 和 Codex CLI 参数拼装链路
+  - 先补失败测试，再改实现
+- 受影响文件：
+  - [handoff.md](./handoff.md)
+  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
+  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
+  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
+  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
+  - [tests/test_model_factory.py](./tests/test_model_factory.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+- 验收标准：
+  - `agent.yaml` 默认模板生成 `gpt-5.4`
+  - runtime `AppConfig` 能携带 `codex_profile`
+  - `codex exec` 在设置 profile 时会追加 `-p <profile>`
+  - 相关测试通过
+- 建议命令：
+  - `uv run pytest tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py -q`
+  - `uv run pytest tests/test_agent_worker.py tests/test_cli.py -q`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/models/codex_cli.py src/yt2notion/models/__init__.py src/yt2notion/models/llm.py tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py`
+- 未决问题：
+  - 是否后续还需要把 `codex_profile` 暴露到 CLI 参数层，而不只是在 `agent.yaml` 中配置
+
+## 当前执行记录
+
+- 已完成：
+  - 以 TDD 补充 runtime/profile 透传和默认 model 的失败测试
+  - `AgentConfig` 新增可选 `codex_profile`
+  - `default_agent_yaml()` / `load_agent_config()` 默认 model 改为 `gpt-5.4`
+  - `build_runtime_app_config()` 现在把 `codex_profile` 放进 `model._runtime`
+  - `CodexCLICaller` / `CodexCLIModel` 新增 profile 支持，调用时追加 `codex exec -p <profile>`
+  - model factory 与 one-shot LLM caller 均会从 runtime config 透传 profile
+  - 已把用户本机 `~/.yt2notion-agent/agent.yaml` 更新为 `codex_model: "gpt-5.4"` 和 `codex_profile: "goodhope"`
+  - 已同步 `PROJECT_MAP.md` 与 `README.md`
+- 当前阻塞：
+  - 无
+- 已修改文件：
+  - [handoff.md](./handoff.md)
+  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
+  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
+  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
+  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
+  - [tests/test_model_factory.py](./tests/test_model_factory.py)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+- 已运行验证：
+  - `uv run pytest tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py -q` → `38 passed`
+  - `uv run pytest tests/test_agent_worker.py tests/test_cli.py -q` → `49 passed`
+  - `uv run pytest tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py tests/test_agent_worker.py tests/test_cli.py -q` → `87 passed`
+  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/models/codex_cli.py src/yt2notion/models/__init__.py src/yt2notion/models/llm.py tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py` → pass
+- 风险/回滚点：
+  - runtime profile 目前只在 `agent.yaml` 中配置，CLI 参数层仍未直接暴露
+  - 若用户全局 `~/.codex/config.toml` 中不存在对应 profile 名称，`codex exec -p <profile>` 仍会失败
+- 下一步：
+  - 可直接对失败 job 执行 `uv run yt2notion agent retry 20260415-104434-2592a9`
+  - 若还要支持多 profile 快切，再考虑给 `agent add/run/retry` 增加 CLI override
+
+## 上一任务归档
+
 - 任务：将 source / A / B + tags 的实验流程正式产品化为 `note_bundle` pipeline，并接入 Obsidian 三文件发布
 - 状态：`done`
 - 当前 owner：User
@@ -63,7 +142,7 @@
   - 是否后续支持 bundle mode 的 transcript 子页
   - 是否保留 `single` 作为长期兼容模式，还是未来继续收敛 bundle-only
 
-## 当前执行记录
+## 上一任务执行记录
 
 - 已完成：
   - Task 1：`note_mode` config、`NoteDocument/NoteBundle` typed artifact、workspace `note_bundle.json` 保存/加载完成

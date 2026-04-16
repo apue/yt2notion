@@ -88,6 +88,7 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
     reasoning_effort = model_cfg.get("reasoning_effort", "low")
     runtime_cfg = model_cfg.get("_runtime", {})
     codex_workdir = runtime_cfg.get("codex_workdir")
+    codex_profile = runtime_cfg.get("codex_profile")
 
     if backend == "claude_code":
         return ClaudeCodeCaller(model=model)
@@ -95,8 +96,9 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
         from yt2notion.models.codex_cli import CodexCLICaller
 
         return CodexCLICaller(
-            model=model or "gpt-5.2",
+            model=model or "gpt-5.4",
             reasoning_effort=reasoning_effort,
+            profile=codex_profile,
             workdir=codex_workdir,
         )
 
