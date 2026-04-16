@@ -28,6 +28,7 @@ class AgentConfig:
     workspace_dir: str
     codex_model: str
     reasoning_effort: str
+    codex_profile: str = ""
 
 
 @dataclass(frozen=True)
@@ -104,7 +105,16 @@ def _normalize_agent_config(
         ),
         codex_model=agent_config.codex_model,
         reasoning_effort=agent_config.reasoning_effort,
+        codex_profile=_normalize_runtime_profile(agent_config.codex_profile),
     )
+
+
+def _normalize_runtime_profile(value: object) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("codex_profile must be a string")
+    return value.strip()
 
 
 def default_runtime_agents_md() -> str:
@@ -131,7 +141,8 @@ def default_agent_yaml(home: Path) -> str:
             'summaries_dir: "yt2notion/summaries"',
             'transcripts_dir: "yt2notion/transcripts"',
             f'workspace_dir: "{home / "workspace"}"',
-            'codex_model: "gpt-5.3-codex"',
+            'codex_model: "gpt-5.4"',
+            'codex_profile: ""',
             'reasoning_effort: "low"',
             "",
         ]
@@ -210,8 +221,9 @@ def load_agent_config(paths: AgentPaths) -> AgentConfig:
             anchor=anchor,
             field_name="workspace_dir",
         ),
-        codex_model=str(raw.get("codex_model", "gpt-5.3-codex")),
+        codex_model=str(raw.get("codex_model", "gpt-5.4")),
         reasoning_effort=str(raw.get("reasoning_effort", "low")),
+        codex_profile=_normalize_runtime_profile(raw.get("codex_profile", "")),
     )
 
 
@@ -286,7 +298,10 @@ def build_runtime_app_config(
     model["translate_model"] = normalized_agent.codex_model
     model["review_model"] = normalized_agent.codex_model
     model["reasoning_effort"] = normalized_agent.reasoning_effort
-    model["_runtime"] = {"codex_workdir": str(agent_home)}
+    model["_runtime"] = {
+        "codex_workdir": str(agent_home),
+        "codex_profile": normalized_agent.codex_profile,
+    }
 
     storage["backend"] = "obsidian"
     storage["obsidian"] = {

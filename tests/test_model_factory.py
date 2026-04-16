@@ -18,7 +18,7 @@ def test_create_claude_code():
 
 
 def test_create_codex_cli():
-    config = {"model": {"backend": "codex_cli", "summarize_model": "gpt-5.2"}}
+    config = {"model": {"backend": "codex_cli", "summarize_model": "gpt-5.4"}}
     model = create_summarizer(config)
     from yt2notion.models.codex_cli import CodexCLIModel
 
@@ -26,7 +26,7 @@ def test_create_codex_cli():
 
 
 def test_create_openai_alias_routes_to_codex_cli():
-    config = {"model": {"backend": "openai_api", "summarize_model": "gpt-5.2"}}
+    config = {"model": {"backend": "openai_api", "summarize_model": "gpt-5.4"}}
     model = create_summarizer(config)
     from yt2notion.models.codex_cli import CodexCLIModel
 
@@ -43,8 +43,8 @@ def test_create_openai_alias_normalizes_legacy_model_names():
     }
     model = create_summarizer(config)
 
-    assert model.summarize_model == "gpt-5.2"
-    assert model.translate_model == "gpt-5.2"
+    assert model.summarize_model == "gpt-5.4"
+    assert model.translate_model == "gpt-5.4"
 
 
 @patch("yt2notion.models.anthropic_api._anthropic")

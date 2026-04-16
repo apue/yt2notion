@@ -62,7 +62,7 @@ def _note_document_payload(note: NoteDocument) -> dict[str, object]:
 _CLAUDE_ALIASES = {"sonnet", "opus", "haiku"}
 
 
-def _normalize_codex_model(model: str, *, fallback: str = "gpt-5.2") -> str:
+def _normalize_codex_model(model: str, *, fallback: str = "gpt-5.4") -> str:
     """Map legacy Claude aliases to Codex defaults for smoother backend switching."""
     raw = (model or "").strip()
     if not raw or raw in _CLAUDE_ALIASES:
@@ -78,6 +78,11 @@ def _normalize_reasoning_effort(reasoning_effort: str, *, fallback: str = "low")
     return raw
 
 
+def _normalize_profile(profile: str | None) -> str | None:
+    raw = (profile or "").strip()
+    return raw or None
+
+
 class _EmptyOutputError(Exception):
     """Raised when codex returns no usable output."""
 
@@ -88,6 +93,7 @@ def _run_codex_exec(
     model: str,
     timeout_seconds: int,
     reasoning_effort: str,
+    profile: str | None = None,
     workdir: str | None = None,
 ) -> str:
     """Run `codex exec` and return the final assistant message."""
@@ -97,16 +103,22 @@ def _run_codex_exec(
     cmd = [
         "codex",
         "exec",
-        "-m",
-        model,
-        "-c",
-        f'model_reasoning_effort="{reasoning_effort}"',
-        "--sandbox",
-        "read-only",
-        "--output-last-message",
-        str(output_path),
-        "-",
     ]
+    if profile:
+        cmd.extend(["-p", profile])
+    cmd.extend(
+        [
+            "-m",
+            model,
+            "-c",
+            f'model_reasoning_effort="{reasoning_effort}"',
+            "--sandbox",
+            "read-only",
+            "--output-last-message",
+            str(output_path),
+            "-",
+        ]
+    )
     if workdir is not None:
         cmd.insert(-1, "--skip-git-repo-check")
 
@@ -144,15 +156,17 @@ class CodexCLICaller:
 
     def __init__(
         self,
-        model: str = "gpt-5.2",
+        model: str = "gpt-5.4",
         *,
         timeout_seconds: int = 300,
         reasoning_effort: str = "low",
+        profile: str | None = None,
         workdir: str | None = None,
     ) -> None:
         self.model = _normalize_codex_model(model)
         self.timeout_seconds = timeout_seconds
         self.reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
+        self.profile = _normalize_profile(profile)
         self.workdir = workdir
 
     def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:
@@ -166,6 +180,7 @@ class CodexCLICaller:
                 model=self.model,
                 timeout_seconds=self.timeout_seconds,
                 reasoning_effort=self.reasoning_effort,
+                profile=self.profile,
                 workdir=self.workdir,
             )
 
@@ -190,24 +205,28 @@ class CodexCLIModel:
 
     def __init__(
         self,
-        summarize_model: str = "gpt-5.2",
-        translate_model: str = "gpt-5.2",
+        summarize_model: str = "gpt-5.4",
+        translate_model: str = "gpt-5.4",
         *,
         reasoning_effort: str = "low",
+        profile: str | None = None,
         workdir: str | None = None,
     ) -> None:
         self.summarize_model = _normalize_codex_model(summarize_model)
         self.translate_model = _normalize_codex_model(translate_model)
         self.reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
+        self.profile = _normalize_profile(profile)
         self.workdir = workdir
         self._summarize_caller = CodexCLICaller(
             self.summarize_model,
             reasoning_effort=self.reasoning_effort,
+            profile=self.profile,
             workdir=self.workdir,
         )
         self._translate_caller = CodexCLICaller(
             self.translate_model,
             reasoning_effort=self.reasoning_effort,
+            profile=self.profile,
             workdir=self.workdir,
         )
 

@@ -69,6 +69,22 @@ def test_codex_caller_passes_workdir_to_subprocess_run(mock_run):
 
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
+def test_codex_caller_passes_profile_to_exec(mock_run):
+    def _side_effect(cmd, **kwargs):
+        _write_output_from_cmd(cmd, "ok")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = _side_effect
+    caller = CodexCLICaller(model="gpt-5.4", profile="goodhope")
+    result = caller.call("system", "user")
+
+    assert result == "ok"
+    cmd = mock_run.call_args[0][0]
+    assert "-p" in cmd
+    assert cmd[cmd.index("-p") + 1] == "goodhope"
+
+
+@patch("yt2notion.models.codex_cli.subprocess.run")
 def test_codex_caller_skips_git_repo_check_when_workdir_is_set(mock_run):
     workdir = "/tmp/yt2notion-codex-runtime"
 
@@ -263,7 +279,7 @@ def test_codex_model_review_and_summarize_parses_json(mock_run, meta):
 
 
 def test_create_llm_caller_codex_backend():
-    caller = create_llm_caller({"model": {"backend": "codex_cli", "review_model": "gpt-5.2"}})
+    caller = create_llm_caller({"model": {"backend": "codex_cli", "review_model": "gpt-5.4"}})
     assert isinstance(caller, CodexCLICaller)
     assert caller.reasoning_effort == "low"
 
@@ -273,7 +289,7 @@ def test_create_llm_caller_codex_backend_honors_reasoning_effort():
         {
             "model": {
                 "backend": "codex_cli",
-                "review_model": "gpt-5.2",
+                "review_model": "gpt-5.4",
                 "reasoning_effort": "medium",
             }
         }
@@ -285,7 +301,7 @@ def test_create_llm_caller_codex_backend_honors_reasoning_effort():
 def test_create_llm_caller_openai_alias_maps_legacy_model_name():
     caller = create_llm_caller({"model": {"backend": "openai_api", "review_model": "haiku"}})
     assert isinstance(caller, CodexCLICaller)
-    assert caller.model == "gpt-5.2"
+    assert caller.model == "gpt-5.4"
 
 
 def test_create_llm_caller_codex_backend_forwards_runtime_workdir():
@@ -293,13 +309,17 @@ def test_create_llm_caller_codex_backend_forwards_runtime_workdir():
         {
             "model": {
                 "backend": "codex_cli",
-                "review_model": "gpt-5.2",
-                "_runtime": {"codex_workdir": "/tmp/runtime-agent-home"},
+                "review_model": "gpt-5.4",
+                "_runtime": {
+                    "codex_workdir": "/tmp/runtime-agent-home",
+                    "codex_profile": "goodhope",
+                },
             }
         }
     )
     assert isinstance(caller, CodexCLICaller)
     assert caller.workdir == "/tmp/runtime-agent-home"
+    assert caller.profile == "goodhope"
 
 
 def test_create_summarizer_codex_backend_forwards_runtime_workdir():
@@ -307,13 +327,19 @@ def test_create_summarizer_codex_backend_forwards_runtime_workdir():
         {
             "model": {
                 "backend": "codex_cli",
-                "summarize_model": "gpt-5.2",
-                "translate_model": "gpt-5.2",
-                "_runtime": {"codex_workdir": "/tmp/runtime-agent-home"},
+                "summarize_model": "gpt-5.4",
+                "translate_model": "gpt-5.4",
+                "_runtime": {
+                    "codex_workdir": "/tmp/runtime-agent-home",
+                    "codex_profile": "goodhope",
+                },
             },
         }
     )
     assert isinstance(summarizer, CodexCLIModel)
     assert summarizer.workdir == "/tmp/runtime-agent-home"
+    assert summarizer.profile == "goodhope"
     assert summarizer._summarize_caller.workdir == "/tmp/runtime-agent-home"
+    assert summarizer._summarize_caller.profile == "goodhope"
     assert summarizer._translate_caller.workdir == "/tmp/runtime-agent-home"
+    assert summarizer._translate_caller.profile == "goodhope"

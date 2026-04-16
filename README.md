@@ -88,9 +88,12 @@ vault_path: "/path/to/your/vault"
 summaries_dir: "yt2notion/summaries"
 transcripts_dir: "yt2notion/transcripts"
 workspace_dir: "~/.yt2notion-agent/workspace"
-codex_model: "gpt-5.3-codex"
+codex_model: "gpt-5.4"
+codex_profile: ""
 reasoning_effort: "low"
 ```
+
+Set `codex_profile` when you need `yt2notion` to force a named Codex profile such as `goodhope` instead of using the global default from `~/.codex/config.toml`.
 
 ## Prerequisites
 
