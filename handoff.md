@@ -4,82 +4,64 @@
 
 ## 当前任务卡
 
-- 任务：修复 agent runtime 在 goodhope provider 下的 Codex model/profile 配置问题
+- 任务：为 agent 最近失败诊断设计最小方案（文档 + skill + 失败摘要日志）
 - 状态：`done`
 - 当前 owner：User
 - 上一执行者：Codex
 - 下一执行者：User / Codex
-- 来源：在完成 failed job 根因分析后，用户要求直接改掉 model 和 command line 两块，使 runtime 能显式走 goodhope profile
+- 来源：在完成两次 failed job 分析后，用户要求把“AI 如何自己定位错误、读日志、翻译结论”的最小方案写成 spec
 - 目标：
-  - `agent.yaml` 支持可选 `codex_profile`
-  - runtime 把 profile 透传到 `codex exec -p <profile>`
-  - agent 默认 `codex_model` 改成 `gpt-5.4`
-  - 用户本机 `~/.yt2notion-agent/agent.yaml` 改成可直接跑 goodhope
+  - 写出一个最小执行 spec，约束第一版只做：
+    - `docs/agent-error-guide.md`
+    - `.agents/skills/agent-error-diagnosis/SKILL.md`
+    - failed job log 尾部的极简 `FAILURE SUMMARY`
+  - 让后续 AI 可以按固定命令流自己诊断最近一次 agent 失败
 - 非目标：
-  - 不修改 pipeline 主流程语义
-  - 不发起发布动作
-  - 不调整外部服务配置
+  - 本轮不实现
+  - 不建设结构化错误平台、dashboard、telemetry
 - 约束：
-  - 仅修改 runtime config 和 Codex CLI 参数拼装链路
-  - 先补失败测试，再改实现
+  - 只覆盖 `agent` 工作流
+  - 方案必须足够简单，AI 主要通过“读文档 + 跑命令 + 看日志”得出结论
 - 受影响文件：
   - [handoff.md](./handoff.md)
-  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
-  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
-  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
-  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
-  - [tests/test_model_factory.py](./tests/test_model_factory.py)
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [README.md](./README.md)
+  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
 - 验收标准：
-  - `agent.yaml` 默认模板生成 `gpt-5.4`
-  - runtime `AppConfig` 能携带 `codex_profile`
-  - `codex exec` 在设置 profile 时会追加 `-p <profile>`
-  - 相关测试通过
+  - spec 明确第一版范围、交付物、AI 诊断命令流、验证标准
 - 建议命令：
-  - `uv run pytest tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py -q`
-  - `uv run pytest tests/test_agent_worker.py tests/test_cli.py -q`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/models/codex_cli.py src/yt2notion/models/__init__.py src/yt2notion/models/llm.py tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py`
+  - `uv run yt2notion agent list`
+  - `uv run yt2notion agent show <job_id>`
+  - `uv run yt2notion agent logs <job_id>`
 - 未决问题：
-  - 是否后续还需要把 `codex_profile` 暴露到 CLI 参数层，而不只是在 `agent.yaml` 中配置
+  - 用户审阅 spec 后，是否进入实现阶段
 
 ## 当前执行记录
 
 - 已完成：
-  - 以 TDD 补充 runtime/profile 透传和默认 model 的失败测试
-  - `AgentConfig` 新增可选 `codex_profile`
-  - `default_agent_yaml()` / `load_agent_config()` 默认 model 改为 `gpt-5.4`
-  - `build_runtime_app_config()` 现在把 `codex_profile` 放进 `model._runtime`
-  - `CodexCLICaller` / `CodexCLIModel` 新增 profile 支持，调用时追加 `codex exec -p <profile>`
-  - model factory 与 one-shot LLM caller 均会从 runtime config 透传 profile
-  - 已把用户本机 `~/.yt2notion-agent/agent.yaml` 更新为 `codex_model: "gpt-5.4"` 和 `codex_profile: "goodhope"`
-  - 已同步 `PROJECT_MAP.md` 与 `README.md`
+  - 基于用户确认，收敛为“最小错误诊断方案”，放弃错误平台化设计
+  - 写出执行 spec：
+    - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
+  - spec 固定了三项交付物：
+    - `docs/agent-error-guide.md`
+    - `.agents/skills/agent-error-diagnosis/SKILL.md`
+    - failed job log 尾部 `FAILURE SUMMARY`
+  - 根据用户审阅意见，spec 新增了 unknown error 维护闭环：
+    - AI 未命中已知模式时必须明确报告 `unknown`
+    - 后续新错误通过“补 log hint + 更新 guide”扩展，而不改变整体流程
 - 当前阻塞：
   - 无
 - 已修改文件：
   - [handoff.md](./handoff.md)
-  - [src/yt2notion/agent_runtime.py](./src/yt2notion/agent_runtime.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [src/yt2notion/models/__init__.py](./src/yt2notion/models/__init__.py)
-  - [src/yt2notion/models/llm.py](./src/yt2notion/models/llm.py)
-  - [tests/test_agent_runtime.py](./tests/test_agent_runtime.py)
-  - [tests/test_codex_cli.py](./tests/test_codex_cli.py)
-  - [tests/test_model_factory.py](./tests/test_model_factory.py)
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [README.md](./README.md)
+  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
 - 已运行验证：
-  - `uv run pytest tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py -q` → `38 passed`
-  - `uv run pytest tests/test_agent_worker.py tests/test_cli.py -q` → `49 passed`
-  - `uv run pytest tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py tests/test_agent_worker.py tests/test_cli.py -q` → `87 passed`
-  - `uv run ruff check src/yt2notion/agent_runtime.py src/yt2notion/models/codex_cli.py src/yt2notion/models/__init__.py src/yt2notion/models/llm.py tests/test_agent_runtime.py tests/test_codex_cli.py tests/test_model_factory.py` → pass
+  - 文档自检通过：
+    - 无 `TODO` / `TBD`
+    - 未混入 backlog 或未决方案比较
+    - 范围保持在 `agent` 诊断最小方案
 - 风险/回滚点：
-  - runtime profile 目前只在 `agent.yaml` 中配置，CLI 参数层仍未直接暴露
-  - 若用户全局 `~/.codex/config.toml` 中不存在对应 profile 名称，`codex exec -p <profile>` 仍会失败
+  - 如果后续实现时把 tag 设计得过细，会偏离“最小方案”
+  - 如果 skill 不强制命令顺序，AI 仍可能跳过日志直接猜
 - 下一步：
-  - 可直接对失败 job 执行 `uv run yt2notion agent retry 20260415-104434-2592a9`
-  - 若还要支持多 profile 快切，再考虑给 `agent add/run/retry` 增加 CLI override
+  - 请用户审阅 spec，确认后再进入 implementation plan
 
 ## 上一任务归档
 

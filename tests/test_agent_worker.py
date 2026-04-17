@@ -281,6 +281,8 @@ def test_run_worker_once_handles_skipped_and_failed_progress_events(tmp_path: Pa
     assert "review:skipped not needed" in log_text
     assert "summarize:failed llm timeout" in log_text
     assert "FAILED pipeline exploded" in log_text
+    assert "step: summarize" in log_text
+    assert log_text.rstrip().splitlines()[-1].endswith("=== END FAILURE SUMMARY ===")
 
 
 def test_run_worker_once_background_mode_captures_pipeline_stdout_stderr_to_job_log(
@@ -485,6 +487,134 @@ def test_run_worker_once_persists_asr_fallback_used_on_failure(tmp_path: Path) -
     updated = _read_job(paths, "job-1")
     assert updated["status"] == "failed"
     assert updated["asr_fallback_used"] is True
+
+
+def test_run_worker_once_appends_known_failure_summary_for_extract_403(
+    tmp_path: Path,
+) -> None:
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.4",
+        "medium",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch(
+            "yt2notion.agent_worker.run_pipeline",
+            side_effect=RuntimeError(
+                "yt-dlp failed: ERROR: unable to download video data: HTTP Error 403: Forbidden"
+            ),
+        ),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    log_text = (paths.logs_dir / "job-1.log").read_text(encoding="utf-8")
+    assert "=== FAILURE SUMMARY ===" in log_text
+    assert "step: download" in log_text
+    assert "substep: audio_download" in log_text
+    assert "hint: source_forbidden" in log_text
+    assert "retry: limited" in log_text
+    assert log_text.rstrip().splitlines()[-1].endswith("=== END FAILURE SUMMARY ===")
+
+
+def test_run_worker_once_appends_known_failure_summary_for_ssl_eof(tmp_path: Path) -> None:
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.4",
+        "medium",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch(
+            "yt2notion.agent_worker.run_pipeline",
+            side_effect=RuntimeError(
+                "yt-dlp failed: ERROR: [ApplePodcasts] 100: Unable to download webpage: "
+                "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol"
+            ),
+        ),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    log_text = (paths.logs_dir / "job-1.log").read_text(encoding="utf-8")
+    assert "=== FAILURE SUMMARY ===" in log_text
+    assert "step: download" in log_text
+    assert "substep: metadata" in log_text
+    assert "hint: ssl_eof" in log_text
+    assert "retry: safe" in log_text
+    assert log_text.rstrip().splitlines()[-1].endswith("=== END FAILURE SUMMARY ===")
+
+
+def test_run_worker_once_appends_codex_config_failure_summary(tmp_path: Path) -> None:
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.4",
+        "medium",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch(
+            "yt2notion.agent_worker.run_pipeline",
+            side_effect=RuntimeError("codex profile config invalid"),
+        ),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    log_text = (paths.logs_dir / "job-1.log").read_text(encoding="utf-8")
+    assert "substep: codex_config" in log_text
+    assert "hint: codex_config_invalid" in log_text
+    assert "retry: no" in log_text
+
+
+def test_run_worker_once_appends_unknown_failure_summary_when_pattern_is_new(
+    tmp_path: Path,
+) -> None:
+    paths = ensure_agent_home(tmp_path)
+    _seed_job(paths, "job-1")
+    write_queue(paths, {"queued_job_ids": ["job-1"]})
+    agent_cfg = AgentConfig(
+        "/vault",
+        "summaries",
+        "transcripts",
+        str(paths.workspace_dir),
+        "gpt-5.4",
+        "medium",
+    )
+
+    with (
+        patch("yt2notion.agent_worker.build_runtime_app_config", return_value=object()),
+        patch(
+            "yt2notion.agent_worker.run_pipeline",
+            side_effect=RuntimeError("brand new failure shape"),
+        ),
+    ):
+        assert run_worker_once(paths, agent_cfg, base_config_path="config.yaml") is True
+
+    log_text = (paths.logs_dir / "job-1.log").read_text(encoding="utf-8")
+    assert "=== FAILURE SUMMARY ===" in log_text
+    assert "hint: unknown" in log_text
+    assert "retry: unknown" in log_text
+    assert log_text.rstrip().splitlines()[-1].endswith("=== END FAILURE SUMMARY ===")
 
 
 def test_run_worker_once_failure_does_not_misattributed_old_workspace_fallback_by_url(
