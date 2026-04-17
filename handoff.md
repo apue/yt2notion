@@ -4,64 +4,59 @@
 
 ## 当前任务卡
 
-- 任务：为 agent 最近失败诊断设计最小方案（文档 + skill + 失败摘要日志）
+- 任务：更新 `AGENTS.md` / `handoff.md`，切换到 Codex 主导协作模式并写入 PR workflow
 - 状态：`done`
 - 当前 owner：User
 - 上一执行者：Codex
-- 下一执行者：User / Codex
-- 来源：在完成两次 failed job 分析后，用户要求把“AI 如何自己定位错误、读日志、翻译结论”的最小方案写成 spec
+- 下一执行者：User
+- 来源：用户要求按当前现实调整协作文档；先不修改 `CLAUDE.md`，只改 `AGENTS.md` 和 `handoff.md`
+- 分支：`codex/update-agent-workflow-docs`
+- PR：待创建
+- review 状态：待发起
 - 目标：
-  - 写出一个最小执行 spec，约束第一版只做：
-    - `docs/agent-error-guide.md`
-    - `.agents/skills/agent-error-diagnosis/SKILL.md`
-    - failed job log 尾部的极简 `FAILURE SUMMARY`
-  - 让后续 AI 可以按固定命令流自己诊断最近一次 agent 失败
+  - 在 `AGENTS.md` 中明确 Codex 为默认主执行者
+  - 写清纯文本改动与代码改动两套 GitHub workflow
+  - 在 `handoff.md` 中补充分支、PR、review、自测跟踪字段
 - 非目标：
-  - 本轮不实现
-  - 不建设结构化错误平台、dashboard、telemetry
+  - 不修改 `CLAUDE.md`
+  - 不修改 `PROJECT_MAP.md`
+  - 不改任何业务代码或 pipeline 行为
 - 约束：
-  - 只覆盖 `agent` 工作流
-  - 方案必须足够简单，AI 主要通过“读文档 + 跑命令 + 看日志”得出结论
+  - 只做文档改动
+  - workflow 以 `gh` CLI 和 `/review` 为默认路径
+  - 不能把 pipeline 事实错误地下沉到协作文档
 - 受影响文件：
+  - [AGENTS.md](./AGENTS.md)
   - [handoff.md](./handoff.md)
-  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
 - 验收标准：
-  - spec 明确第一版范围、交付物、AI 诊断命令流、验证标准
+  - `AGENTS.md` 已反映 Codex 主导、按需规划、两套 PR workflow
+  - `handoff.md` 模板已可追踪分支、PR、review 状态和最后一次自测
+  - `CLAUDE.md` 保持未改动
 - 建议命令：
-  - `uv run yt2notion agent list`
-  - `uv run yt2notion agent show <job_id>`
-  - `uv run yt2notion agent logs <job_id>`
+  - `git diff -- AGENTS.md handoff.md`
 - 未决问题：
-  - 用户审阅 spec 后，是否进入实现阶段
+  - 无
 
 ## 当前执行记录
 
 - 已完成：
-  - 基于用户确认，收敛为“最小错误诊断方案”，放弃错误平台化设计
-  - 写出执行 spec：
-    - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
-  - spec 固定了三项交付物：
-    - `docs/agent-error-guide.md`
-    - `.agents/skills/agent-error-diagnosis/SKILL.md`
-    - failed job log 尾部 `FAILURE SUMMARY`
-  - 根据用户审阅意见，spec 新增了 unknown error 维护闭环：
-    - AI 未命中已知模式时必须明确报告 `unknown`
-    - 后续新错误通过“补 log hint + 更新 guide”扩展，而不改变整体流程
+  - 重写 [AGENTS.md](./AGENTS.md) 中的默认角色分工，使 Codex 成为默认主执行者
+  - 在 [AGENTS.md](./AGENTS.md) 中新增纯文本改动 / 代码改动两套 GitHub 交付 workflow
+  - 调整 [handoff.md](./handoff.md) 任务卡与模板字段，补充分支、PR、review 状态和最后一次自测
 - 当前阻塞：
   - 无
 - 已修改文件：
+  - [AGENTS.md](./AGENTS.md)
   - [handoff.md](./handoff.md)
-  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
 - 已运行验证：
-  - 文档自检通过：
-    - 无 `TODO` / `TBD`
-    - 未混入 backlog 或未决方案比较
-    - 范围保持在 `agent` 诊断最小方案
+  - 人工检查文档改动，确认只涉及 `AGENTS.md` 与 `handoff.md`
+  - 未运行测试；本次为纯文档改动
+- 最后一次自测：
+  - 文档 diff 自查：`git diff -- AGENTS.md handoff.md`
 - 风险/回滚点：
-  - 如果后续实现时把 tag 设计得过细，会偏离“最小方案”
-  - 如果 skill 不强制命令顺序，AI 仍可能跳过日志直接猜
+  - [CLAUDE.md](./CLAUDE.md) 仍保留旧的“先讨论，再动手”表述；当前以 `AGENTS.md` 为更高优先级规则
 - 下一步：
-  - 请用户审阅 spec，确认后再进入 implementation plan
+  - 创建分支、提交文档改动、推送并创建 PR
 
 ## 上一任务归档
 
@@ -176,6 +171,9 @@
 - 上一执行者：
 - 下一执行者：
 - 来源：
+- 分支：
+- PR：
+- review 状态：
 - 目标：
 - 非目标：
 - 约束：
@@ -190,6 +188,7 @@
 - 当前阻塞：
 - 已修改文件：
 - 已运行验证：
+- 最后一次自测：
 - 风险/回滚点：
 - 下一步：
 
@@ -197,6 +196,8 @@
 
 | 日期 | From | To | 任务 | 结果 |
 |------|------|----|------|------|
+| 2026-04-17 | User | Codex | 检查最近一次 agent 错误 | 完成 |
+| 2026-04-17 | User | Codex | 更新 `AGENTS.md` / `handoff.md` 以匹配 Codex 主导 workflow | 完成 |
 | 2026-04-03 | User | Codex | 生成 `AGENTS.md` / `handoff.md` / `config.toml` 初稿 | 完成 |
 | 2026-04-03 | User | Codex | 把工作流接入 Claude 入口并修正交接机制 | 完成 |
 | 2026-04-03 | User | Codex | 审计三项需求测试覆盖并补测，输出开发计划 | 完成 |
