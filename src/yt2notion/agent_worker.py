@@ -70,7 +70,12 @@ def _classify_failure_summary(
         return ("transcribe", "asr_request", "asr_request_failed", "limited")
     if "failed after 3 attempts" in text and "command '['codex'" in text:
         return (step, "codex_exec", "codex_exec_failed", "limited")
-    if "profile" in text or "reasoning_effort" in text or "model" in text and "codex" in text:
+    if "codex" in text and (
+        "profile" in text
+        or "config" in text
+        or "reasoning_effort" in text
+        or "model" in text
+    ):
         return (step, "codex_config", "codex_config_invalid", "no")
     return (step, "-", "unknown", "unknown")
 
@@ -460,7 +465,7 @@ def run_worker_once(
                 current["current_step"] = None
         elif event == "failed":
             current["status"] = "failed"
-            current["current_step"] = None
+            current["current_step"] = step
             if message:
                 current["error"] = message
         write_job(paths, current)
@@ -497,16 +502,16 @@ def run_worker_once(
         failed["finished_at"] = _now_iso()
         failed["updated_at"] = _now_iso()
         write_job(paths, failed)
+        _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
+        _persist_asr_fallback_used(paths, job_id)
+        notification = _notification_line(job_id, "FAILED", failure_error)
+        _emit_notification(paths, job_id, notification)
         _append_failure_summary(
             paths,
             job_id,
             current_step=failure_step if isinstance(failure_step, str) else None,
             error=failure_error,
         )
-        _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
-        _persist_asr_fallback_used(paths, job_id)
-        notification = _notification_line(job_id, "FAILED", failure_error)
-        _emit_notification(paths, job_id, notification)
         return True
 
     completed = _read_job(paths, job_id)
@@ -518,16 +523,16 @@ def run_worker_once(
         completed["updated_at"] = _now_iso()
         completed["error"] = failure_error
         write_job(paths, completed)
+        _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
+        _persist_asr_fallback_used(paths, job_id)
+        notification = _notification_line(job_id, "FAILED", failure_error)
+        _emit_notification(paths, job_id, notification)
         _append_failure_summary(
             paths,
             job_id,
             current_step=failure_step if isinstance(failure_step, str) else None,
             error=failure_error,
         )
-        _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
-        _persist_asr_fallback_used(paths, job_id)
-        notification = _notification_line(job_id, "FAILED", failure_error)
-        _emit_notification(paths, job_id, notification)
         return True
 
     completed["status"] = "completed"
