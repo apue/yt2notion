@@ -11,8 +11,8 @@
 - 下一执行者：User
 - 来源：用户要求按当前现实调整协作文档；先不修改 `CLAUDE.md`，只改 `AGENTS.md` 和 `handoff.md`
 - 分支：`codex/update-agent-workflow-docs`
-- PR：待创建
-- review 状态：待发起
+- PR：[#20](https://github.com/apue/yt2notion/pull/20)
+- review 状态：纯文本改动，无需 `/review`；PR 已 ready for review
 - 目标：
   - 在 `AGENTS.md` 中明确 Codex 为默认主执行者
   - 写清纯文本改动与代码改动两套 GitHub workflow
@@ -43,6 +43,8 @@
   - 重写 [AGENTS.md](./AGENTS.md) 中的默认角色分工，使 Codex 成为默认主执行者
   - 在 [AGENTS.md](./AGENTS.md) 中新增纯文本改动 / 代码改动两套 GitHub 交付 workflow
   - 调整 [handoff.md](./handoff.md) 任务卡与模板字段，补充分支、PR、review 状态和最后一次自测
+  - 通过 `gh api` 在远端创建分支 `codex/update-agent-workflow-docs`，并提交文档改动
+  - 创建并更新 PR [#20](https://github.com/apue/yt2notion/pull/20) 指向 `main`
 - 当前阻塞：
   - 无
 - 已修改文件：
@@ -56,7 +58,7 @@
 - 风险/回滚点：
   - [CLAUDE.md](./CLAUDE.md) 仍保留旧的“先讨论，再动手”表述；当前以 `AGENTS.md` 为更高优先级规则
 - 下一步：
-  - 创建分支、提交文档改动、推送并创建 PR
+  - 等待用户决定是否直接合入 `main`
 
 ## 上一任务归档
 
