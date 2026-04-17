@@ -31,9 +31,9 @@
 
 默认分工如下：
 
-- Claude Code / Opus：负责需求澄清、方案比较、影响面分析、验收标准定义
-- Codex：负责读取代码、执行改动、运行验证、整理交接结果
-- User：负责确认方向、批准高风险动作、决定是否进入发布步骤
+- Codex：默认主执行者与任务 owner；负责读取代码和文档、提出必要澄清、执行改动、运行最小充分验证、创建或更新分支/PR、处理 review comments、整理交接结果
+- Claude Code / Opus：按需担任 Planner / Reviewer；仅在需求不完整、存在明显 tradeoff、涉及架构调整或高风险流程时介入
+- User：负责确认方向、批准高风险动作、决定是否合入 `main` 或进入发布步骤
 
 ## 启动检查
 
@@ -48,7 +48,7 @@
 
 ## Agent 职责
 
-### 1. Planner: Claude Code / Opus
+### 1. Planner: Codex 默认承担，Claude Code / Opus 按需介入
 
 适用场景：
 
@@ -61,9 +61,9 @@
 - 澄清任务目标、非目标和验收标准
 - 标出受影响文件、步骤、配置项和风险
 - 明确哪些动作需要用户确认
-- 在切换给 Codex 前，把执行包写入 [handoff.md](./handoff.md)
+- 如果实现前需要规划，先把执行包写入 [handoff.md](./handoff.md)，再进入实现
 
-### 2. Executor: Codex
+### 2. Executor: Codex（默认）
 
 适用场景：
 
@@ -76,34 +76,62 @@
 - 只在已批准范围内改动文件
 - 优先保持现有插件架构、数据契约和接口边界
 - 运行必要验证，并记录结果
+- 按仓库规定维护分支、PR、review 和交接状态
 - 完成后更新 [handoff.md](./handoff.md)
 
-### 3. Reviewer: Claude Code / Codex
+### 3. Reviewer: `/review` + Claude Code / Codex
 
 职责：
 
+- 代码改动优先通过 `/review` 执行正式 code review；需要补充分析时再由 Claude Code / Codex 继续审查
 - 先看行为风险和回归风险，再看风格问题
 - 审查时优先关注：发布安全、数据契约、提示词模板、ASR/性能敏感路径、测试缺口
 - Code Review的修改后只进行静态检查/本地检查，请勿执行任何需要调用远程服务（如ASR/LLM API）的操作验证
 
 ## 默认工作流
 
-### A. 先规划，再执行
+### A. 任务入口：默认由 Codex 先判断是否需要规划
 
-默认遵循 [CLAUDE.md](./CLAUDE.md) 的“先讨论，再动手”，并要求 Planner 在进入实现前把任务状态写入 [handoff.md](./handoff.md)：
+默认流程如下：
 
-1. Planner 复述目标
-2. Planner 给出方案、tradeoff、影响范围
-3. User 确认方向
-4. Codex 开始实现
+1. Codex 先读取文档、`handoff.md` 和相关代码，判断任务是否已足够具体
+2. 如果任务具体且不涉及架构分叉、发布风险或高风险外部副作用，Codex 直接实现
+3. 如果需求不完整，或存在明显方案 tradeoff / 架构影响 / 发布风险，由 Codex 或 Claude Code / Opus 先完成规划，并写入 [handoff.md](./handoff.md)
+4. 需要用户决策的点先确认，随后由 Codex 进入实现和验证
 
-例外：
+### B. GitHub 交付 Workflow
 
-- 用户明确说“直接改”
-- 任务已具体到文件/函数/行为级别
-- 改动不涉及架构、发布或高风险外部副作用
+分类规则：
 
-### B. 实现阶段
+- 纯文本改动：只修改文档、注释或说明性文本，不改变运行时行为、数据契约、CLI 结果或测试结果
+- 代码改动：任何会影响运行时行为、配置解析、数据产物、CLI 输出、测试结果或 review 风险的改动，都按代码改动处理
+
+纯文本改动流程：
+
+1. 创建 git 分支
+2. 本地自查 diff、链接、Markdown 渲染或文本一致性
+3. 使用 `gh` 创建 PR
+4. 审阅无误后合入 `main`
+
+代码改动流程：
+
+1. 创建 git 分支
+2. 先完成最小充分自测
+3. 使用 `gh` 创建 PR
+4. 通过 `/review` 执行 code review
+5. 修复 review comments
+6. 再次运行受影响范围的自测
+7. 更新 PR
+8. 审阅无误后合入 `main`
+
+补充规则：
+
+- 默认不直接在 `main` 上开发，也不绕过 PR 直接合并
+- 代码改动在创建 PR 前必须先有本地自测结果；修复 review comments 后必须重新自测
+- `/review` 后的修复验证只做本地检查和本地测试，不调用远程 ASR / LLM 服务
+- 是否最终合入 `main` 由 User 决定
+
+### C. 实现阶段
 
 Codex 执行时应遵守：
 
@@ -113,10 +141,11 @@ Codex 执行时应遵守：
 - 不做无关重构
 - 保持公开函数 type hints、`typing.Protocol` 接口风格、自定义异常约定
 
-### C. 验证阶段
+### D. 验证阶段
 
 按任务需要选择最小充分验证：
 
+- 纯文本改动至少检查 diff、链接、格式和关键描述是否一致
 - `uv run pytest tests/ -v`
 - `uv run ruff check src/`
 - `uv run ruff format src/`
@@ -126,7 +155,7 @@ Codex 执行时应遵守：
 
 ## 任务切换
 
-### Claude / Opus -> Codex
+### Planner -> Codex
 
 切换前，Planner 必须在 [handoff.md](./handoff.md) 写清楚：
 
@@ -140,7 +169,7 @@ Codex 执行时应遵守：
 
 只要执行包足够完整，Codex 就应直接落地，不重复做大段抽象规划。
 
-### Codex -> Claude / Opus
+### Codex -> Planner / Reviewer
 
 以下情况切回 Planner：
 
@@ -188,9 +217,9 @@ Codex 执行时应遵守：
 ### 改文档时的约束
 
 - 工作流变了：更新 `AGENTS.md`
+- 开发底线、命令约定、验证门槛变了：更新 [CLAUDE.md](./CLAUDE.md) 和必要的 `.cursorrules`
 - 结构、契约、扩展点、pipeline 事实变了：更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
-- 项目开发底线变了：更新 [CLAUDE.md](./CLAUDE.md) 和必要的 `.cursorrules`
-- 若只改了 `AGENTS.md` / `CLAUDE.md` / `.cursorrules` 中的事实描述而未改 `PROJECT_MAP.md`，视为不合规变更
+- 只有当变更触及 pipeline / 契约 / 扩展点事实时，才要求同步更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
 
 ## Sandbox 与审批边界
 
@@ -210,7 +239,8 @@ Codex 执行时应遵守：
 
 - 本仓库默认使用 `gh` CLI 完成 GitHub 相关流程（PR 创建、评论、查看 checks、触发 workflow）。
 - 不默认依赖 GitHub App / Connector；仅在 `gh` 不可用或用户明确要求时才使用。
-- 涉及 PR 流程时，优先执行可复现的命令行步骤并在交接中记录关键命令与结果。
+- 代码改动的 PR 在创建后默认通过 `/review` 执行 code review，再进入 comment 修复与复测流程。
+- 涉及 PR 流程时，优先执行可复现的命令行步骤，并在交接中记录分支名、PR 编号/链接、review 状态和最后一次自测结果。
 
 ## 任务追踪
 
@@ -221,10 +251,14 @@ Codex 执行时应遵守：
 - 标题
 - 当前 owner
 - 状态
+- 分支名
+- PR 编号或链接
+- review 状态
 - 目标
 - 约束
 - 受影响文件
 - 验证结果
+- 最后一次自测命令
 - 下一步
 
 ## 快速入口
