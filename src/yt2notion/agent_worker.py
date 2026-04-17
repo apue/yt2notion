@@ -50,6 +50,47 @@ def append_job_log(paths: AgentPaths, job_id: str, line: str) -> None:
         handle.write(f"{_now_iso()} {line}\n")
 
 
+def _classify_failure_summary(
+    error: str,
+    *,
+    current_step: str | None,
+) -> tuple[str, str, str, str]:
+    text = error.lower()
+    step = current_step or "unknown"
+
+    if "http error 403" in text:
+        return ("download", "audio_download", "source_forbidden", "limited")
+    if "unexpected_eof_while_reading" in text or "ssl: unexpected_eof_while_reading" in text:
+        return ("download", "metadata", "ssl_eof", "safe")
+    if "yt-dlp not found" in text:
+        return ("download", "tooling", "missing_ytdlp", "no")
+    if "no subtitles and no asr endpoint configured" in text:
+        return ("transcribe", "asr_config", "missing_asr_endpoint", "no")
+    if "asr request failed" in text:
+        return ("transcribe", "asr_request", "asr_request_failed", "limited")
+    if "failed after 3 attempts" in text and "command '['codex'" in text:
+        return (step, "codex_exec", "codex_exec_failed", "limited")
+    if "profile" in text or "reasoning_effort" in text or "model" in text and "codex" in text:
+        return (step, "codex_config", "codex_config_invalid", "no")
+    return (step, "-", "unknown", "unknown")
+
+
+def _append_failure_summary(
+    paths: AgentPaths,
+    job_id: str,
+    *,
+    current_step: str | None,
+    error: str,
+) -> None:
+    step, substep, hint, retry = _classify_failure_summary(error, current_step=current_step)
+    append_job_log(paths, job_id, "=== FAILURE SUMMARY ===")
+    append_job_log(paths, job_id, f"step: {step}")
+    append_job_log(paths, job_id, f"substep: {substep}")
+    append_job_log(paths, job_id, f"hint: {hint}")
+    append_job_log(paths, job_id, f"retry: {retry}")
+    append_job_log(paths, job_id, "=== END FAILURE SUMMARY ===")
+
+
 class _TeeStream:
     def __init__(self, *targets) -> None:
         self._targets = targets
@@ -448,28 +489,44 @@ def run_worker_once(
             )
     except Exception as exc:
         failed = _read_job(paths, job_id)
+        failure_error = str(exc)
+        failure_step = failed.get("current_step")
         failed["status"] = "failed"
         failed["current_step"] = None
-        failed["error"] = str(exc)
+        failed["error"] = failure_error
         failed["finished_at"] = _now_iso()
         failed["updated_at"] = _now_iso()
         write_job(paths, failed)
+        _append_failure_summary(
+            paths,
+            job_id,
+            current_step=failure_step if isinstance(failure_step, str) else None,
+            error=failure_error,
+        )
         _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
         _persist_asr_fallback_used(paths, job_id)
-        notification = _notification_line(job_id, "FAILED", str(exc))
+        notification = _notification_line(job_id, "FAILED", failure_error)
         _emit_notification(paths, job_id, notification)
         return True
 
     completed = _read_job(paths, job_id)
     if completed.get("status") == "failed":
+        failure_error = str(completed.get("error") or "pipeline reported failed progress event")
+        failure_step = completed.get("current_step")
         completed["current_step"] = None
         completed["finished_at"] = _now_iso()
         completed["updated_at"] = _now_iso()
-        completed["error"] = completed.get("error") or "pipeline reported failed progress event"
+        completed["error"] = failure_error
         write_job(paths, completed)
+        _append_failure_summary(
+            paths,
+            job_id,
+            current_step=failure_step if isinstance(failure_step, str) else None,
+            error=failure_error,
+        )
         _backfill_job_metadata_if_workspace_known(paths, agent_config, job_id)
         _persist_asr_fallback_used(paths, job_id)
-        notification = _notification_line(job_id, "FAILED", str(completed["error"]))
+        notification = _notification_line(job_id, "FAILED", failure_error)
         _emit_notification(paths, job_id, notification)
         return True
 
