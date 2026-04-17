@@ -44,6 +44,9 @@
     - `docs/agent-error-guide.md`
     - `.agents/skills/agent-error-diagnosis/SKILL.md`
     - failed job log 尾部 `FAILURE SUMMARY`
+  - 根据用户审阅意见，spec 新增了 unknown error 维护闭环：
+    - AI 未命中已知模式时必须明确报告 `unknown`
+    - 后续新错误通过“补 log hint + 更新 guide”扩展，而不改变整体流程
 - 当前阻塞：
   - 无
 - 已修改文件：

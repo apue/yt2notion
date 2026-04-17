@@ -59,6 +59,8 @@ AI:
 
 The AI should not guess based on one line of stderr. It must follow the command sequence above.
 
+If the observed failure does not match any known pattern in the guide, the AI must say that clearly instead of forcing a known diagnosis.
+
 ## Deliverables
 
 ### 1. Diagnosis Guide
@@ -85,6 +87,13 @@ It must contain:
   - `next action`
 
 The document must stay practical. It should explain only current recurring failures that AI is expected to identify.
+
+It must also contain a short `Unknown Error Handling` section that explains what to do when no existing pattern matches:
+
+- keep the raw error phrase,
+- identify the step from `agent show` and `agent logs`,
+- report the case as `unknown`,
+- recommend whether a new guide entry or a new log hint is needed.
 
 Initial catalog coverage must include at least:
 
@@ -129,6 +138,7 @@ The skill should also tell AI:
 - do not stop after reading `agent list`
 - do not answer from memory
 - prefer quoting the observed error phrase from the log before translating it
+- if no guide pattern matches, explicitly report `unknown` and recommend updating the guide or log hint logic
 
 ### 3. Failure Summary Block in Job Logs
 
@@ -160,6 +170,8 @@ hint: unknown
 retry: unknown
 ```
 
+This fallback is required so new failures can still be diagnosed and later added to the guide without changing the overall workflow.
+
 ## Classification Rules
 
 The first version should use simple string-pattern classification near the agent failure logging path.
@@ -172,6 +184,14 @@ That classifier must:
 - stay small and explicit.
 
 The first version should not introduce a new global exception hierarchy for the whole pipeline.
+
+When a newly observed failure repeats and is useful to distinguish, the follow-up change should be:
+
+1. add or refine the log hint pattern in the agent failure path,
+2. add a corresponding entry to `docs/agent-error-guide.md`,
+3. keep the skill workflow unchanged.
+
+This keeps the maintenance loop simple: new issue -> improve hint if useful -> update guide.
 
 ## Architecture
 
@@ -210,6 +230,11 @@ Implementation should stay close to current agent failure handling:
   - SSL EOF extract failure
   - unknown failure fallback
 
+### Slice 4: Unknown Error Update Loop
+
+- Document how maintainers extend the guide for a newly seen failure
+- Ensure `unknown` remains a valid first-class outcome rather than a missing case
+
 ## Validation Criteria
 
 This slice is complete when all of the following are true:
@@ -219,11 +244,13 @@ This slice is complete when all of the following are true:
 - Failed job logs now end with a `FAILURE SUMMARY` block
 - At least one test covers summary emission for known failure patterns
 - Unknown failures still produce a summary block with `unknown` values instead of omitting the block
+- The guide tells AI what to say when the error is new and not yet cataloged
 
 ## Risks
 
 - If the guide and log hint taxonomy drift apart, AI diagnoses will become inconsistent
 - If the skill is too vague, AI will skip steps and answer from partial evidence
 - If the summary tags become too detailed, this slice will slowly turn into an error platform
+- If unknown errors are not captured explicitly, AI will overfit them into the wrong known category
 
 The implementation must bias toward simple tags and guide-based interpretation.
