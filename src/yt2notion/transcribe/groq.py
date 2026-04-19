@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 from yt2notion.process import SubtitleEntry
 from yt2notion.retry import RetryExhaustedError, retry
 from yt2notion.transcribe.errors import (
+    TranscriptionDailyLimitError,
     TranscriptionError,
-    TranscriptionQuotaError,
+    TranscriptionHourlyLimitError,
     TranscriptionServerError,
 )
+
+DEFAULT_HOURLY_RETRY_AFTER_SECONDS = 3600
 
 _SUFFIX_TO_MIME: dict[str, str] = {
     ".mp3": "audio/mpeg",
@@ -27,6 +31,58 @@ _SUFFIX_TO_MIME: dict[str, str] = {
 
 def _mime_type_for_audio(path: Path) -> str | None:
     return _SUFFIX_TO_MIME.get(path.suffix.lower())
+
+
+def _parse_retry_after_seconds(response: httpx.Response) -> float:
+    raw = response.headers.get("retry-after", "").strip()
+    if not raw:
+        return float(DEFAULT_HOURLY_RETRY_AFTER_SECONDS)
+    try:
+        parsed = float(raw)
+    except ValueError:
+        return float(DEFAULT_HOURLY_RETRY_AFTER_SECONDS)
+    return parsed if parsed > 0 else float(DEFAULT_HOURLY_RETRY_AFTER_SECONDS)
+
+
+def _quota_error_text(response: httpx.Response) -> str:
+    parts: list[str] = []
+    try:
+        payload: Any = response.json()
+    except json.JSONDecodeError:
+        payload = None
+
+    if isinstance(payload, dict):
+        error_payload = payload.get("error")
+        if isinstance(error_payload, dict):
+            message = error_payload.get("message")
+            code = error_payload.get("code")
+            if isinstance(message, str):
+                parts.append(message)
+            if isinstance(code, str):
+                parts.append(code)
+        elif isinstance(error_payload, str):
+            parts.append(error_payload)
+
+    if response.text:
+        parts.append(response.text)
+    return " ".join(parts).lower()
+
+
+def _looks_like_daily_quota_error(response: httpx.Response) -> bool:
+    text = _quota_error_text(response)
+    daily_markers = (
+        "daily quota",
+        "daily limit",
+        "daily rate limit",
+        "quota exceeded for today",
+        "quota for today",
+        "today's quota",
+        "per day",
+        "day limit",
+        "24-hour quota",
+        "24 hour quota",
+    )
+    return any(marker in text for marker in daily_markers)
 
 
 class GroqTranscriber:
@@ -90,7 +146,16 @@ class GroqTranscriber:
             except httpx.HTTPStatusError as e:
                 code = e.response.status_code
                 if code == 429:
-                    raise TranscriptionQuotaError(f"Groq rate limit exceeded: {e}") from e
+                    retry_after = _parse_retry_after_seconds(e.response)
+                    if _looks_like_daily_quota_error(e.response):
+                        raise TranscriptionDailyLimitError(
+                            f"Groq daily quota exceeded: {e}",
+                            retry_after_seconds=retry_after,
+                        ) from e
+                    raise TranscriptionHourlyLimitError(
+                        f"Groq hourly rate limit exceeded: {e}",
+                        retry_after_seconds=retry_after,
+                    ) from e
                 if code >= 500:
                     err = _RetryableServerError(f"Groq server error {code}: {e}")
                     last_server_error.append(err)

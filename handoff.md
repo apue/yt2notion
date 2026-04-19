@@ -4,64 +4,73 @@
 
 ## 当前任务卡
 
-- 任务：为 agent 最近失败诊断设计最小方案（文档 + skill + 失败摘要日志）
-- 状态：`done`
-- 当前 owner：User
-- 上一执行者：Codex
-- 下一执行者：User / Codex
-- 来源：在完成两次 failed job 分析后，用户要求把“AI 如何自己定位错误、读日志、翻译结论”的最小方案写成 spec
-- 目标：
-  - 写出一个最小执行 spec，约束第一版只做：
-    - `docs/agent-error-guide.md`
-    - `.agents/skills/agent-error-diagnosis/SKILL.md`
-    - failed job log 尾部的极简 `FAILURE SUMMARY`
-  - 让后续 AI 可以按固定命令流自己诊断最近一次 agent 失败
+- 任务：实现 Groq 音频转写 checkpoint / ASH 等待恢复 / ASD 剩余 chunk remote fallback
+- 状态：`in_progress`
+- 当前 owner：Codex
+- 上一执行者：User
+- 下一执行者：Codex
+- 来源：用户要求一气呵成完成 spec、plan、subagent-driven development、GitHub PR workflow
+- 分支：`groq-transcribe-checkpoint`（计划；本地 sandbox 禁止写 `.git` refs，当前在主工作树内实现）
+- PR：待创建
+- review 状态：待实现后创建 PR 并执行 `/review`
+  - 目标：
+  - 新增 chunk 级转写 checkpoint，尊重已完成 chunk 结果
+  - Groq `ASH` 读取 `retry-after` 并在当前进程内等待恢复
+  - Groq `ASD` 时，从当前失败 chunk 开始将当前 job 剩余 chunk 全部切到 `remote`
+  - 将 checkpoint 契约沉淀到 `workspace/pipeline`，并更新 `PROJECT_MAP.md` / `README.md`
 - 非目标：
-  - 本轮不实现
-  - 不建设结构化错误平台、dashboard、telemetry
+  - 不接入 ElevenLabs
+  - 不改 queue 模型或新增 scheduler
+  - 不做任何连接 Groq / remote / LLM 的在线测试
 - 约束：
-  - 只覆盖 `agent` 工作流
-  - 方案必须足够简单，AI 主要通过“读文档 + 跑命令 + 看日志”得出结论
+  - 仅保留必要单元测试
+  - `PROJECT_MAP.md` 作为 pipeline / artifact 唯一事实锚点
+  - 当前 sandbox 不允许修改 `.git` refs，GitHub 交付可能需要 connector 兜底
 - 受影响文件：
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+  - [config.example.yaml](./config.example.yaml)
   - [handoff.md](./handoff.md)
-  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
+  - [docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
+  - [docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
+  - [src/yt2notion/transcribe/errors.py](./src/yt2notion/transcribe/errors.py)
+  - [src/yt2notion/transcribe/groq.py](./src/yt2notion/transcribe/groq.py)
+  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [tests/test_transcribe_groq.py](./tests/test_transcribe_groq.py)
+  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
 - 验收标准：
-  - spec 明确第一版范围、交付物、AI 诊断命令流、验证标准
+  - 长音频在 `ASH` 时保留已完成 chunk，等待后从断点继续
+  - `ASD` 只切当前 job 剩余 pending chunk 到 `remote`
+  - `transcripts.json` 只在全部 chunk 完成后生成
+  - 单元测试覆盖 Groq quota 分类、workspace checkpoint、pipeline 恢复语义
 - 建议命令：
-  - `uv run yt2notion agent list`
-  - `uv run yt2notion agent show <job_id>`
-  - `uv run yt2notion agent logs <job_id>`
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q`
+  - `uv run ruff check src/yt2notion tests`
 - 未决问题：
-  - 用户审阅 spec 后，是否进入实现阶段
+  - Groq `429` 无法细分时，第一版保守视为 `ASH`
 
 ## 当前执行记录
 
 - 已完成：
-  - 基于用户确认，收敛为“最小错误诊断方案”，放弃错误平台化设计
-  - 写出执行 spec：
-    - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
-  - spec 固定了三项交付物：
-    - `docs/agent-error-guide.md`
-    - `.agents/skills/agent-error-diagnosis/SKILL.md`
-    - failed job log 尾部 `FAILURE SUMMARY`
-  - 根据用户审阅意见，spec 新增了 unknown error 维护闭环：
-    - AI 未命中已知模式时必须明确报告 `unknown`
-    - 后续新错误通过“补 log hint + 更新 guide”扩展，而不改变整体流程
+  - 完成讨论并确认行为边界：Groq 优先、`ASH` 等待、`ASD` 切剩余 pending chunk 到 `remote`
+  - 落盘执行 spec：[docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
+  - 落盘实现计划：[docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
 - 当前阻塞：
-  - 无
+  - 本地 sandbox 禁止写 `.git` refs，无法创建隔离 worktree / 本地分支；代码实现先在当前工作树进行，GitHub 分支/PR 视后续能力选择 `gh` 或 connector
 - 已修改文件：
   - [handoff.md](./handoff.md)
-  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
+  - [docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
+  - [docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
 - 已运行验证：
-  - 文档自检通过：
-    - 无 `TODO` / `TBD`
-    - 未混入 backlog 或未决方案比较
-    - 范围保持在 `agent` 诊断最小方案
+  - 仅完成代码骨架与测试入口阅读，尚未运行测试
+- 最后一次自测：
+  - 无
 - 风险/回滚点：
-  - 如果后续实现时把 tag 设计得过细，会偏离“最小方案”
-  - 如果 skill 不强制命令顺序，AI 仍可能跳过日志直接猜
+  - 当前工作树已有用户未提交改动；实现时必须只触碰任务相关文件
 - 下一步：
-  - 请用户审阅 spec，确认后再进入 implementation plan
+  - 按计划执行 TDD，并使用 subagents 分任务实现与复核
 
 ## 上一任务归档
 
@@ -176,6 +185,9 @@
 - 上一执行者：
 - 下一执行者：
 - 来源：
+- 分支：
+- PR：
+- review 状态：
 - 目标：
 - 非目标：
 - 约束：
@@ -190,6 +202,7 @@
 - 当前阻塞：
 - 已修改文件：
 - 已运行验证：
+- 最后一次自测：
 - 风险/回滚点：
 - 下一步：
 
@@ -197,6 +210,8 @@
 
 | 日期 | From | To | 任务 | 结果 |
 |------|------|----|------|------|
+| 2026-04-17 | User | Codex | 检查最近一次 agent 错误 | 完成 |
+| 2026-04-17 | User | Codex | 更新 `AGENTS.md` / `handoff.md` 以匹配 Codex 主导 workflow | 完成 |
 | 2026-04-03 | User | Codex | 生成 `AGENTS.md` / `handoff.md` / `config.toml` 初稿 | 完成 |
 | 2026-04-03 | User | Codex | 把工作流接入 Claude 入口并修正交接机制 | 完成 |
 | 2026-04-03 | User | Codex | 审计三项需求测试覆盖并补测，输出开发计划 | 完成 |

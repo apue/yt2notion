@@ -51,7 +51,7 @@ extract:
   # ASR 语音识别 fallback（无字幕时自动启用）
   asr:
     backend: groq                # 推荐: groq (primary), 可选: remote
-    fallback_backend: remote     # 推荐 fallback: remote（每个 job 独立触发）
+    fallback_backend: remote     # 推荐 fallback: remote；当前仅用于 Groq 日配额触发后接管剩余 pending chunk
     endpoint: ""                 # remote backend/fallback 的服务地址，或设置 ASR_ENDPOINT 环境变量
     groq:
       api_key: ""                # 留空并改用 GROQ_API_KEY 环境变量（不要把真实 key 写入文件）
