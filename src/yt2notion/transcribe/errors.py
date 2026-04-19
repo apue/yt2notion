@@ -14,6 +14,24 @@ class TranscriptionQuotaError(TranscriptionError):
     """
 
 
+class TranscriptionHourlyLimitError(TranscriptionQuotaError):
+    """Raised when Groq reports a retryable hourly quota limit."""
+
+    def __init__(self, message: str, *, retry_after_seconds: float) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class TranscriptionDailyLimitError(TranscriptionQuotaError):
+    """Raised when Groq reports a daily quota limit."""
+
+    def __init__(
+        self, message: str, *, retry_after_seconds: float | None = None
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class TranscriptionServerError(TranscriptionError):
     """Raised when an ASR backend returns 5xx after retries are exhausted.
 
