@@ -157,6 +157,19 @@ def test_429_today_message_without_daily_phrase_stays_hourly(tmp_path, monkeypat
         GroqTranscriber(api_key="k").transcribe(audio)
 
 
+def test_429_text_with_per_day_docs_stays_hourly(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path)
+    monkeypatch.setattr(
+        "yt2notion.transcribe.groq.httpx.post",
+        lambda *a, **k: _http_response(
+            429,
+            text="Rate limit exceeded. See usage docs for requests per day and per minute.",
+        ),
+    )
+    with pytest.raises(TranscriptionHourlyLimitError):
+        GroqTranscriber(api_key="k").transcribe(audio)
+
+
 def test_500_after_retries_raises_server_error(tmp_path, monkeypatch):
     audio = _make_audio(tmp_path)
     calls = []

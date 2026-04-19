@@ -5,15 +5,15 @@
 ## 当前任务卡
 
 - 任务：实现 Groq 音频转写 checkpoint / ASH 等待恢复 / ASD 剩余 chunk remote fallback
-- 状态：`in_progress`
-- 当前 owner：Codex
+- 状态：`done`
+- 当前 owner：User
 - 上一执行者：User
-- 下一执行者：Codex
+- 下一执行者：User / Codex
 - 来源：用户要求一气呵成完成 spec、plan、subagent-driven development、GitHub PR workflow
-- 分支：`groq-transcribe-checkpoint`（计划；本地 sandbox 禁止写 `.git` refs，当前在主工作树内实现）
-- PR：待创建
-- review 状态：待实现后创建 PR 并执行 `/review`
-  - 目标：
+- 分支：`groq-transcribe-checkpoint`
+- PR：[#21](https://github.com/apue/yt2notion/pull/21)
+- review 状态：本地 subagent / final reviewer 复核完成，已收口 stale checkpoint / fallback marker / missing payload 问题；当前等待用户决定是否合入
+- 目标：
   - 新增 chunk 级转写 checkpoint，尊重已完成 chunk 结果
   - Groq `ASH` 读取 `retry-after` 并在当前进程内等待恢复
   - Groq `ASD` 时，从当前失败 chunk 开始将当前 job 剩余 chunk 全部切到 `remote`
@@ -57,20 +57,35 @@
   - 完成讨论并确认行为边界：Groq 优先、`ASH` 等待、`ASD` 切剩余 pending chunk 到 `remote`
   - 落盘执行 spec：[docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
   - 落盘实现计划：[docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
+  - 完成 `Groq` quota 分类、workspace checkpoint、pipeline 恢复状态机、文档与配置说明
+  - 根据最终 reviewer findings 补齐 fresh rerun checkpoint 失效、`resume_from=\"transcribe\"` fallback marker 保留、missing chunk payload 自动重跑
+  - 通过远端 GitHub branch/PR 流程创建 [#21](https://github.com/apue/yt2notion/pull/21)
 - 当前阻塞：
-  - 本地 sandbox 禁止写 `.git` refs，无法创建隔离 worktree / 本地分支；代码实现先在当前工作树进行，GitHub 分支/PR 视后续能力选择 `gh` 或 connector
+  - 无
 - 已修改文件：
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+  - [config.example.yaml](./config.example.yaml)
   - [handoff.md](./handoff.md)
   - [docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
   - [docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
+  - [src/yt2notion/transcribe/errors.py](./src/yt2notion/transcribe/errors.py)
+  - [src/yt2notion/transcribe/groq.py](./src/yt2notion/transcribe/groq.py)
+  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [tests/test_transcribe_groq.py](./tests/test_transcribe_groq.py)
+  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
 - 已运行验证：
-  - 仅完成代码骨架与测试入口阅读，尚未运行测试
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q` → `84 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/transcribe/errors.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py src/yt2notion/pipeline.py tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py` → `All checks passed!`
 - 最后一次自测：
-  - 无
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q`
 - 风险/回滚点：
-  - 当前工作树已有用户未提交改动；实现时必须只触碰任务相关文件
+  - 未做任何连接 Groq / remote / LLM 的在线验证；当前结论基于本地单元测试和静态检查
+  - 当前工作树仍有用户自己的无关脏改：`AGENTS.md`、`.agents/skills/*`、`.codex/config.toml`、旧 plan 文档；PR 未包含这些文件
 - 下一步：
-  - 按计划执行 TDD，并使用 subagents 分任务实现与复核
+  - 用户审阅 PR [#21](https://github.com/apue/yt2notion/pull/21) 并决定是否合入 `main`
 
 ## 上一任务归档
 

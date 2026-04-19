@@ -63,7 +63,7 @@ def _quota_error_text(response: httpx.Response) -> str:
         elif isinstance(error_payload, str):
             parts.append(error_payload)
 
-    if response.text:
+    if not parts and response.text:
         parts.append(response.text)
     return " ".join(parts).lower()
 
@@ -77,8 +77,6 @@ def _looks_like_daily_quota_error(response: httpx.Response) -> bool:
         "quota exceeded for today",
         "quota for today",
         "today's quota",
-        "per day",
-        "day limit",
         "24-hour quota",
         "24 hour quota",
     )
