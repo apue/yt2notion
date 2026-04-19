@@ -1031,6 +1031,7 @@ def test_step_transcribe_waits_and_retries_hourly_groq_limit(
     from yt2notion.pipeline import _step_transcribe
     from yt2notion.workspace import Workspace
 
+    progress_events: list[tuple[str, str, str | None]] = []
     ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
     source_audio = tmp_path / "episode.mp3"
     source_audio.write_bytes(b"fake audio")
@@ -1083,6 +1084,9 @@ def test_step_transcribe_waits_and_retries_hourly_groq_limit(
             [],
             {"extract": {"asr": {"backend": "groq", "chunk_seconds": 60}}},
             verbose=False,
+            progress_callback=lambda step, event, message=None: progress_events.append(
+                (step, event, message)
+            ),
         )
 
     assert result[0]["text"] == "chunk one chunk two"
@@ -1101,6 +1105,24 @@ def test_step_transcribe_waits_and_retries_hourly_groq_limit(
     assert ws.load_transcribe_plan() is not None
     assert ws.load_transcribe_chunk_result("chunk-001")[0]["text"] == "chunk one"
     assert ws.load_transcribe_chunk_result("chunk-002")[0]["text"] == "chunk two"
+    assert [event for _, event, _ in progress_events].count("chunk_started") == 3
+    assert [event for _, event, _ in progress_events].count("hourly_wait") == 1
+    assert [event for _, event, _ in progress_events].count("chunk_completed") == 2
+    hourly_wait_payload = next(
+        json.loads(message)
+        for step, event, message in progress_events
+        if step == "transcribe" and event == "hourly_wait" and message is not None
+    )
+    assert hourly_wait_payload["chunk_id"] == "chunk-001"
+    assert hourly_wait_payload["backend"] == "groq"
+    assert hourly_wait_payload["retry_after_seconds"] == 120
+    chunk_completed_payload = next(
+        json.loads(message)
+        for step, event, message in progress_events
+        if step == "transcribe" and event == "chunk_completed" and message is not None
+    )
+    assert chunk_completed_payload["chunk_id"] == "chunk-001"
+    assert chunk_completed_payload["backend"] == "groq"
 
 
 @patch("yt2notion.audio.split_audio")
@@ -1242,6 +1264,7 @@ def test_step_transcribe_switches_remaining_chunks_to_remote_after_daily_limit(
     from yt2notion.pipeline import _step_transcribe
     from yt2notion.workspace import Workspace
 
+    progress_events: list[tuple[str, str, str | None]] = []
     ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
     source_audio = tmp_path / "episode.mp3"
     source_audio.write_bytes(b"fake audio")
@@ -1306,6 +1329,9 @@ def test_step_transcribe_switches_remaining_chunks_to_remote_after_daily_limit(
                 }
             },
             verbose=False,
+            progress_callback=lambda step, event, message=None: progress_events.append(
+                (step, event, message)
+            ),
         )
 
     assert result[0]["text"] == "chunk one chunk two chunk three"
@@ -1326,6 +1352,26 @@ def test_step_transcribe_switches_remaining_chunks_to_remote_after_daily_limit(
     plan = ws.load_transcribe_plan()
     assert plan is not None
     assert [chunk["preferred_backend"] for chunk in plan] == ["groq", "remote", "remote"]
+    assert [event for _, event, _ in progress_events].count("daily_fallback_switch") == 1
+    switch_payload = next(
+        json.loads(message)
+        for step, event, message in progress_events
+        if step == "transcribe" and event == "daily_fallback_switch" and message is not None
+    )
+    assert switch_payload["chunk_id"] == "chunk-002"
+    assert switch_payload["backend"] == "groq"
+    assert switch_payload["fallback_backend"] == "remote"
+    assert switch_payload["affected_chunk_ids"] == ["chunk-002", "chunk-003"]
+    remote_completions = [
+        json.loads(message)
+        for step, event, message in progress_events
+        if step == "transcribe" and event == "chunk_completed" and message is not None
+    ]
+    assert [payload["backend"] for payload in remote_completions] == [
+        "groq",
+        "remote",
+        "remote",
+    ]
 
 
 @patch("yt2notion.transcribe.create_transcriber")

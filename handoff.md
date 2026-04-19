@@ -59,6 +59,8 @@
   - 落盘实现计划：[docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
   - 完成 `Groq` quota 分类、workspace checkpoint、pipeline 恢复状态机、文档与配置说明
   - 根据最终 reviewer findings 补齐 fresh rerun checkpoint 失效、`resume_from=\"transcribe\"` fallback marker 保留、missing chunk payload 自动重跑
+  - 为 transcribe 增加 chunk 级诊断事件：`chunk_started` / `chunk_completed` / `hourly_wait` / `daily_fallback_switch`
+  - 扩展长音频 ASR 诊断说明：`docs/agent-error-guide.md` 现在要求在 transcribe 故障时读取 `transcribe_state.json`
   - 通过远端 GitHub branch/PR 流程创建 [#21](https://github.com/apue/yt2notion/pull/21)
 - 当前阻塞：
   - 无
@@ -66,6 +68,7 @@
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
   - [README.md](./README.md)
   - [config.example.yaml](./config.example.yaml)
+  - [docs/agent-error-guide.md](./docs/agent-error-guide.md)
   - [handoff.md](./handoff.md)
   - [docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
   - [docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
@@ -79,8 +82,10 @@
 - 已运行验证：
   - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q` → `84 passed, 4 warnings`
   - `uv run ruff check src/yt2notion/transcribe/errors.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py src/yt2notion/pipeline.py tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py` → `All checks passed!`
+  - `uv run pytest tests/test_pipeline.py tests/test_agent_worker.py -q` → `65 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/pipeline.py tests/test_pipeline.py tests/test_agent_worker.py docs/agent-error-guide.md` → `All checks passed!`
 - 最后一次自测：
-  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q`
+  - `uv run pytest tests/test_pipeline.py tests/test_agent_worker.py -q`
 - 风险/回滚点：
   - 未做任何连接 Groq / remote / LLM 的在线验证；当前结论基于本地单元测试和静态检查
   - 当前工作树仍有用户自己的无关脏改：`AGENTS.md`、`.agents/skills/*`、`.codex/config.toml`、旧 plan 文档；PR 未包含这些文件

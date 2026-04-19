@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 import time
@@ -55,7 +56,16 @@ ASR_CHUNK_PADDING_SECONDS = 0.5
 SUMMARY_GROUP_CHAR_LIMIT = 24_000
 SUMMARY_GROUP_SEGMENT_LIMIT = 6
 ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD = 300
-ProgressEvent: TypeAlias = Literal["started", "completed"]
+ProgressEvent: TypeAlias = Literal[
+    "started",
+    "completed",
+    "skipped",
+    "failed",
+    "chunk_started",
+    "chunk_completed",
+    "hourly_wait",
+    "daily_fallback_switch",
+]
 ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
 ChunkResultPayload: TypeAlias = list[dict[str, object]]
 
@@ -265,7 +275,14 @@ def prepare_content(
             ):
                 ws.clear_asr_fallback_used()
             _emit_progress(progress_callback, "transcribe", "started")
-            transcripts = _step_transcribe(ws, metadata, segments, raw_config, verbose)
+            transcripts = _step_transcribe(
+                ws,
+                metadata,
+                segments,
+                raw_config,
+                verbose,
+                progress_callback=progress_callback,
+            )
             ws.save_transcripts(transcripts)  # Final save after all chunk checkpoints complete
             _emit_progress(progress_callback, "transcribe", "completed")
         else:
@@ -569,6 +586,7 @@ def _step_transcribe(
     segments: list[dict],
     config: dict,
     verbose: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[dict]:
     """Step 3: Transcribe content (subtitles or ASR)."""
     if verbose:
@@ -609,6 +627,7 @@ def _step_transcribe(
         primary_backend=primary_backend,
         fallback_backend=fallback_backend,
         fallback_transcriber_factory=_load_fallback_transcriber,
+        progress_callback=progress_callback,
     )
 
 
@@ -670,6 +689,29 @@ def _resolve_chunk_audio_path(ws: Workspace, audio_ref: str) -> Path:
     if path.is_absolute():
         return path
     return ws.dir / path
+
+
+def _transcribe_progress_message(
+    chunk: dict,
+    *,
+    index: int,
+    total: int,
+    backend: str,
+    **extra: object,
+) -> str:
+    payload: dict[str, object] = {
+        "chunk_id": str(chunk["chunk_id"]),
+        "chunk_index": index + 1,
+        "chunk_total": total,
+        "title": str(chunk.get("title", "")),
+        "start_seconds": float(chunk["start_seconds"]),
+        "end_seconds": float(chunk["end_seconds"]),
+        "start_label": seconds_to_display(float(chunk["start_seconds"])),
+        "end_label": seconds_to_display(float(chunk["end_seconds"])),
+        "backend": backend,
+    }
+    payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
 def _initial_transcribe_state(plan: list[dict], *, job_mode: str) -> dict:
@@ -1060,6 +1102,7 @@ def _execute_chunk_plan(
     fallback_transcriber_factory: Callable[[], object | None] | None,
     language: str | None,
     verbose: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> None:
     from yt2notion.transcribe.errors import (
         TranscriptionDailyLimitError,
@@ -1078,12 +1121,43 @@ def _execute_chunk_plan(
                 continue
 
         if state.get("status") == "waiting_ash" and state.get("next_attempt_at"):
+            wait_target = str(state["next_attempt_at"])
+            retry_after_seconds = max(
+                0.0, (datetime.fromisoformat(wait_target) - _now()).total_seconds()
+            )
+            _emit_progress(
+                progress_callback,
+                "transcribe",
+                "hourly_wait",
+                _transcribe_progress_message(
+                    chunk,
+                    index=index,
+                    total=len(plan),
+                    backend=str(chunk.get("preferred_backend", primary_backend)),
+                    retry_after_seconds=round(retry_after_seconds, 3),
+                    next_attempt_at=wait_target,
+                    resumed_from_state=True,
+                    ash_defer_count=int(state.get("ash_defer_count", 0)),
+                ),
+            )
             _wait_until_retryable_time(state.get("next_attempt_at"), verbose=verbose)
             _clear_wait_state(state)
             ws.save_transcribe_state(state)
 
         while True:
             backend = str(chunk.get("preferred_backend", primary_backend))
+            _emit_progress(
+                progress_callback,
+                "transcribe",
+                "chunk_started",
+                _transcribe_progress_message(
+                    chunk,
+                    index=index,
+                    total=len(plan),
+                    backend=backend,
+                    attempt=int(chunk_state.get("attempts", 0)) + 1,
+                ),
+            )
             active_transcriber = _resolve_chunk_transcriber(
                 backend=backend,
                 primary_backend=primary_backend,
@@ -1107,6 +1181,21 @@ def _execute_chunk_plan(
             except TranscriptionHourlyLimitError as exc:
                 _mark_hourly_wait(state, chunk_id, exc)
                 ws.save_transcribe_state(state)
+                _emit_progress(
+                    progress_callback,
+                    "transcribe",
+                    "hourly_wait",
+                    _transcribe_progress_message(
+                        chunk,
+                        index=index,
+                        total=len(plan),
+                        backend=backend,
+                        retry_after_seconds=round(float(exc.retry_after_seconds), 3),
+                        next_attempt_at=state.get("next_attempt_at"),
+                        resumed_from_state=False,
+                        ash_defer_count=int(state.get("ash_defer_count", 0)),
+                    ),
+                )
                 _wait_until_retryable_time(state.get("next_attempt_at"), verbose=verbose)
                 continue
             except TranscriptionDailyLimitError as exc:
@@ -1120,6 +1209,13 @@ def _execute_chunk_plan(
                 if fallback_backend is None or fallback is None:
                     raise
                 ws.mark_asr_fallback_used()
+                affected_chunk_ids = [
+                    str(pending_chunk["chunk_id"])
+                    for pending_chunk in plan[index:]
+                    if _chunk_state(
+                        state, str(pending_chunk["chunk_id"])
+                    ).get("status") == "pending"
+                ]
                 _switch_remaining_chunks_to_backend(
                     ws,
                     plan,
@@ -1128,9 +1224,36 @@ def _execute_chunk_plan(
                     backend=fallback_backend,
                     error=exc,
                 )
+                _emit_progress(
+                    progress_callback,
+                    "transcribe",
+                    "daily_fallback_switch",
+                    _transcribe_progress_message(
+                        chunk,
+                        index=index,
+                        total=len(plan),
+                        backend=backend,
+                        fallback_backend=fallback_backend,
+                        affected_chunk_ids=affected_chunk_ids,
+                        affected_chunk_count=len(affected_chunk_ids),
+                    ),
+                )
                 continue
 
             _mark_chunk_completed(ws, state, chunk_id, backend_used=backend, entries=entries)
+            _emit_progress(
+                progress_callback,
+                "transcribe",
+                "chunk_completed",
+                _transcribe_progress_message(
+                    chunk,
+                    index=index,
+                    total=len(plan),
+                    backend=backend,
+                    entries_count=len(entries),
+                    attempts=int(_chunk_state(state, chunk_id).get("attempts", 0)),
+                ),
+            )
             break
 
     state["status"] = "completed"
@@ -1152,6 +1275,7 @@ def _transcribe_from_audio(
     primary_backend: str = "remote",
     fallback_backend: str | None = None,
     fallback_transcriber_factory: Callable[[], object | None] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[dict]:
     """Transcribe audio via ASR, optionally per-segment."""
     if transcriber is None:
@@ -1180,6 +1304,7 @@ def _transcribe_from_audio(
             fallback_transcriber_factory=fallback_transcriber_factory,
             language=language,
             verbose=verbose,
+            progress_callback=progress_callback,
         )
         return _segment_transcripts_from_plan(ws, plan)
 
@@ -1206,6 +1331,7 @@ def _transcribe_from_audio(
         fallback_transcriber_factory=fallback_transcriber_factory,
         language=language,
         verbose=verbose,
+        progress_callback=progress_callback,
     )
     entries = _merged_chunk_entries(ws, plan)
     if verbose:
