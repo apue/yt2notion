@@ -173,6 +173,64 @@ def test_discard_transcribe_artifacts_removes_transcripts_and_chunk_dirs(tmp_pat
     assert not (ws.dir / "full_audio_chunks").exists()
 
 
+def test_transcribe_plan_state_and_chunk_roundtrip(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    plan = [
+        {
+            "chunk_id": "chunk-001",
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 120,
+            "audio_relpath": "full_audio_chunks/chunk_001.mp3",
+            "preferred_backend": "groq",
+        }
+    ]
+    state = {
+        "version": 1,
+        "job_mode": "groq",
+        "status": "running",
+        "next_attempt_at": None,
+        "last_error": None,
+        "defer_reason": None,
+        "ash_defer_count": 0,
+        "chunks": [
+            {
+                "chunk_id": "chunk-001",
+                "status": "pending",
+                "backend_used": None,
+                "result_relpath": None,
+                "attempts": 0,
+                "updated_at": "2026-04-19T12:00:00+08:00",
+            }
+        ],
+    }
+    chunk_entries = [
+        {
+            "start_seconds": 0,
+            "end_seconds": 30,
+            "text": "chunk one",
+            "source": "groq",
+        },
+        {
+            "start_seconds": 30,
+            "end_seconds": 60,
+            "text": "chunk two",
+            "source": "groq",
+        },
+    ]
+
+    ws.save_transcribe_plan(plan)
+    ws.save_transcribe_state(state)
+    ws.save_transcribe_chunk_result("chunk-001", chunk_entries)
+
+    assert ws.load_transcribe_plan() == plan
+    assert ws.load_transcribe_state() == state
+    assert ws.load_transcribe_chunk_result("chunk-001") == chunk_entries
+    assert (ws.dir / "transcribe_plan.json").exists()
+    assert (ws.dir / "transcribe_state.json").exists()
+    assert (ws.dir / "transcribe_chunks" / "chunk-001.json").exists()
+
+
 def test_asr_fallback_marker_roundtrip(tmp_path):
     ws = Workspace(tmp_path, "test123")
     assert ws.asr_fallback_used() is False
@@ -314,3 +372,95 @@ def test_load_note_bundle_requires_stable_tags_and_source_topics(tmp_path):
 
     with pytest.raises(ValueError, match="stable_tags"):
         ws.load_note_bundle()
+
+
+def test_discard_transcribe_artifacts_removes_checkpoint_files(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    ws.save_transcribe_plan(
+        [
+            {
+                "chunk_id": "chunk-001",
+                "title": "Part 1",
+                "start_seconds": 0,
+                "end_seconds": 120,
+                "audio_relpath": "full_audio_chunks/chunk_001.mp3",
+                "preferred_backend": "groq",
+            }
+        ]
+    )
+    ws.save_transcribe_state(
+        {
+            "version": 1,
+            "job_mode": "groq",
+            "status": "running",
+            "next_attempt_at": None,
+            "last_error": None,
+            "defer_reason": None,
+            "ash_defer_count": 0,
+            "chunks": [],
+        }
+    )
+    ws.save_transcribe_chunk_result(
+        "chunk-001",
+        [{"start_seconds": 0, "end_seconds": 30, "text": "chunk one", "source": "groq"}],
+    )
+    (ws.dir / "segments").mkdir(parents=True, exist_ok=True)
+    (ws.dir / "segments" / "segment_001.mp3").write_bytes(b"fake")
+
+    ws.discard_transcribe_artifacts()
+
+    assert ws.load_transcribe_plan() is None
+    assert ws.load_transcribe_state() is None
+    assert ws.load_transcribe_chunk_result("chunk-001") is None
+    assert not (ws.dir / "transcribe_chunks").exists()
+    assert not (ws.dir / "transcribe_plan.json").exists()
+    assert not (ws.dir / "transcribe_state.json").exists()
+    assert not (ws.dir / "segments").exists()
+
+
+def test_discard_transcribe_artifacts_with_audio_path_removes_audio_relative_dirs(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    audio = tmp_path / "episode.mp3"
+    audio.write_bytes(b"fake audio")
+    saved_audio = ws.save_audio(audio)
+
+    ws.save_transcribe_plan(
+        [
+            {
+                "chunk_id": "chunk-001",
+                "title": "Part 1",
+                "start_seconds": 0,
+                "end_seconds": 120,
+                "audio_relpath": "full_audio_chunks/chunk_001.mp3",
+                "preferred_backend": "groq",
+            }
+        ]
+    )
+    ws.save_transcribe_state(
+        {
+            "version": 1,
+            "job_mode": "groq",
+            "status": "running",
+            "next_attempt_at": None,
+            "last_error": None,
+            "defer_reason": None,
+            "ash_defer_count": 0,
+            "chunks": [],
+        }
+    )
+    ws.save_transcribe_chunk_result(
+        "chunk-001",
+        [{"start_seconds": 0, "end_seconds": 30, "text": "chunk one", "source": "groq"}],
+    )
+    (saved_audio.parent / "segments").mkdir(parents=True, exist_ok=True)
+    (saved_audio.parent / "segments" / "segment_001.mp3").write_bytes(b"fake")
+    (saved_audio.parent / "full_audio_chunks").mkdir(parents=True, exist_ok=True)
+    (saved_audio.parent / "full_audio_chunks" / "chunk_001.mp3").write_bytes(b"fake")
+
+    ws.discard_transcribe_artifacts(audio_path=saved_audio)
+
+    assert ws.load_transcribe_plan() is None
+    assert ws.load_transcribe_state() is None
+    assert ws.load_transcribe_chunk_result("chunk-001") is None
+    assert not (saved_audio.parent / "segments").exists()
+    assert not (saved_audio.parent / "full_audio_chunks").exists()

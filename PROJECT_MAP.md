@@ -90,7 +90,7 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 3. `TRANSCRIBE`
    `transcripts.json`
    Branch: subtitle assignment → per-segment ASR → full-audio ASR then duration split
-   ASR backend rule: primary backend comes from `extract.asr.backend`; if Groq raises retryable quota/server failures and `extract.asr.fallback_backend` is configured, rerun only transcribe step with fallback backend
+   ASR backend rule: primary backend comes from `extract.asr.backend`; Groq hourly quota waits through the current window from persisted checkpoint state, while Groq daily quota can switch the current failed chunk plus remaining pending chunks to `extract.asr.fallback_backend`
 4. `TOPIC SEGMENT`
    rewrites `transcripts.json` only after transcription
    Trigger: oversized transcript segments
@@ -113,7 +113,7 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 |---|---|---|---|---|
 | `DOWNLOAD` | `pipeline._step_download()` + subtitle/audio download helpers | URL | `metadata.json`, `subtitles.*` or `audio.*` | Uses `subtitles_available` to choose subtitle vs audio path |
 | `SEGMENT` | `pipeline._step_segment()` | `VideoMeta` | `segments.json` | LLM may be used here before ASR when description exists and chapters do not |
-| `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely; audio path uses `create_transcriber()` and may rerun transcribe with `create_fallback_transcriber()` on Groq retryable quota/server errors |
+| `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely; audio path persists `transcribe_plan.json`, `transcribe_state.json`, and `transcribe_chunks/<chunk_id>.json` while running chunked ASR, then writes final `transcripts.json` only after every chunk completes |
 | `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription, never before |
 | `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers to context review step |
 | `EXTRACT` | `pipeline._step_extract()` | reviewed transcripts | `entities.json` | Uses `LLMCaller` |
@@ -139,9 +139,11 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
   - skip blocking review
 - audio-sourced transcripts:
   - primary transcriber from `extract.asr.backend`
-  - when primary is `groq`, only `429`/`5xx`-mapped errors (`TranscriptionQuotaError` / `TranscriptionServerError`) can trigger fallback rerun
-  - fallback reruns `TRANSCRIBE` only (no re-download / re-segment), using `extract.asr.fallback_backend` when configured
-  - Groq non-retryable request errors (e.g. `400/401/403`) fail directly without fallback
+  - when primary is `groq`, `TranscriptionHourlyLimitError` waits through the current hourly window and retries the same pending chunk
+  - when primary is `groq`, `TranscriptionDailyLimitError` switches the current failed chunk and all remaining pending chunks of the current job to `extract.asr.fallback_backend`
+  - chunk-level progress is persisted in workspace checkpoint artifacts, so completed chunks are not recomputed after a resume
+  - rerunning from an earlier step than `TRANSCRIBE` discards prior transcribe checkpoint artifacts before starting a new ASR pass
+  - Groq request errors outside the quota path (for example `400/401/403`) fail directly without fallback
 - long content:
   - skip blocking review in `REVIEW`
   - summarize first
@@ -161,6 +163,9 @@ Canonical workspace artifacts:
 |---|---|---|
 | `metadata.json` | `DOWNLOAD` | `VideoMeta` dataclass from `models/base.py` |
 | `segments.json` | `SEGMENT` | `list[{title, start_seconds, end_seconds, ?parent_title}]` |
+| `transcribe_plan.json` | `TRANSCRIBE` | `list[{chunk_id, title, start_seconds, end_seconds, audio_relpath, preferred_backend, ?segment_index}]` |
+| `transcribe_state.json` | `TRANSCRIBE` | `{version, job_mode, status, next_attempt_at, last_error, defer_reason, ash_defer_count, chunks[]}` |
+| `transcribe_chunks/<chunk_id>.json` | `TRANSCRIBE` | `list[{start_seconds, end_seconds, text, source}]` for each completed chunk |
 | `transcripts.json` | `TRANSCRIBE` / `TOPIC SEGMENT` | `list[{title, start_seconds, end_seconds, text, source}]`, `source = "subtitle" | "asr"` |
 | `reviewed.json` | `REVIEW` / `CONTEXT REVIEW` | same shape as `transcripts.json`; `text` cleaned or context-reviewed |
 | `entities.json` | `EXTRACT` | `EntityResult {domain, is_entity_centric, entity_types, entities, relations}` |
@@ -195,7 +200,7 @@ Path resolution note:
 | `storage.obsidian.*` | `storage/obsidian.py:ObsidianStorage.__init__()` | vault and directory paths |
 | `extract.subtitle_priority` | `extract.py:extract_subtitles()` | subtitle language preference |
 | `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | choose primary ASR backend (`remote` / `groq`) |
-| `extract.asr.fallback_backend` | `transcribe/__init__.py:create_fallback_transcriber()` | choose optional fallback ASR backend (must differ from primary) |
+| `extract.asr.fallback_backend` | `transcribe/__init__.py:create_fallback_transcriber()` | choose optional fallback ASR backend (must differ from primary); current pipeline only uses it for Groq daily-quota remainder fallback |
 | `extract.asr.endpoint` | `transcribe/remote.py:RemoteTranscriber` | remote ASR endpoint or `ASR_ENDPOINT` env override (primary/fallback when backend is `remote`) |
 | `extract.asr.healthcheck_path` | `transcribe/remote.py:RemoteTranscriber` | ASR health endpoint (default `/health`) |
 | `extract.asr.healthcheck_timeout_seconds` | `transcribe/remote.py:RemoteTranscriber` | timeout for ASR health checks |

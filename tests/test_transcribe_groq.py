@@ -8,7 +8,9 @@ import httpx
 import pytest
 
 from yt2notion.transcribe.errors import (
+    TranscriptionDailyLimitError,
     TranscriptionError,
+    TranscriptionHourlyLimitError,
     TranscriptionQuotaError,
     TranscriptionServerError,
 )
@@ -26,12 +28,18 @@ def _make_audio(tmp_path: Path, size: int = 1024, filename: str = "audio.mp3") -
     return p
 
 
-def _http_response(status: int, *, json_body=None, text: str = "") -> httpx.Response:
+def _http_response(
+    status: int,
+    *,
+    json_body=None,
+    text: str = "",
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
     req = httpx.Request("POST", "http://x")
     if json_body is not None:
-        resp = httpx.Response(status, json=json_body, request=req)
+        resp = httpx.Response(status, json=json_body, headers=headers, request=req)
     else:
-        resp = httpx.Response(status, text=text, request=req)
+        resp = httpx.Response(status, text=text, headers=headers, request=req)
     return resp
 
 
@@ -76,19 +84,90 @@ def test_missing_segments_field_returns_empty(tmp_path, monkeypatch):
     assert GroqTranscriber(api_key="k").transcribe(audio) == []
 
 
-def test_429_raises_quota_error(tmp_path, monkeypatch):
+def test_429_with_retry_after_raises_hourly_limit(tmp_path, monkeypatch):
     audio = _make_audio(tmp_path)
     calls = []
 
     def fake_post(*a, **k):
         calls.append(1)
-        return _http_response(429, json_body={"error": "rate"})
+        return _http_response(
+            429,
+            json_body={"error": {"message": "rate limit"}},
+            headers={"retry-after": "120"},
+        )
 
     monkeypatch.setattr("yt2notion.transcribe.groq.httpx.post", fake_post)
-    with pytest.raises(TranscriptionQuotaError):
+    with pytest.raises(TranscriptionHourlyLimitError) as exc:
         GroqTranscriber(api_key="k").transcribe(audio)
+    assert exc.value.retry_after_seconds == 120
     # quota error is not retryable, should be called only once
     assert len(calls) == 1
+
+
+def test_429_without_hint_defaults_to_hourly_limit(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path)
+    monkeypatch.setattr(
+        "yt2notion.transcribe.groq.httpx.post",
+        lambda *a, **k: _http_response(429, json_body={"error": "rate"}),
+    )
+    with pytest.raises(TranscriptionQuotaError) as exc:
+        GroqTranscriber(api_key="k").transcribe(audio)
+    assert isinstance(exc.value, TranscriptionHourlyLimitError)
+    assert exc.value.retry_after_seconds == 3600
+
+
+def test_429_with_invalid_retry_after_defaults_to_hourly_limit(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path)
+    monkeypatch.setattr(
+        "yt2notion.transcribe.groq.httpx.post",
+        lambda *a, **k: _http_response(
+            429,
+            json_body={"error": {"message": "rate limit"}},
+            headers={"retry-after": "not-a-number"},
+        ),
+    )
+    with pytest.raises(TranscriptionHourlyLimitError) as exc:
+        GroqTranscriber(api_key="k").transcribe(audio)
+    assert exc.value.retry_after_seconds == 3600
+
+
+def test_429_daily_limit_message_raises_daily_limit(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path)
+    monkeypatch.setattr(
+        "yt2notion.transcribe.groq.httpx.post",
+        lambda *a, **k: _http_response(
+            429,
+            json_body={"error": {"message": "Daily quota exceeded for today"}},
+        ),
+    )
+    with pytest.raises(TranscriptionDailyLimitError):
+        GroqTranscriber(api_key="k").transcribe(audio)
+
+
+def test_429_today_message_without_daily_phrase_stays_hourly(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path)
+    monkeypatch.setattr(
+        "yt2notion.transcribe.groq.httpx.post",
+        lambda *a, **k: _http_response(
+            429,
+            json_body={"error": {"message": "Rate limit hit today, retry after 60 seconds"}},
+        ),
+    )
+    with pytest.raises(TranscriptionHourlyLimitError):
+        GroqTranscriber(api_key="k").transcribe(audio)
+
+
+def test_429_text_with_per_day_docs_stays_hourly(tmp_path, monkeypatch):
+    audio = _make_audio(tmp_path)
+    monkeypatch.setattr(
+        "yt2notion.transcribe.groq.httpx.post",
+        lambda *a, **k: _http_response(
+            429,
+            text="Rate limit exceeded. See usage docs for requests per day and per minute.",
+        ),
+    )
+    with pytest.raises(TranscriptionHourlyLimitError):
+        GroqTranscriber(api_key="k").transcribe(audio)
 
 
 def test_500_after_retries_raises_server_error(tmp_path, monkeypatch):
