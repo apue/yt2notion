@@ -4,64 +4,163 @@
 
 ## 当前任务卡
 
-- 任务：为 agent 最近失败诊断设计最小方案（文档 + skill + 失败摘要日志）
+- 任务：收敛 prompt/AB 实验死代码，保留当前正式 Obsidian/Notion 输出路径
 - 状态：`done`
 - 当前 owner：User
-- 上一执行者：Codex
-- 下一执行者：User / Codex
-- 来源：在完成两次 failed job 分析后，用户要求把“AI 如何自己定位错误、读日志、翻译结论”的最小方案写成 spec
+- 上一执行者：User
+- 下一执行者：User
+- 来源：用户确认当前输出效果可用，要求删除已无用的 AB/prompt 实验代码、测试引用和未运行 prompt，后续再讨论 prompt 优化
+- 分支：未创建（当前工作树已有用户脏改，且 sandbox 不允许写 git refs）
+- PR：无
+- review 状态：未执行正式 /review；已完成本地测试与 lint
 - 目标：
-  - 写出一个最小执行 spec，约束第一版只做：
-    - `docs/agent-error-guide.md`
-    - `.agents/skills/agent-error-diagnosis/SKILL.md`
-    - failed job log 尾部的极简 `FAILURE SUMMARY`
-  - 让后续 AI 可以按固定命令流自己诊断最近一次 agent 失败
+  - 删除只服务实验的 `prompt_experiments` 代码路径和测试引用
+  - 删除不在正式 pipeline 中运行的实验 prompt
+  - 移除仅为实验暴露的 backend/protocol 方法
+  - 保留正式 `source_ab_bundle`、Obsidian/Notion publish、当前运行 prompt
+  - 同步 `PROJECT_MAP.md` prompt binding 事实
 - 非目标：
-  - 本轮不实现
-  - 不建设结构化错误平台、dashboard、telemetry
+  - 不优化 prompt 文案
+  - 不改 Obsidian/Notion 发布行为
+  - 不调用远程 ASR/LLM/Notion 服务验证
 - 约束：
-  - 只覆盖 `agent` 工作流
-  - 方案必须足够简单，AI 主要通过“读文档 + 跑命令 + 看日志”得出结论
+  - `PROJECT_MAP.md` 是 prompt/code binding 唯一事实锚点
+  - 不修改 `prompts/` 下仍在运行的模板结构
+  - 当前工作树已有历史脏改，删除时避免无关回退
 - 受影响文件：
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
   - [handoff.md](./handoff.md)
-  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
+  - [src/yt2notion/models/base.py](./src/yt2notion/models/base.py)
+  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
+  - [src/yt2notion/models/anthropic_api.py](./src/yt2notion/models/anthropic_api.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [tests/test_prompts.py](./tests/test_prompts.py)
+  - 删除：`src/yt2notion/prompt_experiments.py`
+  - 删除：`tests/test_prompt_experiments.py`
+  - 删除：旧实验 prompt：`article_ab_pair.md`、`summarize_long_direct_evidence.md`、`synthesize_guided_notes.md`、`synthesize_reading_guide.md`
+  - 删除：旧手动脚本：`scripts/batch_transcribe.sh`、`scripts/benchmark_new_pipeline.py`、`scripts/test_fun_facts.py`
 - 验收标准：
-  - spec 明确第一版范围、交付物、AI 诊断命令流、验证标准
+  - 仓库运行代码不再引用旧实验模块、旧 A/B article prompt、旧长文实验 prompt
+  - 测试集中不再包含已删除实验路径
+  - 正式 bundle / pipeline / prompt 加载测试仍通过
 - 建议命令：
-  - `uv run yt2notion agent list`
-  - `uv run yt2notion agent show <job_id>`
-  - `uv run yt2notion agent logs <job_id>`
-- 未决问题：
-  - 用户审阅 spec 后，是否进入实现阶段
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q`
+  - `uv run ruff check src/yt2notion tests`
+- 未决问题：无
 
 ## 当前执行记录
 
 - 已完成：
-  - 基于用户确认，收敛为“最小错误诊断方案”，放弃错误平台化设计
-  - 写出执行 spec：
-    - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
-  - spec 固定了三项交付物：
-    - `docs/agent-error-guide.md`
-    - `.agents/skills/agent-error-diagnosis/SKILL.md`
-    - failed job log 尾部 `FAILURE SUMMARY`
-  - 根据用户审阅意见，spec 新增了 unknown error 维护闭环：
-    - AI 未命中已知模式时必须明确报告 `unknown`
-    - 后续新错误通过“补 log hint + 更新 guide”扩展，而不改变整体流程
+  - 删除旧 prompt/AB 实验模块、对应测试、未运行 prompt 模板
+  - 删除旧 benchmark / manual fun_facts / hardcoded batch ASR 脚本
+  - 从 `Summarizer` Protocol 和三个 backend 中移除仅服务实验的 direct-transcript markdown 方法
+  - 更新 `tests/test_prompts.py`，只保留当前运行 prompt 的加载测试
+  - 更新 `PROJECT_MAP.md` prompt binding 表，移除实验 helper 描述
+- 当前阻塞：无
+- 已修改文件：见任务卡受影响文件；工作树仍包含本轮开始前已存在的无关脏改
+- 已运行验证：
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q` → `118 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion tests` → `All checks passed!`（保留 Ruff 的 `TCH003` remap warning）
+  - `uv run pytest tests/ -q` → 首次因本机环境存在 `ANTHROPIC_API_KEY` 导致 `tests/test_model_factory.py::test_create_anthropic_no_key` 预期不成立；代码无关
+  - `ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q` → `401 passed, 11 warnings`
+- 最后一次自测：`ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q`
+- 风险/回滚点：
+  - 未执行任何在线 LLM/ASR/Notion 验证
+  - 历史计划文档中可能仍提到旧实验 prompt，作为归档未清理
+- 下一步：用户审阅 diff；如需可继续走 PR / review workflow
+
+## 上一任务归档（2026-04-30 前）
+
+- 任务：实现 Groq 音频转写 checkpoint / ASH 等待恢复 / ASD 剩余 chunk remote fallback
+- 状态：`done`
+- 当前 owner：User
+- 上一执行者：Codex
+- 下一执行者：User
+- 来源：用户要求一气呵成完成 spec、plan、subagent-driven development、GitHub PR workflow
+- 分支：`groq-transcribe-checkpoint`
+- PR：[#21](https://github.com/apue/yt2notion/pull/21)（已于 2026-04-19 合入 `main`，merge commit `d8cfe862`）
+- review 状态：本地 subagent / final reviewer 复核完成并已合入；未配置 GitHub checks，本次以本地最小充分测试和 lint 作为合入依据
+- 目标：
+  - 新增 chunk 级转写 checkpoint，尊重已完成 chunk 结果
+  - Groq `ASH` 读取 `retry-after` 并在当前进程内等待恢复
+  - Groq `ASD` 时，从当前失败 chunk 开始将当前 job 剩余 chunk 全部切到 `remote`
+  - 将 checkpoint 契约沉淀到 `workspace/pipeline`，并更新 `PROJECT_MAP.md` / `README.md`
+- 非目标：
+  - 不接入 ElevenLabs
+  - 不改 queue 模型或新增 scheduler
+  - 不做任何连接 Groq / remote / LLM 的在线测试
+- 约束：
+  - 仅保留必要单元测试
+  - `PROJECT_MAP.md` 作为 pipeline / artifact 唯一事实锚点
+  - 当前 sandbox 不允许修改 `.git` refs，GitHub 交付可能需要 connector 兜底
+- 受影响文件：
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+  - [config.example.yaml](./config.example.yaml)
+  - [handoff.md](./handoff.md)
+  - [docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
+  - [docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
+  - [src/yt2notion/transcribe/errors.py](./src/yt2notion/transcribe/errors.py)
+  - [src/yt2notion/transcribe/groq.py](./src/yt2notion/transcribe/groq.py)
+  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [tests/test_transcribe_groq.py](./tests/test_transcribe_groq.py)
+  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
+- 验收标准：
+  - 长音频在 `ASH` 时保留已完成 chunk，等待后从断点继续
+  - `ASD` 只切当前 job 剩余 pending chunk 到 `remote`
+  - `transcripts.json` 只在全部 chunk 完成后生成
+  - 单元测试覆盖 Groq quota 分类、workspace checkpoint、pipeline 恢复语义
+- 建议命令：
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q`
+  - `uv run ruff check src/yt2notion tests`
+- 未决问题：
+  - Groq `429` 无法细分时，第一版保守视为 `ASH`
+
+## 上一任务执行记录（2026-04-30 前）
+
+- 已完成：
+  - 完成讨论并确认行为边界：Groq 优先、`ASH` 等待、`ASD` 切剩余 pending chunk 到 `remote`
+  - 落盘执行 spec：[docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
+  - 落盘实现计划：[docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
+  - 完成 `Groq` quota 分类、workspace checkpoint、pipeline 恢复状态机、文档与配置说明
+  - 根据最终 reviewer findings 补齐 fresh rerun checkpoint 失效、`resume_from=\"transcribe\"` fallback marker 保留、missing chunk payload 自动重跑
+  - 为 transcribe 增加 chunk 级诊断事件：`chunk_started` / `chunk_completed` / `hourly_wait` / `daily_fallback_switch`
+  - 扩展长音频 ASR 诊断说明：`docs/agent-error-guide.md` 现在要求在 transcribe 故障时读取 `transcribe_state.json`
+  - 通过远端 GitHub branch/PR 流程创建 [#21](https://github.com/apue/yt2notion/pull/21)
+  - 通过 `gh pr merge 21 --squash` 将 [#21](https://github.com/apue/yt2notion/pull/21) 合入 `main`
 - 当前阻塞：
   - 无
 - 已修改文件：
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [README.md](./README.md)
+  - [config.example.yaml](./config.example.yaml)
+  - [docs/agent-error-guide.md](./docs/agent-error-guide.md)
   - [handoff.md](./handoff.md)
-  - [docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md](./docs/superpowers/specs/2026-04-17-agent-error-diagnosis-minimal-design.md)
+  - [docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md](./docs/superpowers/specs/2026-04-19-groq-transcribe-checkpoint-design.md)
+  - [docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md](./docs/superpowers/plans/2026-04-19-groq-transcribe-checkpoint.md)
+  - [src/yt2notion/transcribe/errors.py](./src/yt2notion/transcribe/errors.py)
+  - [src/yt2notion/transcribe/groq.py](./src/yt2notion/transcribe/groq.py)
+  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
+  - [tests/test_transcribe_groq.py](./tests/test_transcribe_groq.py)
+  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [tests/test_pipeline.py](./tests/test_pipeline.py)
 - 已运行验证：
-  - 文档自检通过：
-    - 无 `TODO` / `TBD`
-    - 未混入 backlog 或未决方案比较
-    - 范围保持在 `agent` 诊断最小方案
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py -q` → `84 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/transcribe/errors.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py src/yt2notion/pipeline.py tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py` → `All checks passed!`
+  - `uv run pytest tests/test_pipeline.py tests/test_agent_worker.py -q` → `65 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/pipeline.py tests/test_pipeline.py tests/test_agent_worker.py docs/agent-error-guide.md` → `All checks passed!`
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py -q` → `105 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/transcribe/errors.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py src/yt2notion/pipeline.py tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py docs/agent-error-guide.md` → `All checks passed!`
+- 最后一次自测：
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py -q`
 - 风险/回滚点：
-  - 如果后续实现时把 tag 设计得过细，会偏离“最小方案”
-  - 如果 skill 不强制命令顺序，AI 仍可能跳过日志直接猜
+  - 未做任何连接 Groq / remote / LLM 的在线验证；当前结论基于本地单元测试和静态检查
+  - 当前工作树仍有用户自己的无关脏改：`AGENTS.md`、`.agents/skills/*`、`.codex/config.toml`、旧 plan 文档；PR 未包含这些文件
 - 下一步：
-  - 请用户审阅 spec，确认后再进入 implementation plan
+  - 无；本轮已完成并合入
 
 ## 上一任务归档
 
@@ -176,6 +275,9 @@
 - 上一执行者：
 - 下一执行者：
 - 来源：
+- 分支：
+- PR：
+- review 状态：
 - 目标：
 - 非目标：
 - 约束：
@@ -190,6 +292,7 @@
 - 当前阻塞：
 - 已修改文件：
 - 已运行验证：
+- 最后一次自测：
 - 风险/回滚点：
 - 下一步：
 
@@ -197,6 +300,8 @@
 
 | 日期 | From | To | 任务 | 结果 |
 |------|------|----|------|------|
+| 2026-04-17 | User | Codex | 检查最近一次 agent 错误 | 完成 |
+| 2026-04-17 | User | Codex | 更新 `AGENTS.md` / `handoff.md` 以匹配 Codex 主导 workflow | 完成 |
 | 2026-04-03 | User | Codex | 生成 `AGENTS.md` / `handoff.md` / `config.toml` 初稿 | 完成 |
 | 2026-04-03 | User | Codex | 把工作流接入 Claude 入口并修正交接机制 | 完成 |
 | 2026-04-03 | User | Codex | 审计三项需求测试覆盖并补测，输出开发计划 | 完成 |
