@@ -97,7 +97,7 @@ def prepare(
         typer.echo(f"Configuration error: {e}", err=True)
         raise typer.Exit(1) from None
 
-    from yt2notion.pipeline import prepare_content, render_transcript_markdown
+    from yt2notion.pipeline import prepare_content
 
     try:
         prepared = prepare_content(
@@ -115,90 +115,14 @@ def prepare(
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(1) from None
 
-    transcript_markdown = None
-    if prepared.transcript_segments:
-        transcript_markdown = render_transcript_markdown(
-            prepared.metadata, prepared.transcript_segments
-        )
-
     payload = {
-        "mode": prepared.output_mode,
+        "mode": "bundle",
         "is_long": prepared.is_long,
         "metadata": asdict(prepared.metadata),
-        "transcript_segments": prepared.transcript_segments,
-        "transcript_markdown": transcript_markdown,
-        "entities": asdict(prepared.entities) if prepared.entities else None,
         "workspace_dir": str(prepared.workspace.dir),
+        "note_bundle": asdict(prepared.note_bundle),
     }
-    if prepared.chinese_content is not None:
-        payload["summary"] = {
-            "overview": prepared.chinese_content.overview,
-            "key_points": prepared.chinese_content.key_points,
-            "tags": prepared.chinese_content.tags,
-            "fun_facts": prepared.chinese_content.fun_facts,
-            "mindmap": prepared.chinese_content.mindmap,
-            "raw_markdown": prepared.chinese_content.raw_markdown,
-        }
-    else:
-        payload["summary"] = None
-    if prepared.note_bundle is not None:
-        payload["note_bundle"] = asdict(prepared.note_bundle)
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
-
-
-@app.command()
-def extract(
-    content_dir: str = typer.Argument(help="Workspace directory containing reviewed.json"),
-    config_path: str = typer.Option("config.yaml", "--config", "-c", help="Config file path"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-) -> None:
-    """Extract entities from reviewed transcript in a workspace directory."""
-    from pathlib import Path
-
-    try:
-        config = load_config(config_path)
-    except ConfigError as e:
-        typer.echo(f"Configuration error: {e}", err=True)
-        raise typer.Exit(1) from None
-
-    from yt2notion.entity_extract import extract_entities
-    from yt2notion.models.llm import create_llm_caller
-
-    ws_dir = Path(content_dir)
-    reviewed_path = ws_dir / "reviewed.json"
-    transcripts_path = ws_dir / "transcripts.json"
-    if reviewed_path.exists():
-        reviewed = json.loads(reviewed_path.read_text(encoding="utf-8"))
-    elif transcripts_path.exists():
-        reviewed = json.loads(transcripts_path.read_text(encoding="utf-8"))
-    else:
-        typer.echo(f"No reviewed.json or transcripts.json found in {content_dir}", err=True)
-        raise typer.Exit(1) from None
-
-    raw_config = {
-        "model": config.model,
-    }
-    caller = create_llm_caller(raw_config, model_key="review_model")
-
-    if verbose:
-        typer.echo(f"Extracting entities from {len(reviewed)} segments...")
-
-    result = extract_entities(reviewed, caller)
-
-    # Save to workspace
-    from dataclasses import asdict
-
-    output_path = ws_dir / "entities.json"
-    output_path.write_text(
-        json.dumps(asdict(result), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-    if verbose:
-        typer.echo(f"  Domain: {result.domain}")
-        typer.echo(f"  Entity-centric: {result.is_entity_centric}")
-        typer.echo(f"  Entities: {len(result.entities)}")
-        typer.echo(f"  Relations: {len(result.relations)}")
-    typer.echo(f"Saved to {output_path}")
 
 
 def _now_iso() -> str:
@@ -340,6 +264,9 @@ def _validate_agent_config_path(config_path: str) -> str:
 
 def _resolve_agent_base_config_path(paths: AgentPaths, config_path: str | None) -> str:
     if config_path is not None:
+        candidate = Path(config_path).expanduser()
+        if config_path == "config.yaml" and not candidate.exists():
+            return str(paths.runtime_config_path)
         return config_path
     return str(paths.runtime_config_path)
 

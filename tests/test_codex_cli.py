@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from yt2notion.models import create_summarizer
-from yt2notion.models.base import Summary, VideoMeta
+from yt2notion.models.base import NoteDocument, VideoMeta
 from yt2notion.models.codex_cli import CodexCLICaller, CodexCLIError, CodexCLIModel
 from yt2notion.models.llm import create_llm_caller
 from yt2notion.retry import RetryExhaustedError
@@ -178,93 +178,8 @@ def test_codex_caller_exhausts_retries(mock_sleep, mock_run):
 
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
-def test_codex_model_summarize_parses_json(mock_run, meta):
-    sample_summary = {
-        "sections": [
-            {
-                "title": "Intro",
-                "timestamp": "0:00",
-                "timestamp_seconds": 0,
-                "summary": "Test summary",
-            }
-        ],
-        "overall_summary": "Overall",
-        "suggested_tags": ["tag"],
-    }
-
-    def _side_effect(cmd, **kwargs):
-        _write_output_from_cmd(cmd, json.dumps(sample_summary))
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    mock_run.side_effect = _side_effect
-    model = CodexCLIModel(summarize_model="gpt-5.2", translate_model="gpt-5.2")
-    result = model.summarize("transcript text", meta)
-
-    assert len(result.sections) == 1
-    assert result.sections[0].title == "Intro"
-    assert result.overall_summary == "Overall"
-
-
-@patch("yt2notion.models.codex_cli.subprocess.run")
-def test_codex_model_to_chinese_parses_markdown(mock_run):
-    sample_md = "## 概要\n\n测试概要\n\n## 关键节点\n\n- [0:00] **介绍**：测试\n\n## 标签\n\n测试"
-
-    def _side_effect(cmd, **kwargs):
-        _write_output_from_cmd(cmd, sample_md)
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    mock_run.side_effect = _side_effect
-    model = CodexCLIModel(summarize_model="gpt-5.2", translate_model="gpt-5.2")
-    summary = Summary(sections=[], overall_summary="overall", suggested_tags=[])
-    content = model.to_chinese(summary, VideoMeta(video_id="x", title="t", channel="c", url="u"))
-
-    assert "测试概要" in content.overview
-    assert content.tags == ["测试"]
-
-
-@patch("yt2notion.models.codex_cli.subprocess.run")
-def test_codex_model_review_and_summarize_parses_combined_json(mock_run, meta):
-    sample_summary = {
-        "reviewed_transcript": "[0:00] cleaned transcript",
-        "sections": [
-            {
-                "title": "Intro",
-                "timestamp": "0:00",
-                "timestamp_seconds": 0,
-                "summary": "Test summary",
-            }
-        ],
-        "overall_summary": "Overall",
-        "suggested_tags": ["tag"],
-    }
-
-    def _side_effect(cmd, **kwargs):
-        _write_output_from_cmd(cmd, json.dumps(sample_summary))
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    mock_run.side_effect = _side_effect
-    model = CodexCLIModel(summarize_model="gpt-5.2", translate_model="gpt-5.2")
-    result = model.review_and_summarize("transcript text", meta)
-
-    assert result.reviewed_transcript == "[0:00] cleaned transcript"
-    assert result.summary.overall_summary == "Overall"
-
-
-@patch("yt2notion.models.codex_cli.subprocess.run")
-def test_codex_model_review_and_summarize_parses_json(mock_run, meta):
-    payload = {
-        "reviewed_transcript": "[0:00] cleaned transcript",
-        "sections": [
-            {
-                "title": "Intro",
-                "timestamp": "0:00",
-                "timestamp_seconds": 0,
-                "summary": "Test summary",
-            }
-        ],
-        "overall_summary": "Overall",
-        "suggested_tags": ["tag"],
-    }
+def test_codex_model_compose_guide_note_parses_json(mock_run, meta):
+    payload = {"title": "Guide", "markdown": "# Guide", "tags": ["guide"], "variant": "a_guide"}
 
     def _side_effect(cmd, **kwargs):
         _write_output_from_cmd(cmd, json.dumps(payload))
@@ -272,10 +187,50 @@ def test_codex_model_review_and_summarize_parses_json(mock_run, meta):
 
     mock_run.side_effect = _side_effect
     model = CodexCLIModel(summarize_model="gpt-5.2", translate_model="gpt-5.2")
-    result = model.review_and_summarize("raw transcript", meta)
+    result = model.compose_guide_note("transcript text", meta, target_chars=2000)
 
-    assert result.reviewed_transcript == "[0:00] cleaned transcript"
-    assert result.summary.overall_summary == "Overall"
+    assert result.title == "Guide"
+    assert result.variant == "a_guide"
+
+
+@patch("yt2notion.models.codex_cli.subprocess.run")
+def test_codex_model_compose_longform_note_parses_json(mock_run, meta):
+    payload = {"title": "Long", "markdown": "# Long", "tags": ["long"], "variant": "b_longform"}
+
+    def _side_effect(cmd, **kwargs):
+        _write_output_from_cmd(cmd, json.dumps(payload))
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = _side_effect
+    guide = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
+    result = CodexCLIModel().compose_longform_note("transcript", guide, meta, target_chars=7000)
+
+    assert result.title == "Long"
+    assert result.variant == "b_longform"
+
+
+@patch("yt2notion.models.codex_cli.subprocess.run")
+def test_codex_model_compose_note_metadata_parses_json(mock_run, meta):
+    payload = {
+        "source_title": "Source",
+        "stable_tags": ["stable"],
+        "guide_tags": ["guide"],
+        "longform_tags": ["long"],
+        "source_summary": "summary",
+        "source_topics": ["topic"],
+    }
+
+    def _side_effect(cmd, **kwargs):
+        _write_output_from_cmd(cmd, json.dumps(payload))
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = _side_effect
+    guide = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
+    long = NoteDocument(title="Long", markdown="# Long", tags=[], variant="b_longform")
+    result = CodexCLIModel().compose_note_metadata(guide, long, meta)
+
+    assert result.source_title == "Source"
+    assert result.source_topics == ["topic"]
 
 
 def test_create_llm_caller_codex_backend():

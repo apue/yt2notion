@@ -128,7 +128,7 @@ Set `codex_profile` when you need `yt2notion` to force a named Codex profile suc
 See [config.example.yaml](config.example.yaml) for all options.
 
 Key options:
-- `output.mode: summary|full`
+- `output.mode: summary` (bundle-only; `full` is no longer supported)
 - `model.backend: claude_code|codex_cli|anthropic_api|openai_api`
 - `extract.asr.backend: groq|remote` (recommended: `groq`)
 - `extract.asr.fallback_backend: remote|groq|null` (recommended with Groq primary: `remote`)

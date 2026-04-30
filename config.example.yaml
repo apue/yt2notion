@@ -82,10 +82,8 @@ credit:
   format: "来源：{channel} 「{title}」\n链接：{url}"
 
 output:
-  # 输出模式：summary 只输出总结；full 输出总结 + 校对后的逐字稿
+  # 输出模式固定为 summary；运行时始终生成 source / A 导读 / B 扩展 三篇 bundle 输出
   mode: summary
-  # note 输出模式：obsidian backend 默认 source_ab_bundle；notion/markdown 默认 single
-  # note_mode: source_ab_bundle
   # chunk 分段长度（秒），用于时间戳关联
   chunk_duration_seconds: 120
   # 最终输出语言

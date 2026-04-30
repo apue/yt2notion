@@ -1,4 +1,4 @@
-"""Tests for Claude Code backend (all mocked)."""
+"""Tests for Claude Code backend."""
 
 from __future__ import annotations
 
@@ -8,211 +8,76 @@ from unittest.mock import patch
 
 import pytest
 
-from yt2notion.models._parsers import parse_chinese_markdown, parse_summary_json
-from yt2notion.models.base import VideoMeta
+from yt2notion.models.base import NoteDocument, VideoMeta
 from yt2notion.models.claude_code import ClaudeCodeError, ClaudeCodeModel
 from yt2notion.retry import RetryExhaustedError
 
-SAMPLE_SUMMARY_JSON = {
-    "sections": [
-        {
-            "title": "Hip Joint Overview",
-            "timestamp": "0:00",
-            "timestamp_seconds": 0,
-            "summary": "Explains the basic structure of the hip joint.",
-        },
-        {
-            "title": "Strengthening Exercises",
-            "timestamp": "2:04",
-            "timestamp_seconds": 124,
-            "summary": "Five exercises targeting the iliopsoas muscle.",
-        },
-    ],
-    "overall_summary": "A comprehensive guide to hip flexor exercises.",
-    "suggested_tags": ["hip mobility", "strength training"],
+GUIDE_JSON = {"title": "Guide", "markdown": "# Guide", "tags": ["guide"], "variant": "a_guide"}
+LONG_JSON = {"title": "Long", "markdown": "# Long", "tags": ["long"], "variant": "b_longform"}
+META_JSON = {
+    "source_title": "Source",
+    "stable_tags": ["stable"],
+    "guide_tags": ["guide"],
+    "longform_tags": ["long"],
+    "source_summary": "summary",
+    "source_topics": ["topic"],
 }
-
-SAMPLE_CHINESE_MD = """\
-## 概要
-
-这是一个关于髋关节训练的视频，介绍了五个髂腰肌强化动作。
-
-## 关键节点
-
-- [0:00] **髋关节结构**：讲解髋关节基本结构
-- [2:04] **强化训练**：五个针对髂腰肌的训练动作
-
-## 标签
-
-髋关节灵活性, 力量训练
-"""
 
 
 @pytest.fixture
-def meta():
-    return VideoMeta(
-        video_id="abc123",
-        title="Test Video",
-        channel="TestChannel",
-        url="https://www.youtube.com/watch?v=abc123",
-    )
-
-
-def test_parse_summary_json_raw():
-    result = parse_summary_json(json.dumps(SAMPLE_SUMMARY_JSON))
-    assert len(result.sections) == 2
-    assert result.sections[0].title == "Hip Joint Overview"
-    assert result.sections[1].timestamp_seconds == 124
-    assert result.overall_summary == "A comprehensive guide to hip flexor exercises."
-    assert "hip mobility" in result.suggested_tags
-
-
-def test_parse_summary_json_with_fence():
-    fenced = f"```json\n{json.dumps(SAMPLE_SUMMARY_JSON)}\n```"
-    result = parse_summary_json(fenced)
-    assert len(result.sections) == 2
-
-
-def test_parse_summary_json_invalid():
-    from yt2notion.models._parsers import ParseError
-
-    with pytest.raises(ParseError, match="Failed to parse"):
-        parse_summary_json("not json at all")
-
-
-def test_parse_chinese_markdown():
-    result = parse_chinese_markdown(SAMPLE_CHINESE_MD)
-    assert "髋关节" in result.overview
-    assert len(result.key_points) == 2
-    assert result.key_points[0]["timestamp"] == "0:00"
-    assert result.key_points[0]["title"] == "髋关节结构"
-    assert len(result.tags) == 2
-    assert "力量训练" in result.tags
-    assert result.raw_markdown == SAMPLE_CHINESE_MD
+def meta() -> VideoMeta:
+    return VideoMeta(video_id="abc123", title="Test Video", channel="TestChannel", url="u")
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
-def test_call_claude_args(mock_run, meta):
+def test_compose_guide_note_invokes_claude_and_parses_json(mock_run, meta):
     mock_run.return_value = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)}),
-        stderr="",
+        args=[], returncode=0, stdout=json.dumps({"result": json.dumps(GUIDE_JSON)}), stderr=""
     )
-    model = ClaudeCodeModel(summarize_model="sonnet", translate_model="opus")
-    model.summarize("transcript text", meta)
+    result = ClaudeCodeModel(translate_model="opus").compose_guide_note(
+        "transcript text", meta, target_chars=2000
+    )
 
-    cmd = mock_run.call_args[0][0]
-    assert "claude" in cmd
-    assert "-p" in cmd
-    assert "--model" in cmd
-    assert "sonnet" in cmd
-    assert "--max-turns" in cmd
-    assert "1" in cmd
-    assert "--output-format" in cmd
-    assert "json" in cmd
+    assert result.variant == "a_guide"
+    cmd = mock_run.call_args.args[0]
+    assert cmd[:2] == ["claude", "-p"]
+    assert "opus" in cmd
+    assert mock_run.call_args.kwargs["timeout"] == 120
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
-def test_summarize_integration(mock_run, meta):
+def test_compose_longform_note_parses_json(mock_run, meta):
     mock_run.return_value = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)}),
-        stderr="",
+        args=[], returncode=0, stdout=json.dumps({"result": json.dumps(LONG_JSON)}), stderr=""
     )
-    model = ClaudeCodeModel()
-    result = model.summarize("transcript text", meta)
-    assert len(result.sections) == 2
-    assert result.overall_summary
+    guide = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
+    result = ClaudeCodeModel().compose_longform_note("transcript", guide, meta, target_chars=7000)
+
+    assert result.variant == "b_longform"
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
-def test_review_and_summarize_integration(mock_run, meta):
-    combined = dict(SAMPLE_SUMMARY_JSON)
-    combined["reviewed_transcript"] = "[0:00] cleaned transcript"
+def test_compose_note_metadata_parses_json(mock_run, meta):
     mock_run.return_value = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=json.dumps({"result": json.dumps(combined)}),
-        stderr="",
+        args=[], returncode=0, stdout=json.dumps({"result": json.dumps(META_JSON)}), stderr=""
     )
-    model = ClaudeCodeModel()
-    result = model.review_and_summarize("transcript text", meta)
-    assert result.reviewed_transcript == "[0:00] cleaned transcript"
-    assert result.summary.overall_summary
+    guide = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
+    long = NoteDocument(title="Long", markdown="# Long", tags=[], variant="b_longform")
+    result = ClaudeCodeModel().compose_note_metadata(guide, long, meta)
 
-
-@patch("yt2notion.models.claude_code.subprocess.run")
-def test_to_chinese_integration(mock_run, meta):
-    mock_run.return_value = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=json.dumps({"result": SAMPLE_CHINESE_MD}),
-        stderr="",
-    )
-    model = ClaudeCodeModel()
-    summary = parse_summary_json(json.dumps(SAMPLE_SUMMARY_JSON))
-    result = model.to_chinese(summary, meta)
-    assert "髋关节" in result.overview
-    assert len(result.key_points) == 2
+    assert result.source_title == "Source"
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
 def test_claude_not_found(mock_run, meta):
     mock_run.side_effect = FileNotFoundError()
-    model = ClaudeCodeModel()
     with pytest.raises(ClaudeCodeError, match="not found"):
-        model.summarize("text", meta)
+        ClaudeCodeModel().compose_guide_note("text", meta, target_chars=2000)
 
 
 @patch("yt2notion.models.claude_code.subprocess.run")
 @patch("yt2notion.retry.time.sleep", return_value=None)
 def test_claude_cli_error_exhausts_retries(mock_sleep, mock_run, meta):
     mock_run.side_effect = subprocess.CalledProcessError(1, "claude", stderr="error msg")
-    model = ClaudeCodeModel()
     with pytest.raises(RetryExhaustedError):
-        model.summarize("text", meta)
-    assert mock_run.call_count == 3
-
-
-@patch("yt2notion.models.claude_code.subprocess.run")
-@patch("yt2notion.retry.time.sleep", return_value=None)
-def test_claude_retries_on_empty_output(mock_sleep, mock_run, meta):
-    success_stdout = json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)})
-    mock_run.side_effect = [
-        subprocess.CompletedProcess(args=[], returncode=0, stdout="   ", stderr=""),
-        subprocess.CompletedProcess(args=[], returncode=0, stdout=success_stdout, stderr=""),
-    ]
-    model = ClaudeCodeModel()
-    result = model.summarize("text", meta)
-    assert len(result.sections) == 2
-    assert mock_run.call_count == 2
-
-
-@patch("yt2notion.models.claude_code.subprocess.run")
-@patch("yt2notion.retry.time.sleep", return_value=None)
-def test_claude_retries_on_timeout(mock_sleep, mock_run, meta):
-    success_stdout = json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)})
-    mock_run.side_effect = [
-        subprocess.TimeoutExpired("claude", 120),
-        subprocess.CompletedProcess(args=[], returncode=0, stdout=success_stdout, stderr=""),
-    ]
-    model = ClaudeCodeModel()
-    result = model.summarize("text", meta)
-    assert len(result.sections) == 2
-    assert mock_run.call_count == 2
-
-
-@patch("yt2notion.models.claude_code.subprocess.run")
-def test_claude_has_timeout(mock_run, meta):
-    mock_run.return_value = subprocess.CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout=json.dumps({"result": json.dumps(SAMPLE_SUMMARY_JSON)}),
-        stderr="",
-    )
-    model = ClaudeCodeModel()
-    model.summarize("text", meta)
-    call_kwargs = mock_run.call_args.kwargs
-    assert call_kwargs.get("timeout") == 120
+        ClaudeCodeModel().compose_guide_note("text", meta, target_chars=2000)

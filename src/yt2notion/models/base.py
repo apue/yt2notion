@@ -55,78 +55,24 @@ class TimestampedSection:
         return f"https://youtu.be/{video_id}?t={self.timestamp_seconds}"
 
 
-@dataclass
-class Section:
-    """A key section identified in the video."""
-
-    title: str
-    timestamp: str  # MM:SS
-    timestamp_seconds: int
-    summary: str
-
-
-@dataclass
-class Summary:
-    """Structured summary output from the summarize step."""
-
-    sections: list[Section]
-    overall_summary: str
-    suggested_tags: list[str] = field(default_factory=list)
-
-    def to_text(self) -> str:
-        """Serialize for passing to the next LLM stage."""
-        import json
-
-        return json.dumps(
-            {
-                "sections": [
-                    {
-                        "title": s.title,
-                        "timestamp": s.timestamp,
-                        "timestamp_seconds": s.timestamp_seconds,
-                        "summary": s.summary,
-                    }
-                    for s in self.sections
-                ],
-                "overall_summary": self.overall_summary,
-                "suggested_tags": self.suggested_tags,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-
-
-@dataclass
-class ReviewSummaryResult:
-    """Result of a combined transcript review + summary pass."""
-
-    reviewed_transcript: str
-    summary: Summary
-
-
-@dataclass
-class ChunkSummary:
-    """Summary of a single segment from the map phase."""
-
-    segment_title: str
-    timestamp: str  # MM:SS
-    timestamp_seconds: int
-    summary: str
-    key_points: list[dict] = field(default_factory=list)  # [{timestamp, timestamp_seconds, point}]
-    key_terms: list[str] = field(default_factory=list)
-
 
 @dataclass
 class ChineseContent:
-    """Final Chinese content ready for publishing."""
+    """Legacy single-note content retained for storage backends not on the runtime path."""
 
     overview: str
-    key_points: list[dict]  # [{timestamp, title, summary}]
+    key_points: list[dict]
     tags: list[str]
-    raw_markdown: str  # 完整的 markdown 输出
-    mindmap: str = ""  # Markmap 格式思维导图，长内容时生成
+    raw_markdown: str
+    mindmap: str = ""
     fun_facts: dict[str, list[str]] = field(default_factory=dict)
 
+
+FUN_FACTS_CATEGORIES: dict[str, str] = {
+    "hot_takes": "🔥 犀利观点",
+    "nerd_stats": "🤓 极客冷知识",
+    "media_mentions": "📚 作品提及",
+}
 
 @dataclass
 class NoteMetadata:
@@ -197,42 +143,6 @@ class EntityResult:
 
 class Summarizer(Protocol):
     """Protocol for LLM summarization backends."""
-
-    def summarize(
-        self, transcript: str, metadata: VideoMeta, *, prompt_name: str = "summarize"
-    ) -> Summary:
-        """Produce a structured summary with timestamps."""
-        ...
-
-    def review_and_summarize(
-        self,
-        transcript: str,
-        metadata: VideoMeta,
-        *,
-        prompt_name: str = "summarize_reviewed",
-    ) -> ReviewSummaryResult:
-        """Review an ASR transcript and summarize it in a single LLM call."""
-        ...
-
-    def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:
-        """Rewrite summary in natural Chinese."""
-        ...
-
-    def summarize_chunk(
-        self, chunk_transcript: str, metadata: VideoMeta, segment_info: dict
-    ) -> ChunkSummary:
-        """Map phase: summarize a single segment of long content."""
-        ...
-
-    def synthesize(
-        self,
-        chunk_summaries: list[ChunkSummary],
-        metadata: VideoMeta,
-        *,
-        prompt_name: str = "synthesize",
-    ) -> ChineseContent:
-        """Reduce phase: synthesize all chunk summaries into final Chinese output."""
-        ...
 
     def compose_guide_note(
         self,

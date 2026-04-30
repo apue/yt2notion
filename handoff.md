@@ -4,70 +4,54 @@
 
 ## 当前任务卡
 
-- 任务：收敛 prompt/AB 实验死代码，保留当前正式 Obsidian/Notion 输出路径
-- 状态：`done`
-- 当前 owner：User
-- 上一执行者：User
-- 下一执行者：User
-- 来源：用户确认当前输出效果可用，要求删除已无用的 AB/prompt 实验代码、测试引用和未运行 prompt，后续再讨论 prompt 优化
-- 分支：未创建（当前工作树已有用户脏改，且 sandbox 不允许写 git refs）
-- PR：[#22](https://github.com/apue/yt2notion/pull/22)、[#23](https://github.com/apue/yt2notion/pull/23)、[#24](https://github.com/apue/yt2notion/pull/24)
-- review 状态：等待 User 逐个 review；本地测试与 lint 已完成
+- 任务：bundle-only 输出收敛 + transcript cleanup 策略统一 + 删除存量死代码
+- 状态：`in_progress`（实现与本地测试已完成，待 lint/doc 自查、PR、自我 review、用户决定是否合入）
+- 当前 owner：Codex
+- 上一执行者：Codex
+- 下一执行者：Codex / User
+- 来源：用户明确反馈“现在就只需要这三篇输出，其它都不用”；当前正式输出只保留 `source`、`A 导读`、`B 扩展` 三篇。auto caption 也应视作 ASR-like，需要清洗；未来输出变化可重新开发，历史实验/兼容路径无保留价值。
+- 实现工作目录：`/tmp/yt2notion-main-final-1777534880`
+- 分支：`bundle-only-transcript-cleanup`
+- 已提交 commit：`43bc800 docs: plan bundle-only transcript cleanup`、`b6f6bb8 refactor: enforce bundle-only pipeline`
+- PR：未创建（`git push -u origin bundle-only-transcript-cleanup` 因无法连接 github.com:443 失败）
+- review 状态：未 review
 - 目标：
-  - 删除只服务实验的 `prompt_experiments` 代码路径和测试引用
-  - 删除不在正式 pipeline 中运行的实验 prompt
-  - 移除仅为实验暴露的 backend/protocol 方法
-  - 保留正式 `source_ab_bundle`、Obsidian/Notion publish、当前运行 prompt
-  - 同步 `PROJECT_MAP.md` prompt binding 事实
+  - Pipeline 收敛为 bundle-only：只产出并发布 `source` / `A 导读` / `B 扩展`。
+  - 删除 legacy single summary、full transcript 子页、entity extraction、LLM chapter extraction、map/reduce/chinese prompt 等不再运行路径。
+  - transcript cleanup 策略：manual subtitle 跳过清洗；auto caption / webpage transcript / ASR / legacy subtitle 均走 cleanup。
+  - 同步 `PROJECT_MAP.md`、`README.md`、`config.example.yaml` 等设计/契约文档。
 - 非目标：
-  - 不优化 prompt 文案
-  - 不改 Obsidian/Notion 发布行为
-  - 不调用远程 ASR/LLM/Notion 服务验证
+  - 不优化 prompt 文案。
+  - 不新增输出形态。
+  - 不调用远程 ASR/LLM/Notion/Obsidian 验证。
 - 约束：
-  - `PROJECT_MAP.md` 是 prompt/code binding 唯一事实锚点
-  - 不修改 `prompts/` 下仍在运行的模板结构
-  - 当前工作树已有历史脏改，删除时避免无关回退
-- 受影响文件：
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [handoff.md](./handoff.md)
-  - [src/yt2notion/models/base.py](./src/yt2notion/models/base.py)
-  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
-  - [src/yt2notion/models/anthropic_api.py](./src/yt2notion/models/anthropic_api.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [tests/test_prompts.py](./tests/test_prompts.py)
-  - 删除：`src/yt2notion/prompt_experiments.py`
-  - 删除：`tests/test_prompt_experiments.py`
-  - 删除：旧实验 prompt：`article_ab_pair.md`、`summarize_long_direct_evidence.md`、`synthesize_guided_notes.md`、`synthesize_reading_guide.md`
-  - 删除：旧手动脚本：`scripts/batch_transcribe.sh`、`scripts/benchmark_new_pipeline.py`、`scripts/test_fun_facts.py`
-- 验收标准：
-  - 仓库运行代码不再引用旧实验模块、旧 A/B article prompt、旧长文实验 prompt
-  - 测试集中不再包含已删除实验路径
-  - 正式 bundle / pipeline / prompt 加载测试仍通过
-- 建议命令：
-  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q`
-  - `uv run ruff check src/yt2notion tests`
-- 未决问题：无
-
-## 当前执行记录
-
+  - `PROJECT_MAP.md` 是 pipeline / artifact / prompt binding 唯一事实锚点。
+  - 用户希望 aggressive cleanup，不要求 backward compatibility。
+  - `prompts/` 下仍保留的生产模板 Markdown 结构不要改。
 - 已完成：
-  - 删除旧 prompt/AB 实验模块、对应测试、未运行 prompt 模板
-  - 删除旧 benchmark / manual fun_facts / hardcoded batch ASR 脚本
-  - 从 `Summarizer` Protocol 和三个 backend 中移除仅服务实验的 direct-transcript markdown 方法
-  - 更新 `tests/test_prompts.py`，只保留当前运行 prompt 的加载测试
-  - 更新 `PROJECT_MAP.md` prompt binding 表，移除实验 helper 描述
-- 当前阻塞：无
-- 已修改文件：见任务卡受影响文件；工作树仍包含本轮开始前已存在的无关脏改
+  - 恢复并重写 `tests/test_pipeline.py`，覆盖 bundle-only、cleanup policy、Obsidian bundle publish、ASR checkpoint 保留语义。
+  - `pipeline.py` 保持 bundle-only `PreparedContent`，`prepare_content()` 总是构建 `note_bundle.json`，`mode="full"` 早拒绝，非 dry-run publish 仅允许 Obsidian。
+  - 删除旧 prompt 文件；backend protocol / Claude / Anthropic / Codex 测试已收敛到 `compose_*`。
+  - 删除 `entity_extract.py`、`chapter_extract.py` 及对应测试；description chapter 仅走本地 timestamp regex。
+  - `review.py` 删除 `review_with_context` 分支，只保留 `review.md` baseline cleanup。
+  - `workspace.py` 步骤收敛为 `download -> segment -> transcribe -> review -> summarize`，移除 `entities.json` / `summary.json` helpers。
+  - `config.py` 只接受 `output.mode = summary`，忽略 legacy `output.note_mode`。
+  - `PROJECT_MAP.md` / `README.md` / `config.example.yaml` 已同步 bundle-only 事实。
+- 已删除/改写测试：
+  - 删除旧实体抽取、LLM chapter extract、旧 integration、旧 parser extended、entity obsidian 测试。
+  - 保留 Obsidian/Notion legacy storage 测试与现有 storage 代码（当前 pipeline 不再调用 legacy `save()`）。
 - 已运行验证：
-  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q` → `118 passed, 4 warnings`
-  - `uv run ruff check src/yt2notion tests` → `All checks passed!`（保留 Ruff 的 `TCH003` remap warning）
-  - `uv run pytest tests/ -q` → 首次因本机环境存在 `ANTHROPIC_API_KEY` 导致 `tests/test_model_factory.py::test_create_anthropic_no_key` 预期不成立；代码无关
-  - `ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q` → `401 passed, 11 warnings`
-- 最后一次自测：`ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q`
+  - `PYTHONPATH=src /Users/yangtian/Developer/agent/yt2notion/.venv/bin/python -m pytest tests/test_pipeline.py -q` → `30 passed`
+  - `/Users/yangtian/Developer/agent/yt2notion/.venv/bin/ruff check src/yt2notion tests` → `All checks passed!`
+  - `ANTHROPIC_API_KEY= PYTHONPATH=src /Users/yangtian/Developer/agent/yt2notion/.venv/bin/python -m pytest tests/ -q` → `328 passed, 5 warnings`
+- 最后一次自测：`ANTHROPIC_API_KEY= PYTHONPATH=src /Users/yangtian/Developer/agent/yt2notion/.venv/bin/python -m pytest tests/ -q`
+- 当前阻塞：无
+- 下一步：
+  1. 网络恢复后重试 `git push -u origin bundle-only-transcript-cleanup`。
+  2. 创建 PR 并做自我 review；按 review comments 修复后复测。
 - 风险/回滚点：
-  - 未执行任何在线 LLM/ASR/Notion 验证
-  - 历史计划文档中可能仍提到旧实验 prompt，作为归档未清理
-- 下一步：User 逐个 review PR #22 / #23 / #24，确认后再决定是否合入
+  - 未执行任何在线 LLM/ASR/Notion/Obsidian 验证。
+  - storage 层仍保留 legacy `save()` 能力以避免本轮扩大到存储后端删除；pipeline 已不调用。
 
 ## 上一任务归档（2026-04-30 前）
 

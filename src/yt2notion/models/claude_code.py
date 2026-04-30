@@ -7,23 +7,16 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from yt2notion.models._parsers import (
-    parse_chinese_markdown,
     parse_note_document_json,
     parse_note_metadata_json,
-    parse_review_summary_json,
-    parse_summary_json,
 )
 from yt2notion.prompts import load_prompt
 from yt2notion.retry import retry
 
 if TYPE_CHECKING:
     from yt2notion.models.base import (
-        ChineseContent,
-        ChunkSummary,
         NoteDocument,
         NoteMetadata,
-        ReviewSummaryResult,
-        Summary,
         VideoMeta,
     )
 
@@ -65,112 +58,6 @@ class ClaudeCodeModel:
     ) -> None:
         self.summarize_model = summarize_model
         self.translate_model = translate_model
-
-    def summarize(
-        self, transcript: str, metadata: VideoMeta, *, prompt_name: str = "summarize"
-    ) -> Summary:
-        """Produce a structured summary with timestamps."""
-        system_prompt = load_prompt(prompt_name)
-        user_prompt = (
-            f"Video: {metadata.title} by {metadata.channel}\nURL: {metadata.url}\n\n{transcript}"
-        )
-        raw = self._call_claude(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=self.summarize_model,
-        )
-        return parse_summary_json(raw)
-
-    def review_and_summarize(
-        self,
-        transcript: str,
-        metadata: VideoMeta,
-        *,
-        prompt_name: str = "summarize_reviewed",
-    ) -> ReviewSummaryResult:
-        """Review raw ASR transcript and summarize it in one pass."""
-        system_prompt = load_prompt(prompt_name)
-        user_prompt = (
-            f"Video: {metadata.title} by {metadata.channel}\nURL: {metadata.url}\n\n{transcript}"
-        )
-        raw = self._call_claude(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=self.summarize_model,
-        )
-        return parse_review_summary_json(raw)
-
-    def to_chinese(self, summary: Summary, metadata: VideoMeta) -> ChineseContent:
-        """Rewrite summary in natural Chinese."""
-        system_prompt = load_prompt("chinese")
-        user_prompt = summary.to_text()
-        raw = self._call_claude(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=self.translate_model,
-        )
-        return parse_chinese_markdown(raw)
-
-    def summarize_chunk(
-        self, chunk_transcript: str, metadata: VideoMeta, segment_info: dict
-    ) -> ChunkSummary:
-        """Map phase: summarize a single segment of long content."""
-        from yt2notion.models._parsers import parse_chunk_summary_json
-        from yt2notion.prompts import render_prompt
-
-        system_prompt = render_prompt("summarize_chunk", **segment_info)
-        user_prompt = (
-            f"Video: {metadata.title} by {metadata.channel}\n"
-            f"URL: {metadata.url}\n\n{chunk_transcript}"
-        )
-        raw = self._call_claude(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=self.summarize_model,
-        )
-        return parse_chunk_summary_json(raw)
-
-    def synthesize(
-        self,
-        chunk_summaries: list[ChunkSummary],
-        metadata: VideoMeta,
-        *,
-        prompt_name: str = "synthesize",
-    ) -> ChineseContent:
-        """Reduce phase: synthesize all chunk summaries into final Chinese output."""
-        from yt2notion.models._parsers import parse_synthesized_markdown
-        from yt2notion.process import seconds_to_display
-        from yt2notion.prompts import render_prompt
-
-        duration_display = seconds_to_display(metadata.duration_seconds)
-        system_prompt = render_prompt(
-            prompt_name,
-            title=metadata.title,
-            channel=metadata.channel,
-            duration=duration_display,
-            url=metadata.url,
-        )
-        user_prompt = json.dumps(
-            [
-                {
-                    "segment_title": cs.segment_title,
-                    "timestamp": cs.timestamp,
-                    "timestamp_seconds": cs.timestamp_seconds,
-                    "summary": cs.summary,
-                    "key_points": cs.key_points,
-                    "key_terms": cs.key_terms,
-                }
-                for cs in chunk_summaries
-            ],
-            ensure_ascii=False,
-            indent=2,
-        )
-        raw = self._call_claude(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=self.translate_model,
-        )
-        return parse_synthesized_markdown(raw)
 
     def compose_guide_note(
         self,

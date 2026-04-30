@@ -25,18 +25,9 @@ def review_segment(
     if not text or not text.strip():
         return text
 
-    template_vars = {"title": metadata.title, "channel": metadata.channel}
-
-    if review_context:
-        prompt_name = "review_with_context"
-        template_vars.update(review_context)
-        model_key = "summarize_model"
-        max_tokens = 16000
-    else:
-        prompt_name = "review"
-        model_key = "review_model"
-        max_tokens = 8000
-
-    system_prompt = render_prompt(prompt_name, **template_vars)
+    del review_context
+    system_prompt = render_prompt("review", title=metadata.title, channel=metadata.channel)
+    model_key = "review_model"
+    max_tokens = 8000
     caller = create_llm_caller(config, model_key=model_key)
     return caller.call(system_prompt, text, max_tokens=max_tokens).strip()
