@@ -311,21 +311,6 @@ class CodexCLIModel:
         raw = self._translate_caller.call(system_prompt, user_prompt)
         return parse_synthesized_markdown(raw)
 
-    def summarize_transcript_to_markdown(
-        self,
-        transcript: str,
-        metadata: VideoMeta,
-        *,
-        prompt_name: str,
-    ) -> ChineseContent:
-        """Generate final Chinese markdown directly from transcript input."""
-        system_prompt = load_prompt(prompt_name)
-        user_prompt = (
-            f"Video: {metadata.title} by {metadata.channel}\nURL: {metadata.url}\n\n{transcript}"
-        )
-        raw = self._translate_caller.call(system_prompt, user_prompt)
-        return parse_chinese_markdown(raw)
-
     def compose_guide_note(
         self,
         transcript: str,

@@ -278,15 +278,6 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 | `compose_guide.md` | `Summarizer.compose_guide_note()` | A note / 导读版 tagged output: `<note_json>` metadata + `<note_markdown>` body | user payload contains `source`, `transcript`, `target_chars` |
 | `compose_longform.md` | `Summarizer.compose_longform_note()` | B note / 扩展成稿 tagged output: `<note_json>` metadata + `<note_markdown>` body | user payload contains `source`, `guide_note`, `transcript`, `target_chars` |
 | `compose_note_metadata.md` | `Summarizer.compose_note_metadata()` | source-note metadata strict JSON output | user payload contains `source`, `guide_note`, `longform_note` |
-| `synthesize_reading_guide.md` | `prompt_experiments.py` | experimental long-form reduce variant: reading guide | `{title}`, `{channel}`, `{duration}`, `{url}` |
-| `synthesize_guided_notes.md` | `prompt_experiments.py` | experimental long-form reduce variant: guided notes | `{title}`, `{channel}`, `{duration}`, `{url}` |
-| `summarize_long_direct_evidence.md` | `prompt_experiments.py` via `Summarizer.summarize_transcript_to_markdown()` | experimental long-form direct-from-transcript variant with evidence anchors | none |
-
-Experimental helper:
-- `src/yt2notion/prompt_experiments.py` supports two experimental paths on an existing long-form workspace:
-  - reuse map-phase chunk summaries and run alternate reduce prompts for side-by-side comparison
-  - bypass map-reduce and feed the transcript artifacts directly into an experimental final-markdown prompt with evidence anchors
-- These experiments do not change the canonical pipeline default, which still binds long-form reduce to `synthesize.md`.
 
 ## Extension Checklist
 
