@@ -137,6 +137,26 @@ class Workspace:
     def load_transcripts(self) -> list[dict] | None:
         return self._read_json("transcripts.json")
 
+    def save_transcribe_plan(self, plan: list[dict]) -> None:
+        self._write_json("transcribe_plan.json", plan)
+
+    def load_transcribe_plan(self) -> list[dict] | None:
+        return self._read_json("transcribe_plan.json")
+
+    def save_transcribe_state(self, state: dict) -> None:
+        self._write_json("transcribe_state.json", state)
+
+    def load_transcribe_state(self) -> dict | None:
+        return self._read_json("transcribe_state.json")
+
+    def save_transcribe_chunk_result(self, chunk_id: str, entries: list[dict]) -> None:
+        chunk_dir = self.dir / "transcribe_chunks"
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        self._write_json(str(Path("transcribe_chunks") / f"{chunk_id}.json"), entries)
+
+    def load_transcribe_chunk_result(self, chunk_id: str) -> list[dict] | None:
+        return self._read_json(str(Path("transcribe_chunks") / f"{chunk_id}.json"))
+
     # --- Reviewed ---
 
     def save_reviewed(self, reviewed: list[dict]) -> None:
@@ -259,9 +279,15 @@ class Workspace:
         if transcript_path.exists():
             transcript_path.unlink()
 
+        for filename in ("transcribe_plan.json", "transcribe_state.json"):
+            path = self.dir / filename
+            if path.exists():
+                path.unlink()
+
         dirs_to_remove: set[Path] = {
             self.dir / "segments",
             self.dir / "full_audio_chunks",
+            self.dir / "transcribe_chunks",
         }
         dirs_to_remove.update(self.dir.glob("segment_*_chunks"))
 

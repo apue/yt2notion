@@ -56,30 +56,6 @@ def test_load_reduce_entities():
     assert "deduplicate" in text.lower() or "merge" in text.lower() or "consolidat" in text.lower()
 
 
-def test_load_synthesize_reading_guide_prompt():
-    text = load_prompt("synthesize_reading_guide")
-    assert "导读稿" in text
-    assert "## 概要" in text
-
-
-def test_load_synthesize_guided_notes_prompt():
-    text = load_prompt("synthesize_guided_notes")
-    assert "结构化笔记" in text
-    assert "## 内容脉络" in text
-
-
-def test_load_summarize_long_direct_evidence_prompt():
-    text = load_prompt("summarize_long_direct_evidence")
-    assert "原始 transcript" in text
-    assert "## 证据锚点" in text
-
-
-def test_load_article_ab_pair_prompt():
-    text = load_prompt("article_ab_pair")
-    assert "严格 JSON" in text
-    assert "version_a" in text
-
-
 def test_load_compose_guide_prompt():
     text = load_prompt("compose_guide")
     assert "导读版" in text

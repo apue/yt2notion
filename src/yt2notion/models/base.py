@@ -234,16 +234,6 @@ class Summarizer(Protocol):
         """Reduce phase: synthesize all chunk summaries into final Chinese output."""
         ...
 
-    def summarize_transcript_to_markdown(
-        self,
-        transcript: str,
-        metadata: VideoMeta,
-        *,
-        prompt_name: str,
-    ) -> ChineseContent:
-        """Generate final Chinese markdown directly from transcript input."""
-        ...
-
     def compose_guide_note(
         self,
         transcript: str,

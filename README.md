@@ -138,7 +138,10 @@ Key options:
 ASR fallback behavior summary:
 - Subtitle path still bypasses ASR.
 - Audio path uses the primary ASR backend.
-- When primary is Groq, only retryable quota/server failures (`429` / `5xx`) trigger one per-job fallback rerun; request errors such as `400/401/403` fail directly.
+- When primary is Groq, hourly quota waits through the current window from persisted chunk checkpoints.
+- When primary is Groq, daily quota switches the current failed chunk plus the remaining pending chunks of the same job to `extract.asr.fallback_backend`.
+- Checkpoints are reused when resuming from `transcribe`; rerunning from an earlier step rebuilds the transcribe stage from a clean checkpoint set.
+- Request errors such as `400/401/403` still fail directly.
 
 ASR auto-restart operations and runbook:
 - [docs/operations/asr-service.md](docs/operations/asr-service.md)

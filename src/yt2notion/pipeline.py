@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
@@ -53,8 +56,18 @@ ASR_CHUNK_PADDING_SECONDS = 0.5
 SUMMARY_GROUP_CHAR_LIMIT = 24_000
 SUMMARY_GROUP_SEGMENT_LIMIT = 6
 ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD = 300
-ProgressEvent: TypeAlias = Literal["started", "completed"]
+ProgressEvent: TypeAlias = Literal[
+    "started",
+    "completed",
+    "skipped",
+    "failed",
+    "chunk_started",
+    "chunk_completed",
+    "hourly_wait",
+    "daily_fallback_switch",
+]
 ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
+ChunkResultPayload: TypeAlias = list[dict[str, object]]
 
 
 @dataclass
@@ -252,10 +265,25 @@ def prepare_content(
 
         current_step = "transcribe"
         if start_idx <= 2:
-            ws.clear_asr_fallback_used()
+            if start_idx < 2:
+                ws.discard_transcribe_artifacts(audio_path=ws.audio_path)
+                ws.clear_asr_fallback_used()
+            elif (
+                ws.load_transcribe_plan() is None
+                and ws.load_transcribe_state() is None
+                and not (ws.dir / "transcribe_chunks").exists()
+            ):
+                ws.clear_asr_fallback_used()
             _emit_progress(progress_callback, "transcribe", "started")
-            transcripts = _step_transcribe(ws, metadata, segments, raw_config, verbose)
-            ws.save_transcripts(transcripts)  # Final save (incremental saves happen inside)
+            transcripts = _step_transcribe(
+                ws,
+                metadata,
+                segments,
+                raw_config,
+                verbose,
+                progress_callback=progress_callback,
+            )
+            ws.save_transcripts(transcripts)  # Final save after all chunk checkpoints complete
             _emit_progress(progress_callback, "transcribe", "completed")
         else:
             transcripts = ws.load_transcripts()
@@ -558,6 +586,7 @@ def _step_transcribe(
     segments: list[dict],
     config: dict,
     verbose: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[dict]:
     """Step 3: Transcribe content (subtitles or ASR)."""
     if verbose:
@@ -572,42 +601,261 @@ def _step_transcribe(
         raise ExtractionError("No subtitles or audio found in workspace")
 
     from yt2notion.transcribe import create_fallback_transcriber, create_transcriber
-    from yt2notion.transcribe.errors import (
-        TranscriptionQuotaError,
-        TranscriptionServerError,
+
+    asr_cfg = config.get("extract", {}).get("asr", {})
+    primary_backend = asr_cfg.get("backend", "remote")
+    fallback_backend = asr_cfg.get("fallback_backend")
+    transcriber = create_transcriber(config)
+    fallback_transcriber = None
+
+    def _load_fallback_transcriber():
+        nonlocal fallback_transcriber
+        if not fallback_backend:
+            return None
+        if fallback_transcriber is None:
+            fallback_transcriber = create_fallback_transcriber(config)
+        return fallback_transcriber
+
+    return _transcribe_from_audio(
+        audio_path,
+        segments,
+        metadata,
+        config,
+        ws,
+        verbose,
+        transcriber=transcriber,
+        primary_backend=primary_backend,
+        fallback_backend=fallback_backend,
+        fallback_transcriber_factory=_load_fallback_transcriber,
+        progress_callback=progress_callback,
     )
 
-    transcriber = create_transcriber(config)
 
+def _current_time() -> datetime:
+    return datetime.now().astimezone()
+
+
+def _now() -> datetime:
+    return _current_time()
+
+
+def _iso_after_retry(retry_after_seconds: float) -> str:
+    return (_now() + timedelta(seconds=max(0.0, retry_after_seconds))).isoformat(timespec="seconds")
+
+
+def _wait_until_retryable_time(next_attempt_at: str | None, *, verbose: bool) -> None:
+    if not next_attempt_at:
+        return
+    target = datetime.fromisoformat(next_attempt_at)
+    while True:
+        remaining = (target - _now()).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 60.0))
+
+
+def _chunk_payload_from_entries(entries: list[SubtitleEntry]) -> ChunkResultPayload:
+    return [
+        {
+            "start_seconds": entry.start_seconds,
+            "end_seconds": entry.end_seconds,
+            "text": entry.text,
+            "source": "asr",
+        }
+        for entry in entries
+    ]
+
+
+def _entries_from_chunk_payload(payload: ChunkResultPayload) -> list[SubtitleEntry]:
+    return [
+        SubtitleEntry(
+            start_seconds=float(entry["start_seconds"]),
+            end_seconds=float(entry["end_seconds"]),
+            text=str(entry["text"]),
+        )
+        for entry in payload
+    ]
+
+
+def _chunk_audio_ref(ws: Workspace, path: Path) -> str:
     try:
-        return _transcribe_from_audio(
-            audio_path,
-            segments,
-            metadata,
-            config,
-            ws,
-            verbose,
-            transcriber=transcriber,
-        )
-    except (TranscriptionQuotaError, TranscriptionServerError):
-        fallback_transcriber = create_fallback_transcriber(config)
-        if fallback_transcriber is None:
-            raise
-        if verbose:
-            typer.echo(
-                "  Primary ASR failed on quota/server error. Retrying with fallback backend..."
-            )
-        ws.discard_transcribe_artifacts(audio_path=audio_path)
-        ws.mark_asr_fallback_used()
-        return _transcribe_from_audio(
-            audio_path,
-            segments,
-            metadata,
-            config,
-            ws,
-            verbose,
-            transcriber=fallback_transcriber,
-        )
+        return str(path.relative_to(ws.dir))
+    except ValueError:
+        return str(path)
+
+
+def _resolve_chunk_audio_path(ws: Workspace, audio_ref: str) -> Path:
+    path = Path(audio_ref)
+    if path.is_absolute():
+        return path
+    return ws.dir / path
+
+
+def _transcribe_progress_message(
+    chunk: dict,
+    *,
+    index: int,
+    total: int,
+    backend: str,
+    **extra: object,
+) -> str:
+    payload: dict[str, object] = {
+        "chunk_id": str(chunk["chunk_id"]),
+        "chunk_index": index + 1,
+        "chunk_total": total,
+        "title": str(chunk.get("title", "")),
+        "start_seconds": float(chunk["start_seconds"]),
+        "end_seconds": float(chunk["end_seconds"]),
+        "start_label": seconds_to_display(float(chunk["start_seconds"])),
+        "end_label": seconds_to_display(float(chunk["end_seconds"])),
+        "backend": backend,
+    }
+    payload.update(extra)
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _initial_transcribe_state(plan: list[dict], *, job_mode: str) -> dict:
+    timestamp = _now().isoformat(timespec="seconds")
+    return {
+        "version": 1,
+        "job_mode": job_mode,
+        "status": "running",
+        "next_attempt_at": None,
+        "last_error": None,
+        "defer_reason": None,
+        "ash_defer_count": 0,
+        "chunks": [
+            {
+                "chunk_id": chunk["chunk_id"],
+                "status": "pending",
+                "backend_used": None,
+                "result_relpath": None,
+                "attempts": 0,
+                "updated_at": timestamp,
+            }
+            for chunk in plan
+        ],
+    }
+
+
+def _load_or_create_transcribe_state(ws: Workspace, plan: list[dict], *, job_mode: str) -> dict:
+    state = ws.load_transcribe_state()
+    if state is None or not _transcribe_state_matches_plan(state, plan):
+        state = _initial_transcribe_state(plan, job_mode=job_mode)
+    if _reconcile_transcribe_state_from_chunk_results(ws, plan, state):
+        ws.save_transcribe_state(state)
+    return state
+
+
+def _chunk_state(state: dict, chunk_id: str) -> dict:
+    for chunk in state.get("chunks", []):
+        if chunk.get("chunk_id") == chunk_id:
+            return chunk
+    raise ValueError(f"Missing transcribe state for chunk {chunk_id!r}")
+
+
+def _transcribe_state_matches_plan(state: dict, plan: list[dict]) -> bool:
+    if not isinstance(state, dict):
+        return False
+    if state.get("version") != 1:
+        return False
+    state_chunk_ids = [chunk.get("chunk_id") for chunk in state.get("chunks", [])]
+    plan_chunk_ids = [chunk.get("chunk_id") for chunk in plan]
+    return state_chunk_ids == plan_chunk_ids
+
+
+def _reconcile_transcribe_state_from_chunk_results(
+    ws: Workspace, plan: list[dict], state: dict
+) -> bool:
+    changed = False
+    for chunk in plan:
+        chunk_id = str(chunk["chunk_id"])
+        chunk_state = _chunk_state(state, chunk_id)
+        payload = ws.load_transcribe_chunk_result(chunk_id)
+        if payload is None:
+            if str(chunk_state.get("status", "")).startswith("completed_"):
+                _mark_chunk_payload_missing(state, chunk_id)
+                changed = True
+            continue
+        if str(chunk_state.get("status", "")).startswith("completed_"):
+            continue
+        backend_used = str(chunk_state.get("backend_used") or chunk.get("preferred_backend", "asr"))
+        chunk_state["backend_used"] = backend_used
+        chunk_state["result_relpath"] = str(Path("transcribe_chunks") / f"{chunk_id}.json")
+        chunk_state["status"] = f"completed_{backend_used}"
+        chunk_state["updated_at"] = _now().isoformat(timespec="seconds")
+        changed = True
+    return changed
+
+
+def _clear_wait_state(state: dict) -> None:
+    state["status"] = "running"
+    state["next_attempt_at"] = None
+    state["defer_reason"] = None
+    state["last_error"] = None
+
+
+def _mark_hourly_wait(state: dict, chunk_id: str, error) -> None:
+    chunk = _chunk_state(state, chunk_id)
+    chunk["attempts"] = int(chunk.get("attempts", 0)) + 1
+    chunk["updated_at"] = _now().isoformat(timespec="seconds")
+    state["status"] = "waiting_ash"
+    state["next_attempt_at"] = _iso_after_retry(error.retry_after_seconds)
+    state["defer_reason"] = "ash"
+    state["last_error"] = str(error)
+    state["ash_defer_count"] = int(state.get("ash_defer_count", 0)) + 1
+
+
+def _mark_chunk_payload_missing(state: dict, chunk_id: str) -> None:
+    chunk = _chunk_state(state, chunk_id)
+    state["status"] = "running"
+    state["next_attempt_at"] = None
+    state["defer_reason"] = None
+    chunk["status"] = "pending"
+    chunk["backend_used"] = None
+    chunk["result_relpath"] = None
+    chunk["updated_at"] = _now().isoformat(timespec="seconds")
+
+
+def _mark_chunk_completed(
+    ws: Workspace,
+    state: dict,
+    chunk_id: str,
+    *,
+    backend_used: str,
+    entries: list[SubtitleEntry],
+) -> None:
+    ws.save_transcribe_chunk_result(chunk_id, _chunk_payload_from_entries(entries))
+    chunk = _chunk_state(state, chunk_id)
+    chunk["attempts"] = int(chunk.get("attempts", 0)) + 1
+    chunk["backend_used"] = backend_used
+    chunk["result_relpath"] = str(Path("transcribe_chunks") / f"{chunk_id}.json")
+    chunk["status"] = f"completed_{backend_used}"
+    chunk["updated_at"] = _now().isoformat(timespec="seconds")
+    _clear_wait_state(state)
+    ws.save_transcribe_state(state)
+
+
+def _switch_remaining_chunks_to_backend(
+    ws: Workspace,
+    plan: list[dict],
+    state: dict,
+    *,
+    start_index: int,
+    backend: str,
+    error: Exception,
+) -> None:
+    for chunk in plan[start_index:]:
+        chunk_state = _chunk_state(state, str(chunk["chunk_id"]))
+        if chunk_state.get("status") == "pending":
+            chunk["preferred_backend"] = backend
+    state["job_mode"] = "remote_remaining"
+    state["status"] = "running"
+    state["next_attempt_at"] = None
+    state["defer_reason"] = None
+    state["last_error"] = str(error)
+    ws.save_transcribe_plan(plan)
+    ws.save_transcribe_state(state)
 
 
 def _transcribe_from_subtitles(
@@ -665,6 +913,356 @@ def _assign_entries_to_segments(entries: list[SubtitleEntry], segments: list[dic
     return result
 
 
+def _build_segment_transcribe_plan(
+    *,
+    ws: Workspace,
+    audio_path: Path,
+    segments: list[dict],
+    preferred_backend: str,
+) -> list[dict]:
+    existing = ws.load_transcribe_plan()
+    if (
+        isinstance(existing, list)
+        and existing
+        and len(existing) == len(segments)
+        and all(
+            isinstance(chunk, dict)
+            and chunk.get("segment_index") == index
+            and "audio_relpath" in chunk
+            and "preferred_backend" in chunk
+            for index, chunk in enumerate(existing)
+        )
+    ):
+        return existing
+
+    from yt2notion.audio import split_audio
+
+    seg_dir = audio_path.parent / "segments"
+    seg_files = split_audio(audio_path, segments, seg_dir)
+    plan = [
+        {
+            "chunk_id": f"segment-{index + 1:03d}",
+            "segment_index": index,
+            "title": seg.get("title", f"Part {index + 1}"),
+            "start_seconds": seg["start_seconds"],
+            "end_seconds": seg["end_seconds"],
+            "audio_relpath": _chunk_audio_ref(ws, seg_file),
+            "preferred_backend": preferred_backend,
+        }
+        for index, (seg, seg_file) in enumerate(zip(segments, seg_files, strict=True))
+    ]
+    ws.save_transcribe_plan(plan)
+    return plan
+
+
+def _build_full_audio_transcribe_plan(
+    *,
+    ws: Workspace,
+    audio_path: Path,
+    metadata: VideoMeta,
+    config: dict,
+    transcriber,
+    preferred_backend: str,
+) -> list[dict]:
+    existing = ws.load_transcribe_plan()
+    if (
+        isinstance(existing, list)
+        and existing
+        and all(
+            isinstance(chunk, dict)
+            and "segment_index" not in chunk
+            and "audio_relpath" in chunk
+            and "preferred_backend" in chunk
+            for chunk in existing
+        )
+    ):
+        return existing
+
+    from yt2notion.audio import get_duration, split_audio
+    from yt2notion.transcribe.errors import TranscriptionError
+
+    duration_seconds = float(metadata.duration_seconds or get_duration(audio_path))
+    configured_chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
+    chunk_seconds = configured_chunk_seconds
+    max_upload_bytes = _transcriber_max_upload_bytes(transcriber)
+    file_size = audio_path.stat().st_size
+    oversize_full_audio = False
+
+    if max_upload_bytes is not None and file_size > max_upload_bytes:
+        oversize_full_audio = True
+        chunk_seconds = _resolve_upload_budget_chunk_seconds(
+            duration_seconds,
+            file_size_bytes=file_size,
+            configured_chunk_seconds=configured_chunk_seconds,
+            max_upload_bytes=max_upload_bytes,
+        )
+
+    if duration_seconds <= chunk_seconds:
+        if oversize_full_audio:
+            raise TranscriptionError(
+                f"ASR full audio {audio_path.name} ({file_size} bytes) exceeds "
+                f"max_upload_bytes ({max_upload_bytes}) at minimum chunk size "
+                f"({MIN_ASR_UPLOAD_CHUNK_SECONDS}s)"
+            )
+        plan = [
+            {
+                "chunk_id": "chunk-001",
+                "title": "Chunk 1",
+                "start_seconds": 0.0,
+                "end_seconds": duration_seconds,
+                "audio_relpath": _chunk_audio_ref(ws, audio_path),
+                "preferred_backend": preferred_backend,
+            }
+        ]
+    else:
+        chunk_specs = _build_full_audio_chunk_specs(duration_seconds, chunk_seconds)
+        chunk_dir = audio_path.parent / "full_audio_chunks"
+        chunk_files = split_audio(audio_path, chunk_specs, chunk_dir)
+        plan = [
+            {
+                "chunk_id": f"chunk-{index + 1:03d}",
+                "title": chunk_spec["title"],
+                "start_seconds": chunk_spec["start_seconds"],
+                "end_seconds": chunk_spec["end_seconds"],
+                "audio_relpath": _chunk_audio_ref(ws, chunk_file),
+                "preferred_backend": preferred_backend,
+            }
+            for index, (chunk_spec, chunk_file) in enumerate(
+                zip(chunk_specs, chunk_files, strict=True)
+            )
+        ]
+
+    ws.save_transcribe_plan(plan)
+    return plan
+
+
+def _load_required_chunk_payload(ws: Workspace, chunk_id: str) -> ChunkResultPayload:
+    from yt2notion.transcribe.errors import TranscriptionError
+
+    payload = ws.load_transcribe_chunk_result(chunk_id)
+    if payload is None:
+        raise TranscriptionError(f"Missing transcribe chunk result for {chunk_id}")
+    return payload
+
+
+def _segment_transcripts_from_plan(ws: Workspace, plan: list[dict]) -> list[dict]:
+    result: list[dict] = []
+    for chunk in plan:
+        payload = _load_required_chunk_payload(ws, str(chunk["chunk_id"]))
+        entries = _entries_from_chunk_payload(payload)
+        result.append(
+            {
+                "title": chunk["title"],
+                "start_seconds": chunk["start_seconds"],
+                "end_seconds": chunk["end_seconds"],
+                "text": " ".join(entry.text for entry in entries).strip(),
+                "source": "asr",
+            }
+        )
+    return result
+
+
+def _merged_chunk_entries(ws: Workspace, plan: list[dict]) -> list[SubtitleEntry]:
+    merged: list[SubtitleEntry] = []
+    for chunk in plan:
+        payload = _load_required_chunk_payload(ws, str(chunk["chunk_id"]))
+        merged.extend(_entries_from_chunk_payload(payload))
+    return merged
+
+
+def _resolve_chunk_transcriber(
+    *,
+    backend: str,
+    primary_backend: str,
+    primary_transcriber,
+    fallback_backend: str | None,
+    fallback_transcriber_factory: Callable[[], object | None] | None,
+):
+    from yt2notion.transcribe.errors import TranscriptionError
+
+    if backend == primary_backend:
+        return primary_transcriber
+    if backend == fallback_backend and fallback_transcriber_factory is not None:
+        resolved = fallback_transcriber_factory()
+        if resolved is not None:
+            return resolved
+    raise TranscriptionError(f"No transcriber configured for backend {backend!r}")
+
+
+def _execute_chunk_plan(
+    *,
+    ws: Workspace,
+    audio_path: Path,
+    plan: list[dict],
+    state: dict,
+    config: dict,
+    primary_backend: str,
+    transcriber,
+    fallback_backend: str | None,
+    fallback_transcriber_factory: Callable[[], object | None] | None,
+    language: str | None,
+    verbose: bool,
+    progress_callback: ProgressCallback | None = None,
+) -> None:
+    from yt2notion.transcribe.errors import (
+        TranscriptionDailyLimitError,
+        TranscriptionHourlyLimitError,
+    )
+
+    configured_chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
+    for index, chunk in enumerate(plan):
+        chunk_id = str(chunk["chunk_id"])
+        chunk_state = _chunk_state(state, chunk_id)
+        if chunk_state.get("status", "").startswith("completed_"):
+            if ws.load_transcribe_chunk_result(chunk_id) is None:
+                _mark_chunk_payload_missing(state, chunk_id)
+                ws.save_transcribe_state(state)
+            else:
+                continue
+
+        if state.get("status") == "waiting_ash" and state.get("next_attempt_at"):
+            wait_target = str(state["next_attempt_at"])
+            retry_after_seconds = max(
+                0.0, (datetime.fromisoformat(wait_target) - _now()).total_seconds()
+            )
+            _emit_progress(
+                progress_callback,
+                "transcribe",
+                "hourly_wait",
+                _transcribe_progress_message(
+                    chunk,
+                    index=index,
+                    total=len(plan),
+                    backend=str(chunk.get("preferred_backend", primary_backend)),
+                    retry_after_seconds=round(retry_after_seconds, 3),
+                    next_attempt_at=wait_target,
+                    resumed_from_state=True,
+                    ash_defer_count=int(state.get("ash_defer_count", 0)),
+                ),
+            )
+            _wait_until_retryable_time(state.get("next_attempt_at"), verbose=verbose)
+            _clear_wait_state(state)
+            ws.save_transcribe_state(state)
+
+        while True:
+            backend = str(chunk.get("preferred_backend", primary_backend))
+            _emit_progress(
+                progress_callback,
+                "transcribe",
+                "chunk_started",
+                _transcribe_progress_message(
+                    chunk,
+                    index=index,
+                    total=len(plan),
+                    backend=backend,
+                    attempt=int(chunk_state.get("attempts", 0)) + 1,
+                ),
+            )
+            active_transcriber = _resolve_chunk_transcriber(
+                backend=backend,
+                primary_backend=primary_backend,
+                primary_transcriber=transcriber,
+                fallback_backend=fallback_backend,
+                fallback_transcriber_factory=fallback_transcriber_factory,
+            )
+            chunk_file = _resolve_chunk_audio_path(ws, str(chunk["audio_relpath"]))
+            should_rebase = "segment_index" not in chunk
+            try:
+                entries = _transcribe_segment_entries_with_byte_budget(
+                    audio_path=audio_path,
+                    segment=chunk,
+                    segment_file=chunk_file,
+                    transcriber=active_transcriber,
+                    language=language,
+                    configured_chunk_seconds=configured_chunk_seconds,
+                    verbose=verbose,
+                    should_rebase=should_rebase,
+                )
+            except TranscriptionHourlyLimitError as exc:
+                _mark_hourly_wait(state, chunk_id, exc)
+                ws.save_transcribe_state(state)
+                _emit_progress(
+                    progress_callback,
+                    "transcribe",
+                    "hourly_wait",
+                    _transcribe_progress_message(
+                        chunk,
+                        index=index,
+                        total=len(plan),
+                        backend=backend,
+                        retry_after_seconds=round(float(exc.retry_after_seconds), 3),
+                        next_attempt_at=state.get("next_attempt_at"),
+                        resumed_from_state=False,
+                        ash_defer_count=int(state.get("ash_defer_count", 0)),
+                    ),
+                )
+                _wait_until_retryable_time(state.get("next_attempt_at"), verbose=verbose)
+                continue
+            except TranscriptionDailyLimitError as exc:
+                if backend != primary_backend:
+                    raise
+                fallback = (
+                    fallback_transcriber_factory()
+                    if fallback_transcriber_factory is not None
+                    else None
+                )
+                if fallback_backend is None or fallback is None:
+                    raise
+                ws.mark_asr_fallback_used()
+                affected_chunk_ids = [
+                    str(pending_chunk["chunk_id"])
+                    for pending_chunk in plan[index:]
+                    if _chunk_state(
+                        state, str(pending_chunk["chunk_id"])
+                    ).get("status") == "pending"
+                ]
+                _switch_remaining_chunks_to_backend(
+                    ws,
+                    plan,
+                    state,
+                    start_index=index,
+                    backend=fallback_backend,
+                    error=exc,
+                )
+                _emit_progress(
+                    progress_callback,
+                    "transcribe",
+                    "daily_fallback_switch",
+                    _transcribe_progress_message(
+                        chunk,
+                        index=index,
+                        total=len(plan),
+                        backend=backend,
+                        fallback_backend=fallback_backend,
+                        affected_chunk_ids=affected_chunk_ids,
+                        affected_chunk_count=len(affected_chunk_ids),
+                    ),
+                )
+                continue
+
+            _mark_chunk_completed(ws, state, chunk_id, backend_used=backend, entries=entries)
+            _emit_progress(
+                progress_callback,
+                "transcribe",
+                "chunk_completed",
+                _transcribe_progress_message(
+                    chunk,
+                    index=index,
+                    total=len(plan),
+                    backend=backend,
+                    entries_count=len(entries),
+                    attempts=int(_chunk_state(state, chunk_id).get("attempts", 0)),
+                ),
+            )
+            break
+
+    state["status"] = "completed"
+    state["next_attempt_at"] = None
+    state["defer_reason"] = None
+    state["last_error"] = None
+    ws.save_transcribe_state(state)
+
+
 def _transcribe_from_audio(
     audio_path: Path,
     segments: list[dict],
@@ -674,6 +1272,10 @@ def _transcribe_from_audio(
     verbose: bool,
     *,
     transcriber=None,
+    primary_backend: str = "remote",
+    fallback_backend: str | None = None,
+    fallback_transcriber_factory: Callable[[], object | None] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[dict]:
     """Transcribe audio via ASR, optionally per-segment."""
     if transcriber is None:
@@ -683,78 +1285,73 @@ def _transcribe_from_audio(
     language = metadata.language or None
 
     if segments:
-        # Per-segment ASR: split audio, transcribe each piece
-        from yt2notion.audio import split_audio
-
-        seg_dir = audio_path.parent / "segments"
-        seg_files = split_audio(audio_path, segments, seg_dir)
-
-        # Load partial progress if available
-        partial = ws.load_transcripts()
-        result: list[dict] = list(partial) if partial else []
-        start_from = len(result)
-
-        if start_from > 0 and verbose:
-            typer.echo(f"  Resuming ASR from segment {start_from + 1}/{len(segments)}")
-
-        configured_chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
-        for i, (seg, seg_file) in enumerate(zip(segments, seg_files, strict=True)):
-            if i < start_from:
-                continue
-            if verbose:
-                typer.echo(f"  ASR [{i + 1}/{len(segments)}] {seg.get('title', '')}")
-            entries = _transcribe_segment_entries_with_byte_budget(
-                audio_path=audio_path,
-                segment=seg,
-                segment_file=seg_file,
-                transcriber=transcriber,
-                language=language,
-                configured_chunk_seconds=configured_chunk_seconds,
-                verbose=verbose,
-            )
-            text = " ".join(e.text for e in entries).strip()
-            result.append(
-                {
-                    "title": seg.get("title", f"Part {i + 1}"),
-                    "start_seconds": seg["start_seconds"],
-                    "end_seconds": seg["end_seconds"],
-                    "text": text,
-                    "source": "asr",
-                }
-            )
-            # Save progress incrementally after each segment
-            ws.save_transcripts(result)
-        return result
-    else:
-        # No segments — chunk long audio to avoid oversized remote ASR requests.
-        if verbose:
-            typer.echo("  ASR on full audio (no pre-segmentation)...")
-        entries = _transcribe_full_audio_entries(
-            audio_path,
-            metadata,
-            config,
-            transcriber,
+        plan = _build_segment_transcribe_plan(
+            ws=ws,
+            audio_path=audio_path,
+            segments=segments,
+            preferred_backend=primary_backend,
+        )
+        state = _load_or_create_transcribe_state(ws, plan, job_mode=primary_backend)
+        _execute_chunk_plan(
+            ws=ws,
+            audio_path=audio_path,
+            plan=plan,
+            state=state,
+            config=config,
+            primary_backend=primary_backend,
+            transcriber=transcriber,
+            fallback_backend=fallback_backend,
+            fallback_transcriber_factory=fallback_transcriber_factory,
             language=language,
             verbose=verbose,
+            progress_callback=progress_callback,
         )
-        if verbose:
-            typer.echo(f"  {len(entries)} ASR segments returned")
+        return _segment_transcripts_from_plan(ws, plan)
 
-        # Sentence-split into segments
-        from yt2notion.segment import _split_by_duration
+    if verbose:
+        typer.echo("  ASR on full audio (no pre-segmentation)...")
+    plan = _build_full_audio_transcribe_plan(
+        ws=ws,
+        audio_path=audio_path,
+        metadata=metadata,
+        config=config,
+        transcriber=transcriber,
+        preferred_backend=primary_backend,
+    )
+    state = _load_or_create_transcribe_state(ws, plan, job_mode=primary_backend)
+    _execute_chunk_plan(
+        ws=ws,
+        audio_path=audio_path,
+        plan=plan,
+        state=state,
+        config=config,
+        primary_backend=primary_backend,
+        transcriber=transcriber,
+        fallback_backend=fallback_backend,
+        fallback_transcriber_factory=fallback_transcriber_factory,
+        language=language,
+        verbose=verbose,
+        progress_callback=progress_callback,
+    )
+    entries = _merged_chunk_entries(ws, plan)
+    if verbose:
+        typer.echo(f"  {len(entries)} ASR segments returned")
 
-        max_seg = config.get("output", {}).get("max_segment_seconds", 900)
-        split_segs = _split_by_duration(entries, max_seg)
-        return [
-            {
-                "title": seg.title,
-                "start_seconds": seg.start_seconds,
-                "end_seconds": seg.end_seconds,
-                "text": seg.text,
-                "source": "asr",
-            }
-            for seg in split_segs
-        ]
+    # Sentence-split into segments
+    from yt2notion.segment import _split_by_duration
+
+    max_seg = config.get("output", {}).get("max_segment_seconds", 900)
+    split_segs = _split_by_duration(entries, max_seg)
+    return [
+        {
+            "title": seg.title,
+            "start_seconds": seg.start_seconds,
+            "end_seconds": seg.end_seconds,
+            "text": seg.text,
+            "source": "asr",
+        }
+        for seg in split_segs
+    ]
 
 
 def _transcriber_max_upload_bytes(transcriber) -> int | None:
