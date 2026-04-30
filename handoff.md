@@ -11,8 +11,8 @@
 - 下一执行者：User
 - 来源：用户确认当前输出效果可用，要求删除已无用的 AB/prompt 实验代码、测试引用和未运行 prompt，后续再讨论 prompt 优化
 - 分支：未创建（当前工作树已有用户脏改，且 sandbox 不允许写 git refs）
-- PR：无
-- review 状态：未执行正式 /review；已完成本地测试与 lint
+- PR：[#22](https://github.com/apue/yt2notion/pull/22)、[#23](https://github.com/apue/yt2notion/pull/23)、[#24](https://github.com/apue/yt2notion/pull/24)
+- review 状态：等待 User 逐个 review；本地测试与 lint 已完成
 - 目标：
   - 删除只服务实验的 `prompt_experiments` 代码路径和测试引用
   - 删除不在正式 pipeline 中运行的实验 prompt
@@ -67,7 +67,7 @@
 - 风险/回滚点：
   - 未执行任何在线 LLM/ASR/Notion 验证
   - 历史计划文档中可能仍提到旧实验 prompt，作为归档未清理
-- 下一步：用户审阅 diff；如需可继续走 PR / review workflow
+- 下一步：User 逐个 review PR #22 / #23 / #24，确认后再决定是否合入
 
 ## 上一任务归档（2026-04-30 前）
 
