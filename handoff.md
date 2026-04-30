@@ -4,15 +4,82 @@
 
 ## 当前任务卡
 
-- 任务：实现 Groq 音频转写 checkpoint / ASH 等待恢复 / ASD 剩余 chunk remote fallback
+- 任务：收敛 prompt/AB 实验死代码，保留当前正式 Obsidian/Notion 输出路径
 - 状态：`done`
 - 当前 owner：User
 - 上一执行者：User
-- 下一执行者：User / Codex
+- 下一执行者：User
+- 来源：用户确认当前输出效果可用，要求删除已无用的 AB/prompt 实验代码、测试引用和未运行 prompt，后续再讨论 prompt 优化
+- 分支：未创建（当前工作树已有用户脏改，且 sandbox 不允许写 git refs）
+- PR：[#22](https://github.com/apue/yt2notion/pull/22)、[#23](https://github.com/apue/yt2notion/pull/23)、[#24](https://github.com/apue/yt2notion/pull/24)
+- review 状态：等待 User 逐个 review；本地测试与 lint 已完成
+- 目标：
+  - 删除只服务实验的 `prompt_experiments` 代码路径和测试引用
+  - 删除不在正式 pipeline 中运行的实验 prompt
+  - 移除仅为实验暴露的 backend/protocol 方法
+  - 保留正式 `source_ab_bundle`、Obsidian/Notion publish、当前运行 prompt
+  - 同步 `PROJECT_MAP.md` prompt binding 事实
+- 非目标：
+  - 不优化 prompt 文案
+  - 不改 Obsidian/Notion 发布行为
+  - 不调用远程 ASR/LLM/Notion 服务验证
+- 约束：
+  - `PROJECT_MAP.md` 是 prompt/code binding 唯一事实锚点
+  - 不修改 `prompts/` 下仍在运行的模板结构
+  - 当前工作树已有历史脏改，删除时避免无关回退
+- 受影响文件：
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [handoff.md](./handoff.md)
+  - [src/yt2notion/models/base.py](./src/yt2notion/models/base.py)
+  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
+  - [src/yt2notion/models/anthropic_api.py](./src/yt2notion/models/anthropic_api.py)
+  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
+  - [tests/test_prompts.py](./tests/test_prompts.py)
+  - 删除：`src/yt2notion/prompt_experiments.py`
+  - 删除：`tests/test_prompt_experiments.py`
+  - 删除：旧实验 prompt：`article_ab_pair.md`、`summarize_long_direct_evidence.md`、`synthesize_guided_notes.md`、`synthesize_reading_guide.md`
+  - 删除：旧手动脚本：`scripts/batch_transcribe.sh`、`scripts/benchmark_new_pipeline.py`、`scripts/test_fun_facts.py`
+- 验收标准：
+  - 仓库运行代码不再引用旧实验模块、旧 A/B article prompt、旧长文实验 prompt
+  - 测试集中不再包含已删除实验路径
+  - 正式 bundle / pipeline / prompt 加载测试仍通过
+- 建议命令：
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q`
+  - `uv run ruff check src/yt2notion tests`
+- 未决问题：无
+
+## 当前执行记录
+
+- 已完成：
+  - 删除旧 prompt/AB 实验模块、对应测试、未运行 prompt 模板
+  - 删除旧 benchmark / manual fun_facts / hardcoded batch ASR 脚本
+  - 从 `Summarizer` Protocol 和三个 backend 中移除仅服务实验的 direct-transcript markdown 方法
+  - 更新 `tests/test_prompts.py`，只保留当前运行 prompt 的加载测试
+  - 更新 `PROJECT_MAP.md` prompt binding 表，移除实验 helper 描述
+- 当前阻塞：无
+- 已修改文件：见任务卡受影响文件；工作树仍包含本轮开始前已存在的无关脏改
+- 已运行验证：
+  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q` → `118 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion tests` → `All checks passed!`（保留 Ruff 的 `TCH003` remap warning）
+  - `uv run pytest tests/ -q` → 首次因本机环境存在 `ANTHROPIC_API_KEY` 导致 `tests/test_model_factory.py::test_create_anthropic_no_key` 预期不成立；代码无关
+  - `ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q` → `401 passed, 11 warnings`
+- 最后一次自测：`ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q`
+- 风险/回滚点：
+  - 未执行任何在线 LLM/ASR/Notion 验证
+  - 历史计划文档中可能仍提到旧实验 prompt，作为归档未清理
+- 下一步：User 逐个 review PR #22 / #23 / #24，确认后再决定是否合入
+
+## 上一任务归档（2026-04-30 前）
+
+- 任务：实现 Groq 音频转写 checkpoint / ASH 等待恢复 / ASD 剩余 chunk remote fallback
+- 状态：`done`
+- 当前 owner：User
+- 上一执行者：Codex
+- 下一执行者：User
 - 来源：用户要求一气呵成完成 spec、plan、subagent-driven development、GitHub PR workflow
 - 分支：`groq-transcribe-checkpoint`
-- PR：[#21](https://github.com/apue/yt2notion/pull/21)
-- review 状态：本地 subagent / final reviewer 复核完成，已收口 stale checkpoint / fallback marker / missing payload 问题；当前等待用户决定是否合入
+- PR：[#21](https://github.com/apue/yt2notion/pull/21)（已于 2026-04-19 合入 `main`，merge commit `d8cfe862`）
+- review 状态：本地 subagent / final reviewer 复核完成并已合入；未配置 GitHub checks，本次以本地最小充分测试和 lint 作为合入依据
 - 目标：
   - 新增 chunk 级转写 checkpoint，尊重已完成 chunk 结果
   - Groq `ASH` 读取 `retry-after` 并在当前进程内等待恢复
@@ -51,7 +118,7 @@
 - 未决问题：
   - Groq `429` 无法细分时，第一版保守视为 `ASH`
 
-## 当前执行记录
+## 上一任务执行记录（2026-04-30 前）
 
 - 已完成：
   - 完成讨论并确认行为边界：Groq 优先、`ASH` 等待、`ASD` 切剩余 pending chunk 到 `remote`
@@ -62,6 +129,7 @@
   - 为 transcribe 增加 chunk 级诊断事件：`chunk_started` / `chunk_completed` / `hourly_wait` / `daily_fallback_switch`
   - 扩展长音频 ASR 诊断说明：`docs/agent-error-guide.md` 现在要求在 transcribe 故障时读取 `transcribe_state.json`
   - 通过远端 GitHub branch/PR 流程创建 [#21](https://github.com/apue/yt2notion/pull/21)
+  - 通过 `gh pr merge 21 --squash` 将 [#21](https://github.com/apue/yt2notion/pull/21) 合入 `main`
 - 当前阻塞：
   - 无
 - 已修改文件：
@@ -84,13 +152,15 @@
   - `uv run ruff check src/yt2notion/transcribe/errors.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py src/yt2notion/pipeline.py tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py` → `All checks passed!`
   - `uv run pytest tests/test_pipeline.py tests/test_agent_worker.py -q` → `65 passed, 4 warnings`
   - `uv run ruff check src/yt2notion/pipeline.py tests/test_pipeline.py tests/test_agent_worker.py docs/agent-error-guide.md` → `All checks passed!`
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py -q` → `105 passed, 4 warnings`
+  - `uv run ruff check src/yt2notion/transcribe/errors.py src/yt2notion/transcribe/groq.py src/yt2notion/workspace.py src/yt2notion/pipeline.py tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py docs/agent-error-guide.md` → `All checks passed!`
 - 最后一次自测：
-  - `uv run pytest tests/test_pipeline.py tests/test_agent_worker.py -q`
+  - `uv run pytest tests/test_transcribe_groq.py tests/test_workspace.py tests/test_pipeline.py tests/test_agent_worker.py -q`
 - 风险/回滚点：
   - 未做任何连接 Groq / remote / LLM 的在线验证；当前结论基于本地单元测试和静态检查
   - 当前工作树仍有用户自己的无关脏改：`AGENTS.md`、`.agents/skills/*`、`.codex/config.toml`、旧 plan 文档；PR 未包含这些文件
 - 下一步：
-  - 用户审阅 PR [#21](https://github.com/apue/yt2notion/pull/21) 并决定是否合入 `main`
+  - 无；本轮已完成并合入
 
 ## 上一任务归档
 
