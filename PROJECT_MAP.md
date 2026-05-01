@@ -291,10 +291,10 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 ```text
 cli.py -> config.py, pipeline.py
 pipeline.py -> extract.py, process.py, workspace.py, note_bundle.py,
-               chapter_extract.py, segment.py, topic_segment.py, review.py, entity_extract.py,
+               segment.py, topic_segment.py, review.py,
                models/__init__.py, storage/__init__.py, transcribe/__init__.py
 note_bundle.py -> models/base.py, process.py
-chapter_extract.py, review.py, topic_segment.py, entity_extract.py -> models/llm.py, prompts/
+review.py, topic_segment.py -> models/llm.py, prompts/
 models/claude_code.py, models/anthropic_api.py -> prompts/, models/_parsers.py
 models/codex_cli.py -> prompts/, models/_parsers.py
 models/_parsers.py -> models/base.py

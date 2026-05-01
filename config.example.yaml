@@ -14,6 +14,7 @@ model:
 
 storage:
   # Choose one backend: notion | obsidian | markdown
+  # Current source/A/B bundle publishing requires obsidian; notion is legacy single-note storage.
   backend: notion
 
   # --- Notion ---

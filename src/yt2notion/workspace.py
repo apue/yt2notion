@@ -101,6 +101,19 @@ class Workspace:
             shutil.copy2(src, dst)
         return dst
 
+
+    def save_subtitle_source(self, source: str) -> None:
+        """Persist the subtitle origin marker for cleanup policy decisions."""
+        self._write_json("subtitle_source.json", {"source": source})
+
+    def load_subtitle_source(self) -> str | None:
+        """Load the persisted subtitle origin marker, if present."""
+        data = self._read_json("subtitle_source.json")
+        if not isinstance(data, dict):
+            return None
+        source = data.get("source")
+        return str(source) if source else None
+
     @property
     def audio_path(self) -> Path | None:
         for ext in (".mp3", ".m4a", ".wav", ".opus", ".ogg"):

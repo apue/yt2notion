@@ -33,9 +33,9 @@ from yt2notion.agent_worker import (
 from yt2notion.config import ConfigError, load_config
 from yt2notion.extract import ExtractionError
 
-app = typer.Typer(help="YouTube videos → structured Chinese notes → Notion")
+app = typer.Typer(help="YouTube videos → structured Chinese notes → storage")
 agent_app = typer.Typer(help="Manage local file-backed agent runtime")
-RESUME_STEP_HELP = "Step to resume from (download/segment/transcribe/review/extract/summarize)"
+RESUME_STEP_HELP = "Step to resume from (download/segment/transcribe/review/summarize)"
 app.add_typer(agent_app, name="agent")
 RECENT_JOB_OUTCOME_LIMIT = 5
 
@@ -49,7 +49,7 @@ def process(
     resume: str = typer.Option(None, "--resume", help="Resume from workspace directory"),
     from_step: str = typer.Option(None, "--from", help=RESUME_STEP_HELP),
     workspace_dir: str = typer.Option(None, "--workspace-dir", help="Workspace base directory"),
-    mode: str = typer.Option(None, "--mode", help="Output mode: summary or full"),
+    mode: str = typer.Option(None, "--mode", help="Output mode: summary only"),
 ) -> None:
     """Process a video or podcast into a Chinese Notion page."""
     try:
@@ -88,7 +88,7 @@ def prepare(
     resume: str = typer.Option(None, "--resume", help="Resume from workspace directory"),
     from_step: str = typer.Option(None, "--from", help=RESUME_STEP_HELP),
     workspace_dir: str = typer.Option(None, "--workspace-dir", help="Workspace base directory"),
-    mode: str = typer.Option(None, "--mode", help="Output mode: summary or full"),
+    mode: str = typer.Option(None, "--mode", help="Output mode: summary only"),
 ) -> None:
     """Run processing without publishing and emit structured JSON for agent wrappers."""
     try:

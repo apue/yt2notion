@@ -68,12 +68,6 @@ class ChineseContent:
     fun_facts: dict[str, list[str]] = field(default_factory=dict)
 
 
-FUN_FACTS_CATEGORIES: dict[str, str] = {
-    "hot_takes": "🔥 犀利观点",
-    "nerd_stats": "🤓 极客冷知识",
-    "media_mentions": "📚 作品提及",
-}
-
 @dataclass
 class NoteMetadata:
     """Structured metadata for the source/A/B bundle."""

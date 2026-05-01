@@ -5,16 +5,16 @@
 ## 当前任务卡
 
 - 任务：bundle-only 输出收敛 + transcript cleanup 策略统一 + 删除存量死代码
-- 状态：`in_progress`（实现与本地测试已完成，待 lint/doc 自查、PR、自我 review、用户决定是否合入）
-- 当前 owner：Codex
+- 状态：`ready_for_user_review`（实现、本地验证、PR、自我 review 已完成；等待 User 决定是否合入）
+- 当前 owner：User
 - 上一执行者：Codex
-- 下一执行者：Codex / User
+- 下一执行者：User
 - 来源：用户明确反馈“现在就只需要这三篇输出，其它都不用”；当前正式输出只保留 `source`、`A 导读`、`B 扩展` 三篇。auto caption 也应视作 ASR-like，需要清洗；未来输出变化可重新开发，历史实验/兼容路径无保留价值。
 - 实现工作目录：`/tmp/yt2notion-main-final-1777534880`
 - 分支：`bundle-only-transcript-cleanup`
-- 已提交 commit：`43bc800 docs: plan bundle-only transcript cleanup`、`b6f6bb8 refactor: enforce bundle-only pipeline`
-- PR：未创建（`git push -u origin bundle-only-transcript-cleanup` 因无法连接 github.com:443 失败）
-- review 状态：未 review
+- 已提交 commit：`43bc800 docs: plan bundle-only transcript cleanup`、`3b9ac37 refactor: enforce bundle-only pipeline`、`c70e7be docs: sync bundle-only cleanup references`
+- PR：[#25](https://github.com/apue/yt2notion/pull/25)
+- review 状态：Codex 自我 review 已完成并在 PR 评论记录；GitHub 无 checks reported；本地测试/lint 通过
 - 目标：
   - Pipeline 收敛为 bundle-only：只产出并发布 `source` / `A 导读` / `B 扩展`。
   - 删除 legacy single summary、full transcript 子页、entity extraction、LLM chapter extraction、map/reduce/chinese prompt 等不再运行路径。
@@ -31,24 +31,22 @@
 - 已完成：
   - 恢复并重写 `tests/test_pipeline.py`，覆盖 bundle-only、cleanup policy、Obsidian bundle publish、ASR checkpoint 保留语义。
   - `pipeline.py` 保持 bundle-only `PreparedContent`，`prepare_content()` 总是构建 `note_bundle.json`，`mode="full"` 早拒绝，非 dry-run publish 仅允许 Obsidian。
+  - subtitle 下载现在记录 `manual_subtitle` / `auto_caption` 来源；webpage transcript 记录 `webpage_transcript`；resume 旧 workspace 无 marker 时按 legacy `subtitle` 清洗。
   - 删除旧 prompt 文件；backend protocol / Claude / Anthropic / Codex 测试已收敛到 `compose_*`。
   - 删除 `entity_extract.py`、`chapter_extract.py` 及对应测试；description chapter 仅走本地 timestamp regex。
   - `review.py` 删除 `review_with_context` 分支，只保留 `review.md` baseline cleanup。
-  - `workspace.py` 步骤收敛为 `download -> segment -> transcribe -> review -> summarize`，移除 `entities.json` / `summary.json` helpers。
+  - `workspace.py` 步骤收敛为 `download -> segment -> transcribe -> review -> summarize`，移除 `entities.json` / `summary.json` helpers，新增 subtitle source marker roundtrip。
   - `config.py` 只接受 `output.mode = summary`，忽略 legacy `output.note_mode`。
   - `PROJECT_MAP.md` / `README.md` / `config.example.yaml` 已同步 bundle-only 事实。
 - 已删除/改写测试：
   - 删除旧实体抽取、LLM chapter extract、旧 integration、旧 parser extended、entity obsidian 测试。
   - 保留 Obsidian/Notion legacy storage 测试与现有 storage 代码（当前 pipeline 不再调用 legacy `save()`）。
 - 已运行验证：
-  - `PYTHONPATH=src /Users/yangtian/Developer/agent/yt2notion/.venv/bin/python -m pytest tests/test_pipeline.py -q` → `30 passed`
-  - `/Users/yangtian/Developer/agent/yt2notion/.venv/bin/ruff check src/yt2notion tests` → `All checks passed!`
-  - `ANTHROPIC_API_KEY= PYTHONPATH=src /Users/yangtian/Developer/agent/yt2notion/.venv/bin/python -m pytest tests/ -q` → `328 passed, 5 warnings`
-- 最后一次自测：`ANTHROPIC_API_KEY= PYTHONPATH=src /Users/yangtian/Developer/agent/yt2notion/.venv/bin/python -m pytest tests/ -q`
+  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q` → `330 passed, 6 warnings`
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev ruff check src/yt2notion tests` → `All checks passed!`（仅 `TCH003` remap warning）
+- 最后一次自测：`ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q`；随后 `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev ruff check src/yt2notion tests`
 - 当前阻塞：无
-- 下一步：
-  1. 网络恢复后重试 `git push -u origin bundle-only-transcript-cleanup`。
-  2. 创建 PR 并做自我 review；按 review comments 修复后复测。
+- 下一步：User review PR #25；如确认通过，再由 User 明确批准后合入 `main`。
 - 风险/回滚点：
   - 未执行任何在线 LLM/ASR/Notion/Obsidian 验证。
   - storage 层仍保留 legacy `save()` 能力以避免本轮扩大到存储后端删除；pipeline 已不调用。

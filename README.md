@@ -1,19 +1,18 @@
 # yt2notion
 
-Extract media content (YouTube videos, Podcasts), summarize with LLM, publish to Notion / Obsidian — in one command.
+Extract media content (YouTube videos, Podcasts), compose source/A/B Chinese notes with LLMs, and publish the current bundle to Obsidian — in one command.
 
 ## Features
 
-- **Smart subtitle extraction**: prioritizes Chinese subs > English subs > auto-generated captions
+- **Smart subtitle extraction**: prioritizes manual subtitles when available, with ASR fallback for podcasts/audio-only media
 - **Podcast ASR support**: Groq primary ASR with optional remote/local fallback
-- **Multi-stage LLM pipeline**: Haiku (review/segment) → Sonnet (map) → Opus (reduce)
-- **Topic-aware segmentation**: LLM finds natural topic boundaries for long content
-- **Dual output modes**: `summary` by default, optional `full` for reviewed transcript + summary
-- **Timestamped key points**: clickable timestamp links in your notes
-- **Fun facts extraction**: hot takes, nerd stats, and media mentions pulled from content
-- **Entity extraction**: identifies people, places, tools, and their relationships — builds a knowledge graph via `[[wiki-links]]`
+- **Bundle-only LLM pipeline**: always produces `source`, `A 导读`, and `B 扩展` notes
+- **Transcript cleanup policy**: manual subtitles skip cleanup; auto captions, webpage transcripts, ASR, and legacy subtitles are cleaned
+- **Topic-aware segmentation**: LLM finds natural topic boundaries for ASR-like long transcripts
+- **Timestamped source material**: source title, channel, URL, and timestamped transcript context remain available to generated notes
+- **Current publish target**: the source/A/B bundle publishes through Obsidian; Notion storage is retained for legacy single-note code paths
 - **Always credits the source**: channel name, video title, and URL included automatically
-- **Pluggable backends**: swap LLM providers and storage (Notion / Obsidian)
+- **Pluggable LLM backends**: swap Claude Code, Anthropic API, or Codex CLI model providers
 - **Workspace persistence**: resume interrupted pipelines from any step
 - **Zero API cost option**: use your existing Claude Code subscription via `claude -p`
 - **Codex backend support**: use local `codex exec` with GPT-5.x style models
@@ -119,8 +118,8 @@ Set `codex_profile` when you need `yt2notion` to force a named Codex profile suc
 
 | Backend | Config value | Status |
 |---------|-------------|--------|
-| Notion | `notion` | ✅ Implemented |
-| Obsidian | `obsidian` | ✅ Implemented |
+| Notion | `notion` | Legacy single-note storage only; current bundle publish is not enabled |
+| Obsidian | `obsidian` | ✅ Current source/A/B bundle publish target |
 | Markdown files | `markdown` | 🚧 PRs welcome |
 
 ## Configuration
@@ -148,7 +147,7 @@ ASR auto-restart operations and runbook:
 
 ## How It Works
 
-Pipeline truth, step order, and artifact contracts live in [PROJECT_MAP.md](PROJECT_MAP.md). This README keeps the user-facing summary only: download metadata and media, segment by chapters or topic boundaries, transcribe from subtitles or ASR, optionally keep a reviewed transcript in `full` mode, summarize, then publish to storage. Use `prepare` (or `process --dry-run`) when you want a no-publish run.
+Pipeline truth, step order, and artifact contracts live in [PROJECT_MAP.md](PROJECT_MAP.md). This README keeps the user-facing summary only: download metadata and media, segment by chapters or topic boundaries, transcribe from subtitles or ASR, clean ASR-like transcripts, compose the source/A/B note bundle, then publish to storage. Use `prepare` (or `process --dry-run`) when you want a no-publish run.
 
 If you need the canonical pipeline map, follow [PROJECT_MAP.md](PROJECT_MAP.md) first.
 

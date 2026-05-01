@@ -70,6 +70,15 @@ def test_subtitle_path(tmp_path):
     assert saved.name == "subtitles.srt"
 
 
+def test_subtitle_source_roundtrip(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    assert ws.load_subtitle_source() is None
+
+    ws.save_subtitle_source("auto_caption")
+
+    assert ws.load_subtitle_source() == "auto_caption"
+
+
 def test_failure_roundtrip(tmp_path):
     ws = Workspace(tmp_path, "test123")
     ws.save_failure("https://example.com", "summarize", "boom", retries_exhausted=True)

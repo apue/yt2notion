@@ -570,6 +570,22 @@ def test_rebase_chunk_entries_drops_overlap_duplicates():
 
 
 
+
+def test_step_transcribe_preserves_saved_subtitle_source(tmp_path, mock_meta):
+    from yt2notion.pipeline import _step_transcribe
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(tmp_path, mock_meta.video_id)
+    srt = tmp_path / "source.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nManual line\n")
+    ws.save_subtitles(srt)
+    ws.save_subtitle_source("manual_subtitle")
+
+    transcripts = _step_transcribe(ws, mock_meta, [], {"output": {}}, verbose=False)
+
+    assert transcripts[0]["source"] == "manual_subtitle"
+
+
 @patch("yt2notion.audio.split_audio")
 @patch("yt2notion.transcribe.create_transcriber")
 @patch("yt2notion.segment._split_by_duration")

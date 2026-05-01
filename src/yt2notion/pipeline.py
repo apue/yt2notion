@@ -18,7 +18,7 @@ from yt2notion.extract import (
     ExtractionError,
     extract_audio,
     extract_metadata,
-    extract_subtitles,
+    extract_subtitles_with_source,
     extract_webpage_transcript,
     write_transcript_srt,
 )
@@ -165,10 +165,11 @@ def prepare_content(
                     typer.echo("Downloading subtitles...")
                 try:
                     with tempfile.TemporaryDirectory() as tmp_dir:
-                        sub_path = extract_subtitles(
+                        sub_path, subtitle_source = extract_subtitles_with_source(
                             url, raw_config, Path(tmp_dir), video_id=metadata.video_id
                         )
                         ws.save_subtitles(sub_path)
+                        ws.save_subtitle_source(subtitle_source)
                         if verbose:
                             typer.echo(f"  Saved: subtitles{sub_path.suffix}")
                 except ExtractionError:
@@ -366,6 +367,7 @@ def _download_webpage_transcript(
         transcript_path = Path(tmp_dir) / f"{metadata.video_id or 'transcript'}.srt"
         write_transcript_srt(entries, transcript_path)
         saved = ws.save_subtitles(transcript_path)
+        ws.save_subtitle_source("webpage_transcript")
 
     if verbose:
         typer.echo(f"  Found webpage transcript: {saved.name} ({len(entries)} entries)")
@@ -442,7 +444,10 @@ def _step_transcribe(
     audio_path = ws.audio_path
 
     if sub_path:
-        return _transcribe_from_subtitles(sub_path, segments, metadata, config, verbose)
+        subtitle_source = ws.load_subtitle_source() or "subtitle"
+        return _transcribe_from_subtitles(
+            sub_path, segments, metadata, config, verbose, source=subtitle_source
+        )
     if audio_path is None:
         raise ExtractionError("No subtitles or audio found in workspace")
 
@@ -710,6 +715,8 @@ def _transcribe_from_subtitles(
     metadata: VideoMeta,
     config: dict,
     verbose: bool,
+    *,
+    source: str = "subtitle",
 ) -> list[dict]:
     """Assign subtitle entries to segments, or create segments from entries."""
     entries = parse_subtitle_file(sub_path)
@@ -718,7 +725,7 @@ def _transcribe_from_subtitles(
 
     if segments:
         # Assign entries to existing segments by time
-        return _assign_entries_to_segments(entries, segments)
+        return _assign_entries_to_segments(entries, segments, source=source)
     else:
         # No segments — sentence-split the full transcript
         from yt2notion.segment import _split_by_duration
@@ -731,13 +738,15 @@ def _transcribe_from_subtitles(
                 "start_seconds": seg.start_seconds,
                 "end_seconds": seg.end_seconds,
                 "text": seg.text,
-                "source": "subtitle",
+                "source": source,
             }
             for seg in split_segs
         ]
 
 
-def _assign_entries_to_segments(entries: list[SubtitleEntry], segments: list[dict]) -> list[dict]:
+def _assign_entries_to_segments(
+    entries: list[SubtitleEntry], segments: list[dict], *, source: str = "subtitle"
+) -> list[dict]:
     """Assign subtitle entries to segments by timestamp."""
     result: list[dict] = []
     for seg in segments:
@@ -753,7 +762,7 @@ def _assign_entries_to_segments(entries: list[SubtitleEntry], segments: list[dic
                 "start_seconds": seg["start_seconds"],
                 "end_seconds": seg["end_seconds"],
                 "text": text,
-                "source": "subtitle",
+                "source": source,
             }
         )
     return result

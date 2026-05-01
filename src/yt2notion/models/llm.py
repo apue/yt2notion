@@ -1,6 +1,6 @@
 """Lightweight LLM caller for one-shot text-in/text-out tasks.
 
-Used by utility modules (review, chapter_extract, topic_segment) that need
+Used by utility modules (review, topic_segment) that need
 a single LLM call without the full Summarizer protocol machinery.
 """
 
