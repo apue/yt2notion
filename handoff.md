@@ -5,15 +5,15 @@
 ## 当前任务卡
 
 - 任务：bundle-only 输出收敛 + transcript cleanup 策略统一 + 删除存量死代码
-- 状态：`ready_for_user_review`（blocking issue 已修复，本地验证通过；待提交/push 到 PR #25，不合入）
-- 当前 owner：Codex（提交和 push 中）
+- 状态：`ready_to_merge`（PR #25 已更新到 `9daa62c`，本地复审和验证通过；User 已授权合入）
+- 当前 owner：Codex（合入中）
 - 上一执行者：Codex
 - 下一执行者：Codex / User
 - 来源：用户明确反馈“现在就只需要这三篇输出，其它都不用”；当前正式输出只保留 `source`、`A 导读`、`B 扩展` 三篇。auto caption 也应视作 ASR-like，需要清洗；未来输出变化可重新开发，历史实验/兼容路径无保留价值。
 - 当前工作目录：`/Users/yangtian/Developer/agent/yt2notion`
 - 分支：`bundle-only-transcript-cleanup`
 - PR：[#25](https://github.com/apue/yt2notion/pull/25)
-- review 状态：Codex review comment 已记录原 blocking finding：<https://github.com/apue/yt2notion/pull/25#issuecomment-4455966347>；本轮已在 PR 分支修复，待 push
+- review 状态：Codex review comment 已记录原 blocking finding：<https://github.com/apue/yt2notion/pull/25#issuecomment-4455966347>；本轮已在 `9daa62c` 修复并推送，复审无 blocking code findings
 - 目标：
   - 修复 PR #25 中 `_step_segment()` 丢失 description timestamp regex fallback 的回归。
   - 删除/收敛 `claude -p` 专属测试用例，避免继续把 Claude Code CLI 当作必须验证路径。
@@ -39,11 +39,11 @@
   - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q` → `318 passed, 6 warnings`
   - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev python -c 'import yaml; yaml.safe_load(open("config.example.yaml", encoding="utf-8")); print("config.example.yaml ok")'` → pass
 - 当前阻塞：
-  - 无；待提交和 push。
+  - 无；User 已授权合入 PR #25。
 - 下一步：
-  1. `git add` 标记冲突解决。
-  2. 提交并 push 到 PR #25。
-  3. User review PR #25；是否合入 main 由 User 决定。
+  1. 提交本 handoff 状态修正并推送到 PR #25。
+  2. 合入 PR #25。
+  3. 合入后更新 handoff 为完成状态。
 - 风险/回滚点：
   - 未执行任何在线 ASR/LLM/Notion/Obsidian 验证。
 
