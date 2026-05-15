@@ -61,13 +61,8 @@ def _extract_chapters_from_description(
     total_duration: int,
     config: dict | None,
 ) -> list:
-    """Extract chapters from description, using LLM if config available."""
-    if config:
-        from yt2notion.chapter_extract import extract_chapters_llm
-
-        return extract_chapters_llm(description, total_duration, config)
-
-    # No config → regex-only fallback
+    """Extract chapters from description with local timestamp regex only."""
+    del config
     return _parse_description_timestamps(description, total_duration)
 
 

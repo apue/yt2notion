@@ -12,6 +12,7 @@ from yt2notion.extract import (
     ExtractionError,
     extract_metadata,
     extract_subtitles,
+    extract_subtitles_with_source,
     extract_webpage_transcript,
     write_transcript_srt,
 )
@@ -75,8 +76,11 @@ def test_subtitle_priority(mock_run, tmp_path):
 
     mock_run.side_effect = side_effect
     config = {"extract": {"subtitle_priority": ["zh-Hans", "en"], "cookies_from": None}}
-    path = extract_subtitles("https://www.youtube.com/watch?v=abc123", config, tmp_path)
+    path, source = extract_subtitles_with_source(
+        "https://www.youtube.com/watch?v=abc123", config, tmp_path
+    )
     assert "zh-Hans" in path.name
+    assert source == "manual_subtitle"
 
 
 @patch("yt2notion.extract.subprocess.run")
@@ -105,8 +109,11 @@ def test_subtitle_fallback_to_auto(mock_run, tmp_path):
             "cookies_from": None,
         }
     }
-    path = extract_subtitles("https://www.youtube.com/watch?v=abc123", config, tmp_path)
+    path, source = extract_subtitles_with_source(
+        "https://www.youtube.com/watch?v=abc123", config, tmp_path
+    )
     assert path.exists()
+    assert source == "auto_caption"
 
 
 @patch("yt2notion.extract.subprocess.run")

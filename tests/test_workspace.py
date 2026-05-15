@@ -6,14 +6,7 @@ import json
 
 import pytest
 
-from yt2notion.models.base import (
-    ChineseContent,
-    Entity,
-    EntityResult,
-    NoteBundle,
-    NoteDocument,
-    VideoMeta,
-)
+from yt2notion.models.base import NoteBundle, NoteDocument, VideoMeta
 from yt2notion.workspace import STEPS, Workspace
 
 
@@ -77,11 +70,13 @@ def test_subtitle_path(tmp_path):
     assert saved.name == "subtitles.srt"
 
 
-def test_summary_save(tmp_path):
+def test_subtitle_source_roundtrip(tmp_path):
     ws = Workspace(tmp_path, "test123")
-    content = ChineseContent(overview="概要", key_points=[], tags=["test"], raw_markdown="# Test")
-    ws.save_summary(content)
-    assert ws.step_done("summarize")
+    assert ws.load_subtitle_source() is None
+
+    ws.save_subtitle_source("auto_caption")
+
+    assert ws.load_subtitle_source() == "auto_caption"
 
 
 def test_failure_roundtrip(tmp_path):
@@ -102,50 +97,7 @@ def test_failure_roundtrip(tmp_path):
 
 
 def test_steps_constant():
-    assert STEPS == ("download", "segment", "transcribe", "review", "extract", "summarize")
-
-
-def test_entities_roundtrip(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    result = EntityResult(
-        domain="food/dining",
-        is_entity_centric=True,
-        entity_types=["restaurant", "dish"],
-        entities=[
-            Entity(name="Gaggan", type="restaurant", attributes={"city": "Bangkok"}, linkable=True),
-            Entity(name="Curry Crab", type="dish", attributes={}, linkable=False),
-        ],
-        relations=[{"from": "Gaggan", "relation": "serves", "to": "Curry Crab"}],
-    )
-    ws.save_entities(result)
-    loaded = ws.load_entities()
-    assert loaded is not None
-    assert loaded.domain == "food/dining"
-    assert loaded.is_entity_centric is True
-    assert len(loaded.entities) == 2
-    assert loaded.entities[0].name == "Gaggan"
-    assert loaded.entities[0].attributes == {"city": "Bangkok"}
-    assert loaded.entities[1].linkable is False
-    assert len(loaded.relations) == 1
-
-
-def test_load_entities_missing(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert ws.load_entities() is None
-
-
-def test_step_done_extract(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert not ws.step_done("extract")
-    result = EntityResult(
-        domain="",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-    ws.save_entities(result)
-    assert ws.step_done("extract")
+    assert STEPS == ("download", "segment", "transcribe", "review", "summarize")
 
 
 def test_discard_transcribe_artifacts_removes_transcripts_and_chunk_dirs(tmp_path):

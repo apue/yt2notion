@@ -8,20 +8,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from typer.testing import CliRunner
 
-from yt2notion.cli import app
 from yt2notion.config import AppConfig
-from yt2notion.extract import ExtractionError
-from yt2notion.models.base import (
-    ChineseContent,
-    EntityResult,
-    NoteBundle,
-    NoteDocument,
-    Section,
-    Summary,
-    VideoMeta,
-)
+from yt2notion.models.base import NoteBundle, NoteDocument, VideoMeta
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
 from yt2notion.transcribe.errors import (
@@ -29,8 +18,6 @@ from yt2notion.transcribe.errors import (
     TranscriptionError,
     TranscriptionHourlyLimitError,
 )
-
-runner = CliRunner()
 
 
 @pytest.fixture
@@ -42,30 +29,7 @@ def mock_meta():
         url="https://www.youtube.com/watch?v=abc123",
         upload_date="20260319",
         duration_seconds=600,
-        subtitles_available=True,
-    )
-
-
-@pytest.fixture
-def mock_summary():
-    return Summary(
-        sections=[
-            Section(title="Intro", timestamp="0:00", timestamp_seconds=0, summary="Introduction"),
-        ],
-        overall_summary="Test summary",
-        suggested_tags=["test"],
-    )
-
-
-@pytest.fixture
-def mock_chinese():
-    return ChineseContent(
-        overview="测试概要",
-        key_points=[{"timestamp": "0:00", "title": "介绍", "summary": "测试"}],
-        tags=["测试"],
-        raw_markdown=(
-            "## 概要\n\n测试概要\n\n## 关键节点\n\n- [0:00] **介绍**：测试\n\n## 标签\n\n测试"
-        ),
+        subtitles_available=False,
     )
 
 
@@ -76,825 +40,535 @@ def config(tmp_path):
     return cfg
 
 
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._summarize_short_asr_single_pass")
-@patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._step_review")
-@patch("yt2notion.pipeline._step_transcribe")
-@patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._download_audio")
-@patch("yt2notion.pipeline._step_download")
-def test_prepare_content_summary_mode_uses_single_pass_asr_summary(
-    mock_step_download,
-    mock_download_audio,
-    mock_step_segment,
-    mock_step_transcribe,
-    mock_step_review,
-    mock_download_webpage_transcript,
-    mock_create_summarizer,
-    mock_single_pass_summary,
-    mock_step_extract,
-    mock_meta,
-    mock_summary,
-    mock_chinese,
-    config,
-):
-    mock_meta.subtitles_available = False
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
-    mock_download_audio.return_value = None
-    mock_step_segment.return_value = []
-    mock_step_transcribe.return_value = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 300,
-            "text": "raw asr text",
-            "source": "asr",
-        }
-    ]
-    mock_step_extract.return_value = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-
-    mock_summarizer = MagicMock()
-    mock_create_summarizer.return_value = mock_summarizer
-    mock_single_pass_summary.return_value = mock_chinese
-
-    from yt2notion.pipeline import prepare_content
-
-    prepared = prepare_content("https://example.com/video", config, mode="summary")
-
-    assert prepared.output_mode == "summary"
-    assert prepared.transcript_segments is None
-    mock_step_review.assert_not_called()
-    mock_step_extract.assert_called_once()
-    mock_single_pass_summary.assert_called_once()
-
-
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline.segment_transcript")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
-@patch("yt2notion.pipeline._step_download")
-def test_prepare_content_uses_webpage_transcript_before_audio(
-    mock_step_download,
-    mock_download_audio,
-    mock_download_webpage_transcript,
-    mock_segment_transcript,
-    mock_step_extract,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    mock_meta.subtitles_available = False
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = True
-    mock_step_extract.return_value = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-
-    subtitles_dir = Path(config.workspace["base_dir"]) / mock_meta.video_id
-    subtitles_dir.mkdir(parents=True, exist_ok=True)
-    (subtitles_dir / "subtitles.srt").write_text(
-        "1\n00:00:00,000 --> 00:01:00,000\nHello\n",
-        encoding="utf-8",
-    )
-
-    mock_summarizer = MagicMock()
-    mock_summarizer.summarize.return_value = Summary(
-        sections=[Section(title="Intro", timestamp="0:00", timestamp_seconds=0, summary="Hello")],
-        overall_summary="Hello",
-        suggested_tags=["test"],
-    )
-    mock_summarizer.to_chinese.return_value = mock_chinese
-
-    with patch("yt2notion.pipeline.create_summarizer", return_value=mock_summarizer):
-        from yt2notion.pipeline import prepare_content
-
-        prepared = prepare_content("https://example.com/podcast", config, mode="summary")
-
-    assert prepared.transcript_segments is None
-    mock_download_webpage_transcript.assert_called_once()
-    mock_download_audio.assert_not_called()
-    mock_segment_transcript.assert_not_called()
-    mock_step_extract.assert_not_called()
-
-
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._step_review")
-@patch("yt2notion.pipeline._step_transcribe")
-@patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._download_audio")
-@patch("yt2notion.pipeline._step_download")
-def test_prepare_content_full_mode_keeps_reviewed_transcript(
-    mock_step_download,
-    mock_download_audio,
-    mock_step_segment,
-    mock_step_transcribe,
-    mock_step_review,
-    mock_step_extract,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    mock_meta.subtitles_available = False
-    mock_step_download.return_value = mock_meta
-    mock_download_audio.return_value = None
-    mock_step_segment.return_value = []
-    transcripts = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 300,
-            "text": "raw asr text",
-            "source": "asr",
-        }
-    ]
-    reviewed = [{**transcripts[0], "text": "cleaned text"}]
-    mock_step_transcribe.return_value = transcripts
-    mock_step_review.return_value = reviewed
-    mock_step_extract.return_value = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-
-    with patch("yt2notion.pipeline._step_summarize", return_value=mock_chinese) as mock_summarize:
-        from yt2notion.pipeline import prepare_content
-
-        prepared = prepare_content("https://example.com/video", config, mode="full")
-
-    assert prepared.output_mode == "full"
-    assert prepared.transcript_segments == reviewed
-    mock_step_review.assert_called_once()
-    mock_summarize.assert_called_once()
-
-
-@patch("yt2notion.pipeline.create_llm_caller")
-@patch("yt2notion.pipeline.create_storage")
-@patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline.extract_subtitles")
-@patch("yt2notion.pipeline.extract_metadata")
-def test_pipeline_full_mock(
-    mock_extract_meta,
-    mock_extract_subs,
-    mock_create_summarizer,
-    mock_create_storage,
-    mock_create_llm_caller,
-    mock_meta,
-    mock_summary,
-    mock_chinese,
-    config,
-    tmp_path,
-):
-    mock_extract_meta.return_value = mock_meta
-
-    # Create a real subtitle file
-    srt_file = tmp_path / "abc123.en.srt"
-    srt_file.write_text("1\n00:00:01,000 --> 00:00:05,000\nHello world\n")
-    mock_extract_subs.return_value = srt_file
-
-    mock_summarizer = MagicMock()
-    mock_summarizer.summarize.return_value = mock_summary
-    mock_summarizer.to_chinese.return_value = mock_chinese
-    mock_create_summarizer.return_value = mock_summarizer
-
-    mock_storage = MagicMock()
-    mock_storage.save.return_value = "https://notion.so/page123"
-    mock_create_storage.return_value = mock_storage
-
-    # Mock LLM caller for entity extraction
-    mock_caller = MagicMock()
-    # caller.call(system_prompt, user_prompt, max_tokens=4000) returns JSON string
-    mock_caller.call.return_value = (
-        '{"entities": [], "domain": "General", "is_entity_centric": false, '
-        '"entity_types": [], "relations": []}'
-    )
-    mock_create_llm_caller.return_value = mock_caller
-
-    from yt2notion.pipeline import run_pipeline
-
-    failed_file = tmp_path / "workspace" / "abc123" / "failed.json"
-    failed_file.parent.mkdir(parents=True, exist_ok=True)
-    failed_file.write_text("{}", encoding="utf-8")
-
-    result = run_pipeline(
-        "https://www.youtube.com/watch?v=abc123",
-        config,
-    )
-
-    assert result == "https://notion.so/page123"
-    mock_extract_meta.assert_called_once()
-    mock_summarizer.summarize.assert_called_once()
-    mock_summarizer.to_chinese.assert_called_once()
-    mock_storage.save.assert_called_once()
-    assert not failed_file.exists()
-
-
-@patch("yt2notion.pipeline.create_storage")
-@patch("yt2notion.pipeline.prepare_content")
-def test_run_pipeline_bundle_mode_publishes_to_obsidian(
-    mock_prepare_content,
-    mock_create_storage,
-    config,
-    tmp_path,
-):
-    from yt2notion.pipeline import PreparedContent, run_pipeline
-    from yt2notion.workspace import Workspace
-
-    config.storage = {
-        "backend": "obsidian",
-        "obsidian": {"vault_path": str(tmp_path / "vault")},
-    }
-    config.output["note_mode"] = "source_ab_bundle"
-
-    workspace = Workspace(tmp_path / "workspace", "abc123")
-    bundle = NoteBundle(
+@pytest.fixture
+def note_bundle():
+    return NoteBundle(
         source=NoteDocument(
             title="Test Video",
             markdown="# Source",
-            tags=["AI"],
+            tags=["test"],
             variant="source",
         ),
         guide=NoteDocument(
-            title="Test Video - 导读",
+            title="Test Video - A 导读",
             markdown="# Guide",
-            tags=["AI", "guide"],
+            tags=["test", "guide"],
             variant="a_guide",
         ),
         longform=NoteDocument(
-            title="Test Video - 扩展",
+            title="Test Video - B 扩展",
             markdown="# Longform",
-            tags=["AI", "longform"],
+            tags=["test", "longform"],
             variant="b_longform",
         ),
-        stable_tags=["AI"],
+        stable_tags=["test"],
         source_topics=["topic"],
     )
-    mock_prepare_content.return_value = PreparedContent(
-        metadata=VideoMeta(
-            video_id="abc123",
-            title="Test Video",
-            channel="TestChannel",
-            url="https://www.youtube.com/watch?v=abc123",
-        ),
-        chinese_content=None,
-        transcript_segments=None,
-        entities=None,
-        workspace=workspace,
-        is_long=False,
-        output_mode="summary",
-        note_bundle=bundle,
-    )
-
-    mock_storage = MagicMock()
-    mock_storage.save_note_bundle.return_value = "/vault/yt2notion/summaries/Test Video.md"
-    mock_create_storage.return_value = mock_storage
-
-    result = run_pipeline("https://www.youtube.com/watch?v=abc123", config)
-
-    assert result == "/vault/yt2notion/summaries/Test Video.md"
-    mock_create_storage.assert_called_once()
-    mock_storage.save_note_bundle.assert_called_once()
-    mock_storage.save.assert_not_called()
 
 
-@patch("yt2notion.pipeline.create_storage")
-@patch("yt2notion.pipeline.prepare_content")
-def test_run_pipeline_bundle_mode_rejects_non_obsidian_backend(
-    mock_prepare_content,
-    mock_create_storage,
-    config,
-    tmp_path,
-):
-    from yt2notion.pipeline import PreparedContent, run_pipeline
-    from yt2notion.workspace import Workspace
-
-    config.storage = {
-        "backend": "notion",
-        "notion": {"token": "x", "database_id": "y"},
-    }
-    config.output["note_mode"] = "source_ab_bundle"
-
-    workspace = Workspace(tmp_path / "workspace", "abc123")
-    mock_prepare_content.return_value = PreparedContent(
-        metadata=VideoMeta(
-            video_id="abc123",
-            title="Test Video",
-            channel="TestChannel",
-            url="https://www.youtube.com/watch?v=abc123",
-        ),
-        chinese_content=None,
-        transcript_segments=None,
-        entities=None,
-        workspace=workspace,
-        is_long=False,
-        output_mode="summary",
-        note_bundle=NoteBundle(
-            source=NoteDocument(
-                title="Test Video",
-                markdown="# Source",
-                tags=["AI"],
-                variant="source",
-            ),
-            guide=NoteDocument(
-                title="Test Video - 导读",
-                markdown="# Guide",
-                tags=["AI", "guide"],
-                variant="a_guide",
-            ),
-            longform=NoteDocument(
-                title="Test Video - 扩展",
-                markdown="# Longform",
-                tags=["AI", "longform"],
-                variant="b_longform",
-            ),
-            stable_tags=["AI"],
-            source_topics=["topic"],
-        ),
-    )
-
-    with pytest.raises(ValueError, match="obsidian"):
-        run_pipeline("https://www.youtube.com/watch?v=abc123", config)
-
-    mock_create_storage.assert_not_called()
-
-
-@patch("yt2notion.pipeline.create_llm_caller")
-@patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline.extract_subtitles")
-@patch("yt2notion.pipeline.extract_metadata")
-def test_pipeline_dry_run(
-    mock_extract_meta,
-    mock_extract_subs,
-    mock_create_summarizer,
-    mock_create_llm_caller,
-    mock_meta,
-    mock_summary,
-    mock_chinese,
-    config,
-    tmp_path,
-):
-    mock_extract_meta.return_value = mock_meta
-
-    srt_file = tmp_path / "abc123.en.srt"
-    srt_file.write_text("1\n00:00:01,000 --> 00:00:05,000\nHello world\n")
-    mock_extract_subs.return_value = srt_file
-
-    mock_summarizer = MagicMock()
-    mock_summarizer.summarize.return_value = mock_summary
-    mock_summarizer.to_chinese.return_value = mock_chinese
-    mock_create_summarizer.return_value = mock_summarizer
-
-    # Mock LLM caller for entity extraction
-    mock_caller = MagicMock()
-    # caller.call(system_prompt, user_prompt, max_tokens=4000) returns JSON string
-    mock_caller.call.return_value = (
-        '{"entities": [], "domain": "General", "is_entity_centric": false, '
-        '"entity_types": [], "relations": []}'
-    )
-    mock_create_llm_caller.return_value = mock_caller
-
-    from yt2notion.pipeline import run_pipeline
-
-    result = run_pipeline(
-        "https://www.youtube.com/watch?v=abc123",
-        config,
-        dry_run=True,
-    )
-
-    assert "TestChannel" in result
-    assert "Test Video" in result
-    assert "概要" in result
-
-
-@patch("yt2notion.pipeline._step_summarize")
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._step_review")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._step_transcribe")
-@patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._download_audio")
-@patch("yt2notion.pipeline._step_download")
-def test_prepare_content_emits_progress_callbacks_for_key_steps_summary_mode(
-    mock_step_download,
-    mock_download_audio,
-    mock_step_segment,
-    mock_step_transcribe,
-    mock_download_webpage_transcript,
-    mock_step_review,
-    mock_step_extract,
-    mock_step_summarize,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    mock_meta.subtitles_available = False
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
-    mock_download_audio.return_value = None
-    mock_step_segment.return_value = []
-    mock_step_transcribe.return_value = [
+def _minimal_transcript(source: str, text: str = "raw text") -> list[dict]:
+    return [
         {
             "title": "Part 1",
             "start_seconds": 0,
-            "end_seconds": 300,
-            "text": "raw asr text",
-            "source": "asr",
+            "end_seconds": 60,
+            "text": text,
+            "source": source,
         }
     ]
-    mock_step_extract.return_value = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-    mock_step_review.return_value = mock_step_transcribe.return_value
-    mock_step_summarize.return_value = mock_chinese
 
-    from yt2notion.pipeline import prepare_content
 
-    events: list[tuple[str, str, str | None]] = []
-    prepare_content(
-        "https://example.com/video",
-        config,
-        mode="summary",
-        progress_callback=lambda step, event, message=None: events.append((step, event, message)),
+def test_step_segment_uses_description_timestamp_outline(config):
+    from yt2notion.pipeline import _step_segment
+
+    metadata = VideoMeta(
+        video_id="outline123",
+        title="Outlined Episode",
+        channel="TestChannel",
+        duration_seconds=1800,
+        description=(
+            "00:00 Opening\n"
+            "12:30 Training plan\n"
+            "28:10 Diet notes\n"
+        ),
     )
 
-    assert events == [
-        ("download", "started", None),
-        ("download", "completed", None),
-        ("segment", "started", None),
-        ("segment", "completed", None),
-        ("transcribe", "started", None),
-        ("transcribe", "completed", None),
-        ("extract", "started", None),
-        ("extract", "completed", None),
-        ("summarize", "started", None),
-        ("summarize", "completed", None),
+    segments = _step_segment(metadata, {"output": {"max_segment_seconds": 1000}}, verbose=False)
+
+    assert segments == [
+        {"title": "Opening", "start_seconds": 0, "end_seconds": 750},
+        {"title": "Training plan", "start_seconds": 750, "end_seconds": 1690},
+        {"title": "Diet notes", "start_seconds": 1690, "end_seconds": 1800},
     ]
-
-    mock_step_review.assert_not_called()
 
 
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._step_review")
+@patch("yt2notion.pipeline.segment_transcript")
 @patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_review")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._download_audio")
 @patch("yt2notion.pipeline._step_download")
-def test_prepare_content_bundle_mode_builds_note_bundle(
+def test_prepare_content_manual_subtitle_skips_cleanup(
     mock_step_download,
-    mock_download_audio,
     mock_step_segment,
     mock_step_transcribe,
-    mock_download_webpage_transcript,
     mock_step_review,
-    mock_step_extract,
+    mock_download_audio,
+    mock_download_webpage_transcript,
+    mock_segment_transcript,
     mock_create_summarizer,
     mock_build_note_bundle,
     mock_meta,
     config,
-    tmp_path,
+    note_bundle,
 ):
-    mock_meta.subtitles_available = False
+    from yt2notion.pipeline import prepare_content
+
+    transcripts = _minimal_transcript("manual_subtitle", "manual transcript")
     mock_step_download.return_value = mock_meta
     mock_download_webpage_transcript.return_value = False
-    mock_download_audio.return_value = None
     mock_step_segment.return_value = []
-    mock_step_transcribe.return_value = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 300,
-            "text": "raw asr text",
-            "source": "asr",
-        }
-    ]
-    reviewed_segments = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 300,
-            "text": "cleaned asr text",
-            "source": "asr",
-        }
-    ]
-    mock_step_review.return_value = reviewed_segments
-    mock_step_extract.return_value = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
+    mock_step_transcribe.return_value = transcripts
     mock_create_summarizer.return_value = MagicMock()
-    mock_build_note_bundle.return_value = NoteBundle(
-        source=NoteDocument(
-            title="Ferrari",
-            markdown="# Ferrari",
-            tags=["法拉利"],
-            variant="source",
-        ),
-        guide=NoteDocument(
-            title="Ferrari 导读",
-            markdown="# Ferrari 导读",
-            tags=["法拉利", "导读版"],
-            variant="a_guide",
-        ),
-        longform=NoteDocument(
-            title="Ferrari 扩展",
-            markdown="# Ferrari 扩展",
-            tags=["法拉利", "扩展版"],
-            variant="b_longform",
-        ),
-        stable_tags=["法拉利", "赛车"],
-        source_topics=["赛车文化", "品牌叙事"],
+    mock_build_note_bundle.return_value = note_bundle
+
+    prepared = prepare_content(mock_meta.url, config, mode="summary")
+
+    assert prepared.note_bundle == note_bundle
+    mock_step_review.assert_not_called()
+    mock_segment_transcript.assert_not_called()
+    assert prepared.workspace.load_reviewed() is None
+    mock_build_note_bundle.assert_called_once_with(
+        transcripts, mock_meta, mock_create_summarizer.return_value
     )
 
-    from yt2notion.pipeline import prepare_content
 
-    config.output["note_mode"] = "source_ab_bundle"
-    prepared = prepare_content(
-        "https://example.com/video",
-        config,
-        mode="summary",
-        workspace_dir=str(tmp_path / "workspace"),
-    )
-
-    assert prepared.note_bundle is not None
-    assert prepared.chinese_content is None
-    assert (prepared.workspace.dir / "note_bundle.json").exists()
-    mock_create_summarizer.assert_called_once()
-    mock_build_note_bundle.assert_called_once()
-    mock_step_review.assert_called_once()
-    assert mock_build_note_bundle.call_args.args[0] == reviewed_segments
-
-
-@patch("yt2notion.pipeline._step_download")
-def test_prepare_content_bundle_mode_rejects_full_mode_early(
-    mock_step_download,
-    mock_meta,
-    config,
-):
-    from yt2notion.pipeline import prepare_content
-
-    config.output["note_mode"] = "source_ab_bundle"
-
-    with pytest.raises(ValueError, match="source_ab_bundle"):
-        prepare_content("https://example.com/video", config, mode="full")
-
-    mock_step_download.assert_not_called()
-
-
-@patch("yt2notion.pipeline.prepare_content")
-def test_cli_prepare_bundle_mode_outputs_note_bundle(mock_prepare_content, tmp_path):
-    from yt2notion.config import AppConfig
-    from yt2notion.pipeline import PreparedContent
-    from yt2notion.workspace import Workspace
-
-    workspace = Workspace(tmp_path, "abc123")
-    mock_prepare_content.return_value = PreparedContent(
-        metadata=VideoMeta(
-            video_id="abc123",
-            title="Test Video",
-            channel="TestChannel",
-            url="https://www.youtube.com/watch?v=abc123",
-        ),
-        chinese_content=None,
-        transcript_segments=None,
-        entities=None,
-        workspace=workspace,
-        is_long=False,
-        output_mode="summary",
-        note_bundle=NoteBundle(
-            source=NoteDocument(
-                title="Ferrari",
-                markdown="# Ferrari",
-                tags=["法拉利"],
-                variant="source",
-            ),
-            guide=NoteDocument(
-                title="Ferrari 导读",
-                markdown="# Ferrari 导读",
-                tags=["法拉利", "导读版"],
-                variant="a_guide",
-            ),
-            longform=NoteDocument(
-                title="Ferrari 扩展",
-                markdown="# Ferrari 扩展",
-                tags=["法拉利", "扩展版"],
-                variant="b_longform",
-            ),
-            stable_tags=["法拉利", "赛车"],
-            source_topics=["赛车文化", "品牌叙事"],
-        ),
-    )
-
-    with patch("yt2notion.cli.load_config", return_value=AppConfig()):
-        result = runner.invoke(
-            app,
-            ["prepare", "https://www.youtube.com/watch?v=abc123", "--mode", "summary"],
-        )
-
-    assert result.exit_code == 0
-    payload = json.loads(result.output)
-    assert payload["note_bundle"] is not None
-    assert payload["summary"] is None
-
-
-@patch("yt2notion.pipeline._step_summarize")
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._step_review")
-@patch("yt2notion.pipeline._review_transcript_with_summary_context")
-@patch("yt2notion.pipeline._is_long_content")
+@pytest.mark.parametrize("source", ["auto_caption", "webpage_transcript", "asr", "subtitle"])
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline.segment_transcript")
 @patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_review")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._download_audio")
 @patch("yt2notion.pipeline._step_download")
-def test_prepare_content_emits_review_progress_callbacks_in_full_long_deferred_mode(
+def test_prepare_content_asr_like_sources_are_cleaned(
     mock_step_download,
-    mock_download_audio,
     mock_step_segment,
     mock_step_transcribe,
-    mock_download_webpage_transcript,
-    mock_is_long_content,
-    mock_deferred_review,
     mock_step_review,
-    mock_step_extract,
-    mock_step_summarize,
+    mock_download_audio,
+    mock_download_webpage_transcript,
+    mock_segment_transcript,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    source,
     mock_meta,
-    mock_chinese,
     config,
+    note_bundle,
 ):
-    mock_meta.subtitles_available = False
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
-    mock_download_audio.return_value = None
-    mock_step_segment.return_value = []
-    transcripts = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 300,
-            "text": "raw asr text",
-            "source": "asr",
-        }
-    ]
-    reviewed = [{**transcripts[0], "text": "cleaned text"}]
-    mock_step_transcribe.return_value = transcripts
-    mock_step_review.return_value = reviewed
-    mock_is_long_content.return_value = True
-    mock_deferred_review.return_value = reviewed
-    mock_step_extract.return_value = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-    mock_step_summarize.return_value = mock_chinese
-
     from yt2notion.pipeline import prepare_content
 
-    events: list[tuple[str, str, str | None]] = []
-    prepare_content(
-        "https://example.com/video",
-        config,
-        mode="full",
-        progress_callback=lambda step, event, message=None: events.append((step, event, message)),
+    transcripts = _minimal_transcript(source, "raw transcript")
+    reviewed = _minimal_transcript(source, "cleaned transcript")
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = transcripts
+    mock_segment_transcript.side_effect = lambda segments, *_args, **_kwargs: segments
+    mock_step_review.return_value = reviewed
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = note_bundle
+
+    prepared = prepare_content(mock_meta.url, config, mode="summary")
+
+    assert prepared.note_bundle == note_bundle
+    mock_segment_transcript.assert_called_once()
+    mock_step_review.assert_called_once()
+    assert prepared.workspace.load_reviewed() == reviewed
+    mock_build_note_bundle.assert_called_once_with(
+        reviewed, mock_meta, mock_create_summarizer.return_value
     )
 
-    assert events == [
-        ("download", "started", None),
-        ("download", "completed", None),
-        ("segment", "started", None),
-        ("segment", "completed", None),
-        ("transcribe", "started", None),
-        ("transcribe", "completed", None),
-        ("extract", "started", None),
-        ("extract", "completed", None),
-        ("summarize", "started", None),
-        ("summarize", "completed", None),
-        ("review", "started", None),
-        ("review", "completed", None),
-    ]
 
-    mock_step_review.assert_not_called()
-    mock_deferred_review.assert_called_once()
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_review")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_always_writes_note_bundle_not_legacy_artifacts(
+    mock_step_download,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_step_review,
+    mock_download_audio,
+    mock_download_webpage_transcript,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+    note_bundle,
+):
+    from yt2notion.pipeline import prepare_content
+
+    transcripts = _minimal_transcript("asr")
+    reviewed = _minimal_transcript("asr", "cleaned")
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = transcripts
+    mock_step_review.return_value = reviewed
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = note_bundle
+
+    prepared = prepare_content(mock_meta.url, config)
+
+    assert prepared.note_bundle == note_bundle
+    assert (prepared.workspace.dir / "note_bundle.json").exists()
+    assert not (prepared.workspace.dir / "summary.json").exists()
+    assert not (prepared.workspace.dir / "entities.json").exists()
 
 
-@patch("yt2notion.pipeline.prepare_content")
-def test_run_pipeline_dry_run_full_includes_transcript(mock_prepare_content, config):
-    from pathlib import Path
+def test_prepare_content_rejects_full_mode(config):
+    from yt2notion.pipeline import prepare_content
 
-    from yt2notion.pipeline import PreparedContent, run_pipeline
-    from yt2notion.workspace import Workspace
-
-    workspace = Workspace(Path(config.workspace["base_dir"]), "abc123")
-    mock_prepare_content.return_value = PreparedContent(
-        metadata=VideoMeta(
-            video_id="abc123",
-            title="Test Video",
-            channel="TestChannel",
-            url="https://www.youtube.com/watch?v=abc123",
-        ),
-        chinese_content=ChineseContent(
-            overview="测试概要",
-            key_points=[{"timestamp": "0:00", "title": "介绍", "summary": "测试"}],
-            tags=["测试"],
-            raw_markdown="## 概要\n\n测试概要",
-        ),
-        transcript_segments=[
-            {
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 10,
-                "text": "cleaned text",
-                "source": "asr",
-            }
-        ],
-        entities=None,
-        workspace=workspace,
-        is_long=False,
-        output_mode="full",
-    )
-
-    result = run_pipeline("https://example.com/video", config, dry_run=True, mode="full")
-
-    assert "## 概要" in result
-    assert "## 逐字稿" in result
-    assert "cleaned text" in result
+    with pytest.raises(ValueError, match="supports summary mode only"):
+        prepare_content("https://example.com/video", config, mode="full")
 
 
 @patch("yt2notion.pipeline.prepare_content")
 @patch("yt2notion.pipeline.create_storage")
-def test_run_pipeline_emits_publish_progress_callbacks(
+def test_run_pipeline_publishes_note_bundle_to_obsidian(
     mock_create_storage,
     mock_prepare_content,
     config,
+    mock_meta,
+    note_bundle,
 ):
-    from pathlib import Path
-
     from yt2notion.pipeline import PreparedContent, run_pipeline
     from yt2notion.workspace import Workspace
 
-    workspace = Workspace(Path(config.workspace["base_dir"]), "abc123")
+    config.storage["backend"] = "obsidian"
+    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
     mock_prepare_content.return_value = PreparedContent(
-        metadata=VideoMeta(
-            video_id="abc123",
-            title="Test Video",
-            channel="TestChannel",
-            url="https://www.youtube.com/watch?v=abc123",
-        ),
-        chinese_content=ChineseContent(
-            overview="测试概要",
-            key_points=[],
-            tags=[],
-            raw_markdown="## 概要\n\n测试概要",
-        ),
-        transcript_segments=None,
-        entities=None,
+        metadata=mock_meta,
+        note_bundle=note_bundle,
         workspace=workspace,
         is_long=False,
-        output_mode="summary",
+    )
+    storage = MagicMock()
+    storage.save_note_bundle.return_value = "obsidian://Test Video"
+    mock_create_storage.return_value = storage
+
+    result = run_pipeline(mock_meta.url, config)
+
+    assert result == "obsidian://Test Video"
+    storage.save_note_bundle.assert_called_once_with(note_bundle, mock_meta)
+
+
+@patch("yt2notion.pipeline.prepare_content")
+def test_run_pipeline_rejects_non_obsidian_publish_backend(mock_prepare_content, config):
+    from yt2notion.pipeline import run_pipeline
+
+    config.storage["backend"] = "notion"
+
+    with pytest.raises(ValueError, match="requires obsidian backend"):
+        run_pipeline("https://example.com/video", config)
+
+    mock_prepare_content.assert_not_called()
+
+
+@patch("yt2notion.pipeline.prepare_content")
+def test_run_pipeline_dry_run_allows_non_obsidian_backend(
+    mock_prepare_content,
+    config,
+    mock_meta,
+    note_bundle,
+):
+    from yt2notion.pipeline import PreparedContent, run_pipeline
+    from yt2notion.workspace import Workspace
+
+    config.storage["backend"] = "notion"
+    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    mock_prepare_content.return_value = PreparedContent(
+        metadata=mock_meta,
+        note_bundle=note_bundle,
+        workspace=workspace,
+        is_long=False,
     )
 
-    mock_storage = MagicMock()
-    mock_storage.save.return_value = "https://notion.so/page123"
-    mock_create_storage.return_value = mock_storage
+    output = run_pipeline("https://example.com/video", config, dry_run=True)
 
-    events: list[tuple[str, str, str | None]] = []
-    result = run_pipeline(
-        "https://example.com/video",
-        config,
-        progress_callback=lambda step, event, message=None: events.append((step, event, message)),
+    assert "# Source" in output
+    assert "# A / Guide" in output
+    assert "# B / Longform" in output
+
+
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_records_summarize_failure(
+    mock_step_download,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_download_audio,
+    mock_download_webpage_transcript,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+):
+    from yt2notion.pipeline import prepare_content
+
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = _minimal_transcript("manual_subtitle")
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.side_effect = RuntimeError("summary crashed")
+
+    with pytest.raises(RuntimeError, match="summary crashed"):
+        prepare_content(mock_meta.url, config)
+
+    failed_file = Path(config.workspace["base_dir"]) / mock_meta.video_id / "failed.json"
+    assert failed_file.exists()
+    data = failed_file.read_text(encoding="utf-8")
+    assert '"step": "summarize"' in data
+    assert '"retries_exhausted": false' in data.lower()
+
+
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline._download_webpage_transcript")
+@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+@patch("yt2notion.pipeline._step_download")
+def test_prepare_content_clears_stale_asr_fallback_marker_when_transcribe_runs_fresh(
+    mock_step_download,
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_download_audio,
+    mock_download_webpage_transcript,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+    note_bundle,
+):
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    mock_step_download.return_value = mock_meta
+    mock_download_webpage_transcript.return_value = False
+    mock_step_segment.return_value = []
+    mock_step_transcribe.return_value = _minimal_transcript("manual_subtitle")
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = note_bundle
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    ws.mark_asr_fallback_used()
+    assert ws.asr_fallback_used() is True
+
+    prepared = prepare_content(mock_meta.url, config, mode="summary")
+
+    assert prepared.workspace.asr_fallback_used() is False
+
+
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline._step_transcribe")
+@patch("yt2notion.pipeline._step_segment")
+def test_prepare_content_resume_from_segment_clears_stale_transcribe_checkpoint_artifacts(
+    mock_step_segment,
+    mock_step_transcribe,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+    note_bundle,
+):
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    ws.save_metadata(mock_meta)
+    ws.save_segments(
+        [{"title": "Old Part 1", "start_seconds": 0.0, "end_seconds": 60.0, "text": ""}]
     )
+    ws.save_transcribe_plan(
+        [
+            {
+                "chunk_id": "segment-001",
+                "segment_index": 0,
+                "title": "Old Part 1",
+                "start_seconds": 0.0,
+                "end_seconds": 60.0,
+                "audio_relpath": "segments/segment_001.mp3",
+                "preferred_backend": "remote",
+            }
+        ]
+    )
+    ws.save_transcribe_state(
+        {
+            "version": 1,
+            "job_mode": "remote_remaining",
+            "status": "running",
+            "next_attempt_at": None,
+            "last_error": None,
+            "defer_reason": None,
+            "ash_defer_count": 0,
+            "chunks": [
+                {
+                    "chunk_id": "segment-001",
+                    "status": "completed_remote",
+                    "backend_used": "remote",
+                    "result_relpath": "transcribe_chunks/segment-001.json",
+                    "attempts": 1,
+                    "updated_at": "2026-04-19T12:00:00+08:00",
+                }
+            ],
+        }
+    )
+    ws.save_transcribe_chunk_result(
+        "segment-001",
+        [{"start_seconds": 0.0, "end_seconds": 1.0, "text": "stale text", "source": "asr"}],
+    )
+    ws.mark_asr_fallback_used()
 
-    assert result == "https://notion.so/page123"
-    assert events == [
-        ("publish", "started", None),
-        ("publish", "completed", None),
+    mock_step_segment.return_value = [
+        {"title": "New Part 1", "start_seconds": 0.0, "end_seconds": 120.0}
     ]
-    assert mock_prepare_content.call_args.kwargs["progress_callback"] is not None
+
+    def _assert_clean_checkpoint_state(*args, **kwargs):
+        step_ws = args[0]
+        assert step_ws.load_transcribe_plan() is None
+        assert step_ws.load_transcribe_state() is None
+        assert step_ws.load_transcribe_chunk_result("segment-001") is None
+        return _minimal_transcript("manual_subtitle", "fresh text")
+
+    mock_step_transcribe.side_effect = _assert_clean_checkpoint_state
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = note_bundle
+
+    prepare_content(
+        mock_meta.url,
+        config,
+        mode="summary",
+        resume_from="segment",
+        workspace_dir=str(ws.dir),
+    )
+
+
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+def test_prepare_content_resume_after_transcribe_preserves_fallback_marker(
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+    note_bundle,
+):
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    ws.save_metadata(mock_meta)
+    ws.save_segments([])
+    ws.save_transcripts(_minimal_transcript("manual_subtitle"))
+    ws.mark_asr_fallback_used()
+    assert ws.asr_fallback_used() is True
+
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = note_bundle
+    prepared = prepare_content(
+        mock_meta.url,
+        config,
+        mode="summary",
+        resume_from="review",
+        workspace_dir=str(ws.dir),
+    )
+
+    assert prepared.workspace.asr_fallback_used() is True
+
+
+@patch("yt2notion.pipeline.build_note_bundle")
+@patch("yt2notion.pipeline.create_summarizer")
+@patch("yt2notion.pipeline._step_transcribe")
+def test_prepare_content_resume_from_transcribe_preserves_fallback_marker(
+    mock_step_transcribe,
+    mock_create_summarizer,
+    mock_build_note_bundle,
+    mock_meta,
+    config,
+    note_bundle,
+):
+    from yt2notion.pipeline import prepare_content
+    from yt2notion.workspace import Workspace
+
+    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
+    ws.save_metadata(mock_meta)
+    ws.save_segments([])
+    ws.save_transcribe_plan(
+        [
+            {
+                "chunk_id": "chunk-001",
+                "title": "Chunk 1",
+                "start_seconds": 0.0,
+                "end_seconds": 60.0,
+                "audio_relpath": "audio.mp3",
+                "preferred_backend": "remote",
+            }
+        ]
+    )
+    ws.save_transcribe_state(
+        {
+            "version": 1,
+            "job_mode": "remote_remaining",
+            "status": "running",
+            "next_attempt_at": None,
+            "last_error": None,
+            "defer_reason": None,
+            "ash_defer_count": 0,
+            "chunks": [
+                {
+                    "chunk_id": "chunk-001",
+                    "status": "pending",
+                    "backend_used": None,
+                    "result_relpath": None,
+                    "attempts": 0,
+                    "updated_at": "2026-04-19T12:00:00+08:00",
+                }
+            ],
+        }
+    )
+    ws.mark_asr_fallback_used()
+    assert ws.asr_fallback_used() is True
+
+    mock_step_transcribe.return_value = _minimal_transcript("manual_subtitle", "transcribed text")
+    mock_create_summarizer.return_value = MagicMock()
+    mock_build_note_bundle.return_value = note_bundle
+
+    prepared = prepare_content(
+        mock_meta.url,
+        config,
+        mode="summary",
+        resume_from="transcribe",
+        workspace_dir=str(ws.dir),
+    )
+
+    assert prepared.workspace.asr_fallback_used() is True
 
 
 def test_rebase_chunk_entries_drops_overlap_duplicates():
@@ -919,31 +593,21 @@ def test_rebase_chunk_entries_drops_overlap_duplicates():
     assert rebased[0].end_seconds == pytest.approx(302.5)
 
 
-def test_redistribute_reviewed_text_respects_actual_group_boundaries():
-    from yt2notion.pipeline import _merge_segments_into_groups, _redistribute_reviewed_text
 
-    segments = [
-        {
-            "title": f"S{i + 1}",
-            "start_seconds": i * 10,
-            "end_seconds": (i + 1) * 10,
-            "text": "segment",
-            "source": "asr",
-        }
-        for i in range(7)
-    ]
-    groups = _merge_segments_into_groups(segments)
-    assert [group["segment_count"] for group in groups] == [6, 1]
 
-    reviewed = _redistribute_reviewed_text(
-        segments,
-        groups,
-        ["FIRST-GROUP-REVIEWED", "SECOND-GROUP-REVIEWED"],
-    )
+def test_step_transcribe_preserves_saved_subtitle_source(tmp_path, mock_meta):
+    from yt2notion.pipeline import _step_transcribe
+    from yt2notion.workspace import Workspace
 
-    assert reviewed[-1]["text"] == "SECOND-GROUP-REVIEWED"
-    for seg in reviewed[:-1]:
-        assert "SECOND-GROUP-REVIEWED" not in seg["text"]
+    ws = Workspace(tmp_path, mock_meta.video_id)
+    srt = tmp_path / "source.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nManual line\n")
+    ws.save_subtitles(srt)
+    ws.save_subtitle_source("manual_subtitle")
+
+    transcripts = _step_transcribe(ws, mock_meta, [], {"output": {}}, verbose=False)
+
+    assert transcripts[0]["source"] == "manual_subtitle"
 
 
 @patch("yt2notion.audio.split_audio")
@@ -1770,495 +1434,6 @@ def test_transcribe_from_audio_raises_when_min_chunk_still_exceeds_upload_budget
     assert mock_split_audio.call_count == 2
     assert transcriber.transcribe.call_count == 0
 
-
-@patch("yt2notion.pipeline.extract_metadata")
-def test_pipeline_extract_error(mock_extract_meta, config):
-    mock_extract_meta.side_effect = ExtractionError("No subtitles found")
-
-    from yt2notion.pipeline import run_pipeline
-
-    with pytest.raises(ExtractionError, match="No subtitles"):
-        run_pipeline("https://www.youtube.com/watch?v=abc123", config)
-
-
-@patch("yt2notion.pipeline.create_llm_caller")
-@patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline.extract_subtitles")
-@patch("yt2notion.pipeline.extract_metadata")
-def test_pipeline_records_failure(
-    mock_extract_meta,
-    mock_extract_subs,
-    mock_create_summarizer,
-    mock_create_llm_caller,
-    mock_meta,
-    mock_summary,
-    mock_chinese,
-    config,
-    tmp_path,
-):
-    mock_extract_meta.return_value = mock_meta
-
-    srt_file = tmp_path / "abc123.en.srt"
-    srt_file.write_text("1\n00:00:01,000 --> 00:00:05,000\nHello world\n")
-    mock_extract_subs.return_value = srt_file
-
-    mock_caller = MagicMock()
-    mock_caller.call.return_value = (
-        '{"entities": [], "domain": "General", "is_entity_centric": false, '
-        '"entity_types": [], "relations": []}'
-    )
-    mock_create_llm_caller.return_value = mock_caller
-    mock_create_summarizer.side_effect = RuntimeError("summary crashed")
-
-    from yt2notion.pipeline import run_pipeline
-
-    with pytest.raises(RuntimeError, match="summary crashed"):
-        run_pipeline("https://www.youtube.com/watch?v=abc123", config)
-
-    failed_file = tmp_path / "workspace" / "abc123" / "failed.json"
-    assert failed_file.exists()
-    data = failed_file.read_text(encoding="utf-8")
-    assert '"step": "summarize"' in data
-    assert '"url": "https://www.youtube.com/watch?v=abc123"' in data
-    assert '"retries_exhausted": false' in data.lower()
-
-
-def test_resolve_output_mode_prefers_override(config):
-    from yt2notion.pipeline import _resolve_output_mode
-
-    config.output["mode"] = "full"
-
-    assert _resolve_output_mode(config, None) == "full"
-    assert _resolve_output_mode(config, "summary") == "summary"
-
-
-def test_resolve_output_mode_rejects_invalid(config):
-    from yt2notion.pipeline import _resolve_output_mode
-
-    with pytest.raises(ValueError, match="Unknown output mode"):
-        _resolve_output_mode(config, "invalid-mode")
-
-
-def test_resolve_note_mode_defaults_to_single_for_non_obsidian(config):
-    from yt2notion.pipeline import _resolve_note_mode
-
-    config.output.pop("note_mode", None)
-
-    assert _resolve_note_mode(config) == "single"
-
-
-def test_resolve_note_mode_defaults_to_source_ab_bundle_for_obsidian(config):
-    from yt2notion.pipeline import _resolve_note_mode
-
-    config.storage["backend"] = "obsidian"
-    config.output.pop("note_mode", None)
-
-    assert _resolve_note_mode(config) == "source_ab_bundle"
-
-
-def test_prepare_content_resume_summarize_requires_entities(config, mock_meta):
-    from pathlib import Path
-
-    from yt2notion.pipeline import prepare_content
-    from yt2notion.workspace import Workspace
-
-    workspace = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
-    workspace.save_metadata(mock_meta)
-    workspace.save_segments([])
-    workspace.save_transcripts([])
-
-    with pytest.raises(ValueError, match="no entities.json"):
-        prepare_content(
-            mock_meta.url,
-            config,
-            resume_from="summarize",
-            workspace_dir=str(workspace.dir),
-        )
-
-
-@patch("yt2notion.pipeline.create_llm_caller")
-def test_step_extract_skips_large_subtitle_derived_input(mock_create_llm_caller):
-    from yt2notion.pipeline import ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD, _step_extract
-
-    segments = [
-        {
-            "title": f"Part {i}",
-            "start_seconds": i * 10,
-            "end_seconds": (i + 1) * 10,
-            "text": "subtitle text",
-            "source": "subtitle",
-        }
-        for i in range(ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD + 1)
-    ]
-
-    result = _step_extract(segments, {"model": {"backend": "codex_cli"}}, verbose=False)
-
-    assert result.entities == []
-    mock_create_llm_caller.assert_not_called()
-
-
-@patch("yt2notion.entity_extract.extract_entities")
-@patch("yt2notion.pipeline.create_llm_caller")
-def test_step_extract_runs_for_asr_segments(mock_create_llm_caller, mock_extract_entities):
-    from yt2notion.models.base import EntityResult
-    from yt2notion.pipeline import _step_extract
-
-    caller = MagicMock()
-    mock_create_llm_caller.return_value = caller
-    expected = EntityResult(
-        domain="General",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-    mock_extract_entities.return_value = expected
-
-    segments = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 60,
-            "text": "asr text",
-            "source": "asr",
-        }
-    ]
-
-    result = _step_extract(segments, {"model": {"backend": "codex_cli"}}, verbose=False)
-
-    assert result == expected
-    mock_create_llm_caller.assert_called_once()
-    mock_extract_entities.assert_called_once()
-
-
-@patch("yt2notion.pipeline.prepare_content")
-@patch("yt2notion.pipeline.create_storage")
-def test_run_pipeline_long_full_adds_transcript_subpage(
-    mock_create_storage,
-    mock_prepare_content,
-    config,
-):
-    from pathlib import Path
-
-    from yt2notion.pipeline import PreparedContent, run_pipeline
-    from yt2notion.workspace import Workspace
-
-    workspace = Workspace(Path(config.workspace["base_dir"]), "abc123")
-    transcript_segments = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 30,
-            "text": "reviewed long transcript",
-            "source": "asr",
-        }
-    ]
-    metadata = VideoMeta(
-        video_id="abc123",
-        title="Test Video",
-        channel="TestChannel",
-        url="https://www.youtube.com/watch?v=abc123",
-    )
-    mock_prepare_content.return_value = PreparedContent(
-        metadata=metadata,
-        chinese_content=ChineseContent(
-            overview="测试概要",
-            key_points=[],
-            tags=[],
-            raw_markdown="## 概要\n\n测试概要",
-        ),
-        transcript_segments=transcript_segments,
-        entities=None,
-        workspace=workspace,
-        is_long=True,
-        output_mode="full",
-    )
-
-    mock_storage = MagicMock()
-    mock_storage.save.return_value = "https://notion.so/page123"
-    mock_create_storage.return_value = mock_storage
-
-    result = run_pipeline("https://example.com/video", config, mode="full")
-
-    assert result == "https://notion.so/page123"
-    save_kwargs = mock_storage.save.call_args.kwargs
-    assert save_kwargs["transcript_segments"] is None
-    mock_storage.add_transcript_subpage.assert_called_once_with(
-        "https://notion.so/page123", transcript_segments, metadata
-    )
-
-
-@patch("yt2notion.pipeline._step_summarize")
-@patch("yt2notion.pipeline._step_transcribe")
-@patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
-@patch("yt2notion.pipeline._step_download")
-def test_prepare_content_clears_stale_asr_fallback_marker_when_transcribe_runs_fresh(
-    mock_step_download,
-    mock_download_audio,
-    mock_download_webpage_transcript,
-    mock_step_segment,
-    mock_step_transcribe,
-    mock_step_summarize,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    from pathlib import Path
-
-    from yt2notion.pipeline import prepare_content
-    from yt2notion.workspace import Workspace
-
-    mock_meta.subtitles_available = False
-    mock_step_download.return_value = mock_meta
-    mock_download_audio.return_value = None
-    mock_download_webpage_transcript.return_value = False
-    mock_step_segment.return_value = []
-    mock_step_transcribe.return_value = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 20,
-            "text": "subtitle-like text",
-            "source": "subtitle",
-        }
-    ]
-    mock_step_summarize.return_value = mock_chinese
-
-    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
-    ws.mark_asr_fallback_used()
-    assert ws.asr_fallback_used() is True
-
-    prepared = prepare_content("https://example.com/video", config, mode="summary")
-
-    assert prepared.workspace.asr_fallback_used() is False
-
-
-@patch("yt2notion.pipeline._step_summarize")
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._step_transcribe")
-@patch("yt2notion.pipeline._step_segment")
-def test_prepare_content_resume_from_segment_clears_stale_transcribe_checkpoint_artifacts(
-    mock_step_segment,
-    mock_step_transcribe,
-    mock_step_extract,
-    mock_step_summarize,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    from pathlib import Path
-
-    from yt2notion.pipeline import prepare_content
-    from yt2notion.workspace import Workspace
-
-    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
-    ws.save_metadata(mock_meta)
-    ws.save_segments(
-        [{"title": "Old Part 1", "start_seconds": 0.0, "end_seconds": 60.0, "text": ""}]
-    )
-    ws.save_transcribe_plan(
-        [
-            {
-                "chunk_id": "segment-001",
-                "segment_index": 0,
-                "title": "Old Part 1",
-                "start_seconds": 0.0,
-                "end_seconds": 60.0,
-                "audio_relpath": "segments/segment_001.mp3",
-                "preferred_backend": "remote",
-            }
-        ]
-    )
-    ws.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "remote_remaining",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [
-                {
-                    "chunk_id": "segment-001",
-                    "status": "completed_remote",
-                    "backend_used": "remote",
-                    "result_relpath": "transcribe_chunks/segment-001.json",
-                    "attempts": 1,
-                    "updated_at": "2026-04-19T12:00:00+08:00",
-                }
-            ],
-        }
-    )
-    ws.save_transcribe_chunk_result(
-        "segment-001",
-        [{"start_seconds": 0.0, "end_seconds": 1.0, "text": "stale text", "source": "asr"}],
-    )
-    ws.mark_asr_fallback_used()
-
-    mock_step_segment.return_value = [
-        {"title": "New Part 1", "start_seconds": 0.0, "end_seconds": 120.0}
-    ]
-
-    def _assert_clean_checkpoint_state(*args, **kwargs):
-        step_ws = args[0]
-        assert step_ws.load_transcribe_plan() is None
-        assert step_ws.load_transcribe_state() is None
-        assert step_ws.load_transcribe_chunk_result("segment-001") is None
-        return [
-            {
-                "title": "New Part 1",
-                "start_seconds": 0,
-                "end_seconds": 120,
-                "text": "fresh text",
-                "source": "subtitle",
-            }
-        ]
-
-    mock_step_transcribe.side_effect = _assert_clean_checkpoint_state
-    mock_step_extract.return_value = EntityResult(
-        domain="test",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-    mock_step_summarize.return_value = mock_chinese
-
-    prepare_content(
-        mock_meta.url,
-        config,
-        mode="summary",
-        resume_from="segment",
-        workspace_dir=str(ws.dir),
-    )
-
-
-@patch("yt2notion.pipeline._step_summarize")
-def test_prepare_content_resume_after_transcribe_preserves_fallback_marker(
-    mock_step_summarize,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    from pathlib import Path
-
-    from yt2notion.pipeline import prepare_content
-    from yt2notion.workspace import Workspace
-
-    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
-    ws.save_metadata(mock_meta)
-    ws.save_segments([])
-    ws.save_transcripts(
-        [
-            {
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 20,
-                "text": "subtitle-like text",
-                "source": "subtitle",
-            }
-        ]
-    )
-    ws.mark_asr_fallback_used()
-    assert ws.asr_fallback_used() is True
-
-    mock_step_summarize.return_value = mock_chinese
-    prepared = prepare_content(
-        mock_meta.url,
-        config,
-        mode="summary",
-        resume_from="review",
-        workspace_dir=str(ws.dir),
-    )
-
-    assert prepared.workspace.asr_fallback_used() is True
-
-
-@patch("yt2notion.pipeline._step_summarize")
-@patch("yt2notion.pipeline._step_extract")
-@patch("yt2notion.pipeline._step_transcribe")
-def test_prepare_content_resume_from_transcribe_preserves_fallback_marker(
-    mock_step_transcribe,
-    mock_step_extract,
-    mock_step_summarize,
-    mock_meta,
-    mock_chinese,
-    config,
-):
-    from pathlib import Path
-
-    from yt2notion.pipeline import prepare_content
-    from yt2notion.workspace import Workspace
-
-    ws = Workspace(Path(config.workspace["base_dir"]), mock_meta.video_id)
-    ws.save_metadata(mock_meta)
-    ws.save_segments([])
-    ws.save_transcribe_plan(
-        [
-            {
-                "chunk_id": "chunk-001",
-                "title": "Chunk 1",
-                "start_seconds": 0.0,
-                "end_seconds": 60.0,
-                "audio_relpath": "audio.mp3",
-                "preferred_backend": "remote",
-            }
-        ]
-    )
-    ws.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "remote_remaining",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [
-                {
-                    "chunk_id": "chunk-001",
-                    "status": "pending",
-                    "backend_used": None,
-                    "result_relpath": None,
-                    "attempts": 0,
-                    "updated_at": "2026-04-19T12:00:00+08:00",
-                }
-            ],
-        }
-    )
-    ws.mark_asr_fallback_used()
-    assert ws.asr_fallback_used() is True
-
-    mock_step_transcribe.return_value = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 20,
-            "text": "transcribed text",
-            "source": "subtitle",
-        }
-    ]
-    mock_step_extract.return_value = EntityResult(
-        domain="test",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-    mock_step_summarize.return_value = mock_chinese
-
-    prepared = prepare_content(
-        mock_meta.url,
-        config,
-        mode="summary",
-        resume_from="transcribe",
-        workspace_dir=str(ws.dir),
-    )
-
-    assert prepared.workspace.asr_fallback_used() is True
 
 
 @patch("yt2notion.transcribe.create_transcriber")

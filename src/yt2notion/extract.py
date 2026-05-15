@@ -113,6 +113,18 @@ def extract_subtitles(url: str, config: dict, output_dir: Path, *, video_id: str
     Returns the path to the downloaded subtitle file.
     Pass video_id to avoid a redundant yt-dlp --dump-json call.
     """
+    path, _source = extract_subtitles_with_source(url, config, output_dir, video_id=video_id)
+    return path
+
+
+def extract_subtitles_with_source(
+    url: str, config: dict, output_dir: Path, *, video_id: str = ""
+) -> tuple[Path, str]:
+    """Download subtitles and return both file path and transcript source marker.
+
+    Source is ``manual_subtitle`` for explicit subtitles and ``auto_caption`` for
+    yt-dlp automatic captions so downstream cleanup can distinguish them.
+    """
     extract_cfg = config.get("extract", {})
     priority = extract_cfg.get("subtitle_priority", ["zh-Hans", "zh-Hant", "en"])
     auto_fallback = extract_cfg.get("auto_subtitle_fallback", True)
@@ -133,7 +145,7 @@ def extract_subtitles(url: str, config: dict, output_dir: Path, *, video_id: str
         # Check if file was created
         found = _find_subtitle_file(output_dir, video_id)
         if found:
-            return found
+            return found, "manual_subtitle"
 
     # Try auto-generated subtitles
     if auto_fallback:
@@ -144,7 +156,7 @@ def extract_subtitles(url: str, config: dict, output_dir: Path, *, video_id: str
             _run_ytdlp(args)
         found = _find_subtitle_file(output_dir, video_id)
         if found:
-            return found
+            return found, "auto_caption"
 
     raise ExtractionError(
         f"No subtitles found for {url}. "

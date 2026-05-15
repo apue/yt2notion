@@ -80,63 +80,53 @@ MVP scope note:
 
 ## Canonical Pipeline Map
 
-Precision rule: this ordered list reflects the current implementation in `src/yt2notion/pipeline.py`. Older summaries may still call transcript review "deferred", but current `full` mode performs long-content context review after summary generation and before publish.
+Precision rule: this ordered list reflects the current implementation in `src/yt2notion/pipeline.py`. The pipeline is bundle-only: it always builds one `note_bundle.json` containing `source`, `A 导读`, and `B 扩展`; legacy single-summary, entity extraction, full transcript subpage, and map/reduce summary paths are no longer runtime paths.
 
 1. `DOWNLOAD`
    `metadata.json` + one of `subtitles.*` or `audio.*`
 2. `SEGMENT`
    `segments.json`
-   Branch: author chapters → LLM chapter extraction from description → no pre-segmentation
+   Branch: author chapters → regex timestamp extraction from description → no pre-segmentation
 3. `TRANSCRIBE`
    `transcripts.json`
    Branch: subtitle assignment → per-segment ASR → full-audio ASR then duration split
    ASR backend rule: primary backend comes from `extract.asr.backend`; Groq hourly quota waits through the current window from persisted checkpoint state, while Groq daily quota can switch the current failed chunk plus remaining pending chunks to `extract.asr.fallback_backend`
 4. `TOPIC SEGMENT`
-   rewrites `transcripts.json` only after transcription
-   Trigger: oversized transcript segments
+   rewrites `transcripts.json` only for ASR-like transcripts when topic splitting changes boundaries
 5. `REVIEW`
-   `reviewed.json` in `full` mode only
-   Branch: subtitle-sourced content skips review; short ASR in `summary` mode does internal review+summary in one analysis call; short ASR in `full` mode does blocking transcript review; long ASR content skips blocking review in this step
-6. `EXTRACT`
-   `entities.json`
-7. `SUMMARIZE`
-   `summary.json` or `note_bundle.json`
-8. `CONTEXT REVIEW`
-   long ASR content in `full` mode only; review transcript with summary context before publish
-9. `PUBLISH`
-   summary page/note via storage backend, or source/A/B bundle via Obsidian bundle publish
-   For long single-note content, publish summary first without transcript subpage
+   `reviewed.json` only when cleanup is required
+   Branch: explicit manual subtitle markers skip cleanup; auto captions, webpage transcripts, ASR, and legacy `subtitle` markers are cleaned
+6. `SUMMARIZE`
+   `note_bundle.json`
+   Builds `NoteBundle` from reviewed or manually accepted transcripts via `note_bundle.build_note_bundle()`
+7. `PUBLISH`
+   Publishes the `source` / `A 导读` / `B 扩展` bundle through `storage.save_note_bundle()`; runtime publish currently requires `storage.backend = obsidian`
 
 ### Pipeline Truth by Step
 
 | Step | Main function | Input | Output | Notes |
 |---|---|---|---|---|
-| `DOWNLOAD` | `pipeline._step_download()` + subtitle/audio download helpers | URL | `metadata.json`, `subtitles.*` or `audio.*` | Uses `subtitles_available` to choose subtitle vs audio path |
-| `SEGMENT` | `pipeline._step_segment()` | `VideoMeta` | `segments.json` | LLM may be used here before ASR when description exists and chapters do not |
+| `DOWNLOAD` | `pipeline._step_download()` + subtitle/audio download helpers | URL | `metadata.json`, `subtitles.*` or `audio.*` | Uses `subtitles_available` to choose subtitle vs audio path, with audio fallback on subtitle failure |
+| `SEGMENT` | `pipeline._step_segment()` | `VideoMeta` | `segments.json` | Uses author chapters or local timestamp regex from description; no LLM chapter extraction |
 | `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely; audio path persists `transcribe_plan.json`, `transcribe_state.json`, and `transcribe_chunks/<chunk_id>.json` while running chunked ASR, then writes final `transcripts.json` only after every chunk completes |
-| `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription, never before |
-| `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Subtitle transcripts skip cleanup; long ASR content defers to context review step |
-| `EXTRACT` | `pipeline._step_extract()` | reviewed transcripts | `entities.json` | Uses `LLMCaller` |
-| `SUMMARIZE` | `pipeline._step_summarize()` or `note_bundle.build_note_bundle()` | reviewed transcripts | `summary.json` or `note_bundle.json` | Obsidian workflows default to `source_ab_bundle` (`source -> A导读 -> B扩展`); other backends default to legacy `single` unless explicitly overridden |
-| `CONTEXT REVIEW` | `pipeline._review_transcript_with_summary_context()` | long-form transcripts + summary context | rewritten `reviewed.json` | `full` mode long ASR only; retries-exhausted falls back to unreviewed transcript with warning note |
-| `PUBLISH` | `storage.save()` or `storage.save_note_bundle()` | summary or note bundle + metadata + optional transcript/entities | backend artifact | Bundle publish currently requires `storage.backend = obsidian`; long transcript subpage remains single-note only |
+| `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription for ASR-like transcript sources, never before |
+| `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Runs only when `_should_cleanup_transcript()` is true |
+| `SUMMARIZE` | `note_bundle.build_note_bundle()` | cleaned or accepted transcripts | `note_bundle.json` | Calls `compose_guide_note`, `compose_longform_note`, and `compose_note_metadata` |
+| `PUBLISH` | `storage.save_note_bundle()` | note bundle + metadata | backend artifact | Non-dry-run publish currently requires Obsidian |
 
 ### Branch Rules
 
 - `metadata.subtitles_available = true`:
   - try subtitle download first
-  - if subtitle download fails, fall back to audio download
+  - if subtitle download fails, fall back to webpage transcript or audio download
 - `metadata.chapters` non-empty:
   - use author chapters directly in `SEGMENT`
 - `metadata.chapters` empty and `metadata.description` non-empty:
-  - call `chapter_extract.extract_chapters_llm()`
-  - if LLM returns nothing or fails, fall back to regex-like timestamp parsing from description
-- no chapters and no usable description structure:
-  - proceed without pre-segmentation
-  - transcription creates coarse transcript segments
-  - topic segmentation may refine them afterwards
-- subtitle-sourced transcripts:
-  - skip blocking review
+  - parse timestamp-like chapter lines locally from description
+  - if no timestamp structure is found, proceed without pre-segmentation
+- transcript cleanup policy:
+  - only explicit `manual_subtitle`, `manual`, or `human_subtitle` sources skip cleanup
+  - `auto_caption`, `webpage`, `webpage_transcript`, `asr`, legacy `subtitle`, and auto-generated flags all require cleanup
 - audio-sourced transcripts:
   - primary transcriber from `extract.asr.backend`
   - when primary is `groq`, `TranscriptionHourlyLimitError` waits through the current hourly window and retries the same pending chunk
@@ -144,16 +134,11 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
   - chunk-level progress is persisted in workspace checkpoint artifacts, so completed chunks are not recomputed after a resume
   - rerunning from an earlier step than `TRANSCRIBE` discards prior transcribe checkpoint artifacts before starting a new ASR pass
   - Groq request errors outside the quota path (for example `400/401/403`) fail directly without fallback
-- long content:
-  - skip blocking review in `REVIEW`
-  - summarize first
-  - in `full` mode, run context review before publish
-  - publish summary first, then attach transcript subpage/file
-- `output.note_mode = source_ab_bundle`:
-  - only supported with `output.mode = summary`
-  - short ASR content runs blocking transcript review before bundle generation so A/B notes do not regress versus single-note mode
-  - summarize step builds `NoteBundle` from reviewed transcript via `note_bundle.build_note_bundle()`
-  - publish currently requires `storage.backend = obsidian`
+- output:
+  - `mode="full"` is rejected by `prepare_content()`
+  - config `output.mode` must be `summary`
+  - `output.note_mode` is ignored as a legacy setting
+  - the only runtime output artifact is `note_bundle.json`
 
 ## Workspace Artifacts and Contracts
 
@@ -166,10 +151,8 @@ Canonical workspace artifacts:
 | `transcribe_plan.json` | `TRANSCRIBE` | `list[{chunk_id, title, start_seconds, end_seconds, audio_relpath, preferred_backend, ?segment_index}]` |
 | `transcribe_state.json` | `TRANSCRIBE` | `{version, job_mode, status, next_attempt_at, last_error, defer_reason, ash_defer_count, chunks[]}` |
 | `transcribe_chunks/<chunk_id>.json` | `TRANSCRIBE` | `list[{start_seconds, end_seconds, text, source}]` for each completed chunk |
-| `transcripts.json` | `TRANSCRIBE` / `TOPIC SEGMENT` | `list[{title, start_seconds, end_seconds, text, source}]`, `source = "subtitle" | "asr"` |
-| `reviewed.json` | `REVIEW` / `CONTEXT REVIEW` | same shape as `transcripts.json`; `text` cleaned or context-reviewed |
-| `entities.json` | `EXTRACT` | `EntityResult {domain, is_entity_centric, entity_types, entities, relations}` |
-| `summary.json` | `SUMMARIZE` | `ChineseContent {overview, key_points, tags, fun_facts, raw_markdown, ?mindmap}` |
+| `transcripts.json` | `TRANSCRIBE` / `TOPIC SEGMENT` | `list[{title, start_seconds, end_seconds, text, source}]` |
+| `reviewed.json` | `REVIEW` | same shape as `transcripts.json`; present only when transcript cleanup runs |
 | `note_bundle.json` | `SUMMARIZE` | `NoteBundle {source, guide, longform, stable_tags, source_topics}` where each note is `NoteDocument {title, markdown, tags, variant}` |
 | `failed.json` | top-level pipeline error handling | `{url, step, error_type, error_message, retries_exhausted, timestamp}` style failure record |
 
@@ -181,7 +164,7 @@ Common non-JSON side artifacts:
 | `audio.mp3` | audio download | used for ASR path |
 | `segments/*.mp3` | per-segment ASR | transient workspace split files |
 
-All core model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Summary`, `ChunkSummary`, `ChineseContent`, `NoteMetadata`, `NoteDocument`, `NoteBundle`, `Entity`, `EntityResult`, `FUN_FACTS_CATEGORIES`.
+Core runtime model types live in `models/base.py`: `VideoMeta`, `Chapter`, `NoteMetadata`, `NoteDocument`, and `NoteBundle`.
 
 ## Config ↔ Code Map
 
@@ -192,9 +175,9 @@ Path resolution note:
 | `config.yaml` path | Consumer | Purpose |
 |---|---|---|
 | `model.backend` | `models/__init__.py:create_summarizer()` | choose `Summarizer` backend |
-| `model.summarize_model` | summarizer map phase | Sonnet-like per-segment summary model |
-| `model.translate_model` | summarizer reduce phase | Opus-like Chinese synthesis model |
-| `model.review_model` | `models/llm.py:create_llm_caller()` | lightweight LLM tasks such as chapter extraction / review / topic split |
+| `model.summarize_model` | model factories | legacy-compatible model alias; bundle composition currently uses compose methods |
+| `model.translate_model` | compose note methods | model used for guide / longform / metadata composition |
+| `model.review_model` | `models/llm.py:create_llm_caller()` | lightweight LLM tasks such as transcript cleanup / topic split |
 | `storage.backend` | `storage/__init__.py:create_storage()` | choose storage backend |
 | `storage.notion.*` | `storage/notion.py:NotionStorage.__init__()` | token / database / parent / rules |
 | `storage.obsidian.*` | `storage/obsidian.py:ObsidianStorage.__init__()` | vault and directory paths |
@@ -215,8 +198,8 @@ Path resolution note:
 | `extract.asr.groq.max_upload_bytes` | `transcribe/groq.py:GroqTranscriber` + `pipeline.py` audio chunking helpers | max bytes per Groq upload; drives chunk/sub-chunk split behavior |
 | `extract.asr.groq.endpoint` | `transcribe/groq.py:GroqTranscriber` | Groq OpenAI-compatible transcription endpoint |
 | `extract.asr.groq.timeout_seconds` | `transcribe/groq.py:GroqTranscriber` | HTTP timeout for Groq transcription requests |
-| `output.mode` | `pipeline.py:_resolve_output_mode()` | `summary` or `full` output behavior |
-| `output.note_mode` | `pipeline.py:_resolve_note_mode()` | explicit override when set; otherwise defaults to `source_ab_bundle` for Obsidian and `single` for other backends |
+| `output.mode` | `config.py` / `pipeline.prepare_content()` | must be `summary`; `full` is rejected |
+| `output.note_mode` | `config.py` | ignored legacy setting; runtime is always source/A/B bundle |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
 | `output.chunk_duration_seconds` | `process.py` | timestamp chunking granularity |
@@ -230,7 +213,7 @@ Path resolution note:
 - forces `model.backend = "codex_cli"`
 - forces `storage.backend = "obsidian"`
 - forces `output.mode = "summary"`
-- uses configured `output.note_mode`; because agent runtime forces Obsidian, its effective default is `source_ab_bundle`
+- output is always the source/A/B bundle
 - sets `model.summarize_model`, `model.translate_model`, `model.review_model` from `agent.yaml`
 - sets `model.reasoning_effort` from `agent.yaml`
 - sets optional `model._runtime.codex_profile` from `agent.yaml`
@@ -262,19 +245,8 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 
 | Template | Caller | Model role | Variables |
 |---|---|---|---|
-| `extract_chapters.md` | `chapter_extract.py` | chapter extraction | `{total_duration}` |
 | `topic_segment.md` | `topic_segment.py` | topic boundary splitting | `{channel}`, `{title}`, `{duration_seconds}`, `{char_count}` |
-| `review.md` | `review.py` | baseline transcript cleanup | `{title}`, `{channel}` |
-| `review_with_context.md` | `review.py` | context-aware transcript cleanup | `{title}`, `{channel}`, review-context vars |
-| `extract_entities.md` | `entity_extract.py` map phase | entity extraction | none |
-| `reduce_entities.md` | `entity_extract.py` reduce phase | entity reduction | none |
-| `summarize.md` | summarizer | short content with chapters | none |
-| `summarize_freeform.md` | summarizer | short content without chapters | none |
-| `summarize_reviewed.md` | summarizer | short ASR review+summary (chapters) | none |
-| `summarize_reviewed_freeform.md` | summarizer | short ASR review+summary (freeform) | none |
-| `summarize_chunk.md` | summarizer map phase | long-form chunk summary | `{segment_title}`, `{start_time}`, `{end_time}`, `{segment_index}`, `{total_segments}` |
-| `chinese.md` | summarizer reduce phase | Chinese synthesis | none |
-| `synthesize.md` | summarizer final synthesis | output polishing | `{title}`, `{channel}`, `{duration}`, `{url}` |
+| `review.md` | `review.py` | transcript cleanup | `{title}`, `{channel}` |
 | `compose_guide.md` | `Summarizer.compose_guide_note()` | A note / 导读版 tagged output: `<note_json>` metadata + `<note_markdown>` body | user payload contains `source`, `transcript`, `target_chars` |
 | `compose_longform.md` | `Summarizer.compose_longform_note()` | B note / 扩展成稿 tagged output: `<note_json>` metadata + `<note_markdown>` body | user payload contains `source`, `guide_note`, `transcript`, `target_chars` |
 | `compose_note_metadata.md` | `Summarizer.compose_note_metadata()` | source-note metadata strict JSON output | user payload contains `source`, `guide_note`, `longform_note` |
@@ -319,10 +291,10 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 ```text
 cli.py -> config.py, pipeline.py
 pipeline.py -> extract.py, process.py, workspace.py, note_bundle.py,
-               chapter_extract.py, segment.py, topic_segment.py, review.py, entity_extract.py,
+               segment.py, topic_segment.py, review.py,
                models/__init__.py, storage/__init__.py, transcribe/__init__.py
 note_bundle.py -> models/base.py, process.py
-chapter_extract.py, review.py, topic_segment.py, entity_extract.py -> models/llm.py, prompts/
+review.py, topic_segment.py -> models/llm.py, prompts/
 models/claude_code.py, models/anthropic_api.py -> prompts/, models/_parsers.py
 models/codex_cli.py -> prompts/, models/_parsers.py
 models/_parsers.py -> models/base.py

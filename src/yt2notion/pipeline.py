@@ -7,7 +7,6 @@ import math
 import tempfile
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,17 +18,14 @@ from yt2notion.extract import (
     ExtractionError,
     extract_audio,
     extract_metadata,
-    extract_subtitles,
+    extract_subtitles_with_source,
     extract_webpage_transcript,
     write_transcript_srt,
 )
 from yt2notion.models import create_summarizer
-from yt2notion.models.llm import create_llm_caller
 from yt2notion.note_bundle import build_note_bundle
 from yt2notion.process import (
     SubtitleEntry,
-    format_chapters_transcript,
-    format_timestamped_transcript,
     parse_subtitle_file,
     seconds_to_display,
 )
@@ -41,11 +37,7 @@ from yt2notion.workspace import STEPS, Workspace
 if TYPE_CHECKING:
     from yt2notion.config import AppConfig
     from yt2notion.models.base import (
-        ChineseContent,
-        ChunkSummary,
-        EntityResult,
         NoteBundle,
-        Summarizer,
         VideoMeta,
     )
 
@@ -53,9 +45,6 @@ if TYPE_CHECKING:
 FULL_AUDIO_ASR_CHUNK_SECONDS = 300
 MIN_ASR_UPLOAD_CHUNK_SECONDS = 30
 ASR_CHUNK_PADDING_SECONDS = 0.5
-SUMMARY_GROUP_CHAR_LIMIT = 24_000
-SUMMARY_GROUP_SEGMENT_LIMIT = 6
-ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD = 300
 ProgressEvent: TypeAlias = Literal[
     "started",
     "completed",
@@ -72,16 +61,12 @@ ChunkResultPayload: TypeAlias = list[dict[str, object]]
 
 @dataclass
 class PreparedContent:
-    """Structured pipeline output before storage publish."""
+    """Bundle-only pipeline output before storage publish."""
 
     metadata: VideoMeta
-    chinese_content: ChineseContent | None
-    transcript_segments: list[dict] | None
-    entities: EntityResult | None
+    note_bundle: NoteBundle
     workspace: Workspace
     is_long: bool
-    output_mode: str
-    note_bundle: NoteBundle | None = None
 
 
 def run_pipeline(
@@ -95,7 +80,11 @@ def run_pipeline(
     mode: str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> str:
-    """Run the pipeline and publish to the configured storage backend."""
+    """Run the bundle-only pipeline and publish to the configured storage backend."""
+    storage_backend = config.storage.get("backend", "notion")
+    if storage_backend != "obsidian" and not dry_run:
+        raise ValueError("source/A/B bundle publish currently requires obsidian backend")
+
     prepared = prepare_content(
         url,
         config,
@@ -111,10 +100,6 @@ def run_pipeline(
         typer.echo(output)
         return output
 
-    storage_backend = config.storage.get("backend", "notion")
-    if prepared.note_bundle is not None and storage_backend != "obsidian":
-        raise ValueError("source_ab_bundle publish requires obsidian backend")
-
     if verbose:
         typer.echo(f"Publishing to {storage_backend}...")
 
@@ -127,45 +112,14 @@ def run_pipeline(
     }
     storage = create_storage(raw_config)
 
-    transcript_segments = prepared.transcript_segments
-    if prepared.is_long:
-        transcript_segments = None
-
     _emit_progress(progress_callback, "publish", "started")
-    if prepared.note_bundle is not None:
-        result_url = storage.save_note_bundle(
-            prepared.note_bundle,
-            prepared.metadata,
-            transcript_segments=transcript_segments,
-            entities=prepared.entities,
-        )
-    else:
-        result_url = storage.save(
-            prepared.chinese_content,
-            prepared.metadata,
-            transcript_segments=transcript_segments,
-            entities=prepared.entities,
-        )
+    result_url = storage.save_note_bundle(prepared.note_bundle, prepared.metadata)
     _emit_progress(progress_callback, "publish", "completed")
     if verbose:
         typer.echo(f"  Published: {result_url}")
 
     prepared.workspace.clear_failure()
-
-    if (
-        prepared.note_bundle is None
-        and prepared.is_long
-        and prepared.output_mode == "full"
-        and prepared.transcript_segments
-    ):
-        if verbose:
-            typer.echo("  Adding transcript sub-page...")
-        storage.add_transcript_subpage(result_url, prepared.transcript_segments, prepared.metadata)
-        if verbose:
-            typer.echo("  Transcript sub-page added.")
-
     return result_url
-
 
 def prepare_content(
     url: str,
@@ -177,7 +131,10 @@ def prepare_content(
     mode: str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> PreparedContent:
-    """Run the processing pipeline and return artifacts without publishing."""
+    """Run the bundle-only processing pipeline and return artifacts without publishing."""
+    if mode not in {None, "summary"}:
+        raise ValueError("source/A/B bundle output supports summary mode only")
+
     raw_config = {
         "extract": config.extract,
         "model": config.model,
@@ -185,12 +142,7 @@ def prepare_content(
         "credit": config.credit,
         "output": config.output,
     }
-    output_mode = _resolve_output_mode(config, mode)
-    note_mode = _resolve_note_mode(config)
-    if output_mode == "full" and note_mode == "source_ab_bundle":
-        raise ValueError("source_ab_bundle currently supports summary mode only")
 
-    # Determine which steps to run
     start_idx = 0
     if resume_from:
         if resume_from not in STEPS:
@@ -208,16 +160,16 @@ def prepare_content(
             ws = Workspace(base_dir, metadata.video_id)
             ws.save_metadata(metadata)
 
-            # Download content based on metadata signals
             if metadata.subtitles_available:
                 if verbose:
                     typer.echo("Downloading subtitles...")
                 try:
                     with tempfile.TemporaryDirectory() as tmp_dir:
-                        sub_path = extract_subtitles(
+                        sub_path, subtitle_source = extract_subtitles_with_source(
                             url, raw_config, Path(tmp_dir), video_id=metadata.video_id
                         )
                         ws.save_subtitles(sub_path)
+                        ws.save_subtitle_source(subtitle_source)
                         if verbose:
                             typer.echo(f"  Saved: subtitles{sub_path.suffix}")
                 except ExtractionError:
@@ -230,19 +182,14 @@ def prepare_content(
                     _download_audio(url, metadata, raw_config, ws, verbose)
             _emit_progress(progress_callback, "download", "completed")
         else:
-            # Resume: load workspace
             base_dir = Path(workspace_dir or config.workspace.get("base_dir", "./workspace"))
-            # For resume, we need the video_id from an existing workspace
-            # Try to find it from the URL or existing workspace
             if resume_from and workspace_dir:
-                # workspace_dir might be the full path including video_id
                 ws_path = Path(workspace_dir)
                 if (ws_path / "metadata.json").exists():
                     ws = Workspace(ws_path.parent, ws_path.name)
                 else:
                     raise ValueError(f"No metadata.json found in {workspace_dir}")
             else:
-                # Extract video_id from URL to find workspace
                 metadata = extract_metadata(url)
                 ws = Workspace(base_dir, metadata.video_id)
 
@@ -283,49 +230,28 @@ def prepare_content(
                 verbose,
                 progress_callback=progress_callback,
             )
-            ws.save_transcripts(transcripts)  # Final save after all chunk checkpoints complete
+            ws.save_transcripts(transcripts)
             _emit_progress(progress_callback, "transcribe", "completed")
         else:
             transcripts = ws.load_transcripts()
             if transcripts is None:
                 raise ValueError("Cannot resume: no transcripts.json in workspace")
 
-        # --- Step 3.5: TOPIC SEGMENTATION (refine coarse segments) ---
-        if start_idx <= 2:
-            source = transcripts[0].get("source", "subtitle") if transcripts else "subtitle"
-            if source == "asr":
-                max_seg_sec = raw_config.get("output", {}).get("max_segment_seconds", 600)
-                original_count = len(transcripts)
-                transcripts = segment_transcript(transcripts, metadata, raw_config, max_seg_sec)
-                if len(transcripts) != original_count:
-                    ws.save_transcripts(transcripts)
-                    if verbose:
-                        typer.echo(
-                            f"  Topic segmentation: {original_count} → {len(transcripts)} segments"
-                        )
-            elif verbose:
-                typer.echo("  Skipping topic segmentation for subtitle-derived transcript")
-
-        # --- Step 4: REVIEW / ANALYSIS INPUT ---
-        current_step = "review"
-        is_long = _is_long_content(metadata, transcripts, raw_config)
-        if output_mode == "full":
-            if is_long:
-                reviewed = transcripts
+        if start_idx <= 2 and _should_topic_segment(transcripts):
+            max_seg_sec = raw_config.get("output", {}).get("max_segment_seconds", 600)
+            original_count = len(transcripts)
+            transcripts = segment_transcript(transcripts, metadata, raw_config, max_seg_sec)
+            if len(transcripts) != original_count:
+                ws.save_transcripts(transcripts)
                 if verbose:
                     typer.echo(
-                        "Skipping blocking review (long content — will review after summary)"
+                        f"  Topic segmentation: {original_count} → {len(transcripts)} segments"
                     )
-            elif start_idx <= 3:
-                _emit_progress(progress_callback, "review", "started")
-                reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
-                ws.save_reviewed(reviewed)
-                _emit_progress(progress_callback, "review", "completed")
-            else:
-                reviewed = ws.load_reviewed()
-                if reviewed is None:
-                    raise ValueError("Cannot resume: no reviewed.json in workspace")
-        elif note_mode == "source_ab_bundle" and not is_long:
+        elif verbose:
+            typer.echo("  Skipping topic segmentation for manual subtitle transcript")
+
+        current_step = "review"
+        if _should_cleanup_transcript(transcripts):
             if start_idx <= 3:
                 _emit_progress(progress_callback, "review", "started")
                 reviewed = _step_review(transcripts, metadata, raw_config, ws, verbose)
@@ -338,80 +264,22 @@ def prepare_content(
         else:
             reviewed = transcripts
             if verbose:
-                typer.echo("Skipping transcript artifact review (summary mode)")
+                typer.echo("Skipping transcript cleanup for manual subtitle transcript")
 
-        # --- Step 5: EXTRACT ENTITIES ---
-        current_step = "extract"
-        analysis_segments = reviewed if output_mode == "full" else transcripts
-        if start_idx <= 4:
-            _emit_progress(progress_callback, "extract", "started")
-            analysis_source = (
-                analysis_segments[0].get("source", "subtitle") if analysis_segments else "subtitle"
-            )
-            if output_mode == "summary" and analysis_source != "asr":
-                if verbose:
-                    typer.echo("Skipping entities for subtitle-derived summary mode")
-                entities = _empty_entities()
-            else:
-                entities = _step_extract(analysis_segments, raw_config, verbose)
-            ws.save_entities(entities)
-            _emit_progress(progress_callback, "extract", "completed")
-        else:
-            entities = ws.load_entities()
-            if entities is None:
-                raise ValueError("Cannot resume: no entities.json in workspace")
-
-        # --- Step 6: SUMMARIZE ---
         current_step = "summarize"
         _emit_progress(progress_callback, "summarize", "started")
-        note_bundle: NoteBundle | None = None
-        if note_mode == "source_ab_bundle":
-            if verbose:
-                typer.echo("Summarizing source/A/B note bundle...")
-            summarizer = create_summarizer(raw_config)
-            note_bundle = build_note_bundle(reviewed, metadata, summarizer)
-            ws.save_note_bundle(note_bundle)
-            chinese_content: ChineseContent | None = None
-        else:
-            chinese_content = _step_summarize(
-                analysis_segments,
-                metadata,
-                raw_config,
-                verbose,
-                output_mode=output_mode,
-            )
-            ws.save_summary(chinese_content)
+        if verbose:
+            typer.echo("Summarizing source/A/B note bundle...")
+        summarizer = create_summarizer(raw_config)
+        note_bundle = build_note_bundle(reviewed, metadata, summarizer)
+        ws.save_note_bundle(note_bundle)
         _emit_progress(progress_callback, "summarize", "completed")
-
-        transcript_segments: list[dict] | None = None
-        if output_mode == "full":
-            if is_long and note_mode == "single":
-                current_step = "deferred_review"
-                _emit_progress(progress_callback, "review", "started")
-                transcript_segments = _review_transcript_with_summary_context(
-                    transcripts,
-                    chinese_content,
-                    metadata,
-                    raw_config,
-                    ws,
-                    verbose,
-                )
-                _emit_progress(progress_callback, "review", "completed")
-            else:
-                transcript_segments = reviewed
-
-        if ws is None:
-            raise RuntimeError("Workspace unexpectedly unavailable")
 
         return PreparedContent(
             metadata=metadata,
-            chinese_content=chinese_content,
-            transcript_segments=transcript_segments,
-            entities=entities,
-            workspace=ws,
-            is_long=is_long,
-            output_mode=output_mode,
             note_bundle=note_bundle,
+            workspace=ws,
+            is_long=_is_long_content(metadata, transcripts, raw_config),
         )
     except Exception as exc:
         if ws is not None:
@@ -499,6 +367,7 @@ def _download_webpage_transcript(
         transcript_path = Path(tmp_dir) / f"{metadata.video_id or 'transcript'}.srt"
         write_transcript_srt(entries, transcript_path)
         saved = ws.save_subtitles(transcript_path)
+        ws.save_subtitle_source("webpage_transcript")
 
     if verbose:
         typer.echo(f"  Found webpage transcript: {saved.name} ({len(entries)} entries)")
@@ -524,26 +393,21 @@ def _step_segment(metadata: VideoMeta, config: dict, verbose: bool) -> list[dict
                 }
             )
     elif metadata.description:
-        if verbose:
-            typer.echo("  Extracting chapters from description via LLM...")
-        from yt2notion.chapter_extract import extract_chapters_llm
+        from yt2notion.segment import _extract_chapters_from_description
 
-        chapters = extract_chapters_llm(metadata.description, metadata.duration_seconds, config)
-        if chapters:
-            if verbose:
-                typer.echo(f"  Found {len(chapters)} chapters")
-            for ch in chapters:
-                segments.append(
-                    {
-                        "title": ch.title,
-                        "start_seconds": ch.start_seconds,
-                        "end_seconds": ch.end_seconds,
-                    }
-                )
-        else:
-            if verbose:
-                typer.echo("  No chapters found in description")
-
+        chapters = _extract_chapters_from_description(
+            metadata.description, metadata.duration_seconds, config
+        )
+        if verbose and chapters:
+            typer.echo(f"  Found {len(chapters)} timestamp chapters in description")
+        for ch in chapters:
+            segments.append(
+                {
+                    "title": ch.title,
+                    "start_seconds": ch.start_seconds,
+                    "end_seconds": ch.end_seconds,
+                }
+            )
     if not segments and verbose:
         typer.echo("  No structural info — will segment after transcription")
 
@@ -596,7 +460,10 @@ def _step_transcribe(
     audio_path = ws.audio_path
 
     if sub_path:
-        return _transcribe_from_subtitles(sub_path, segments, metadata, config, verbose)
+        subtitle_source = ws.load_subtitle_source() or "subtitle"
+        return _transcribe_from_subtitles(
+            sub_path, segments, metadata, config, verbose, source=subtitle_source
+        )
     if audio_path is None:
         raise ExtractionError("No subtitles or audio found in workspace")
 
@@ -864,6 +731,8 @@ def _transcribe_from_subtitles(
     metadata: VideoMeta,
     config: dict,
     verbose: bool,
+    *,
+    source: str = "subtitle",
 ) -> list[dict]:
     """Assign subtitle entries to segments, or create segments from entries."""
     entries = parse_subtitle_file(sub_path)
@@ -872,7 +741,7 @@ def _transcribe_from_subtitles(
 
     if segments:
         # Assign entries to existing segments by time
-        return _assign_entries_to_segments(entries, segments)
+        return _assign_entries_to_segments(entries, segments, source=source)
     else:
         # No segments — sentence-split the full transcript
         from yt2notion.segment import _split_by_duration
@@ -885,13 +754,15 @@ def _transcribe_from_subtitles(
                 "start_seconds": seg.start_seconds,
                 "end_seconds": seg.end_seconds,
                 "text": seg.text,
-                "source": "subtitle",
+                "source": source,
             }
             for seg in split_segs
         ]
 
 
-def _assign_entries_to_segments(entries: list[SubtitleEntry], segments: list[dict]) -> list[dict]:
+def _assign_entries_to_segments(
+    entries: list[SubtitleEntry], segments: list[dict], *, source: str = "subtitle"
+) -> list[dict]:
     """Assign subtitle entries to segments by timestamp."""
     result: list[dict] = []
     for seg in segments:
@@ -907,7 +778,7 @@ def _assign_entries_to_segments(entries: list[SubtitleEntry], segments: list[dic
                 "start_seconds": seg["start_seconds"],
                 "end_seconds": seg["end_seconds"],
                 "text": text,
-                "source": "subtitle",
+                "source": source,
             }
         )
     return result
@@ -1585,6 +1456,38 @@ def _rebase_chunk_entries(entries: list[SubtitleEntry], chunk_spec: dict) -> lis
     return rebased
 
 
+MANUAL_TRANSCRIPT_SOURCES = {"manual_subtitle", "manual", "human_subtitle"}
+ASR_LIKE_TRANSCRIPT_SOURCES = {"asr", "auto_caption", "webpage", "webpage_transcript"}
+
+
+def _transcript_source(segment: dict) -> str:
+    """Return the best available transcript origin marker for cleanup policy."""
+    for key in ("origin", "transcript_origin", "source", "kind"):
+        value = str(segment.get(key, "")).strip().lower()
+        if value:
+            return value
+    return "subtitle"
+
+
+def _should_cleanup_transcript(transcripts: list[dict]) -> bool:
+    """Clean every transcript unless it is explicitly marked as manual subtitle."""
+    if not transcripts:
+        return False
+    for segment in transcripts:
+        if segment.get("is_auto_generated") is True or segment.get("auto_caption") is True:
+            return True
+        source = _transcript_source(segment)
+        if source in MANUAL_TRANSCRIPT_SOURCES:
+            continue
+        return True
+    return False
+
+
+def _should_topic_segment(transcripts: list[dict]) -> bool:
+    """Topic-split ASR-like transcripts, including auto captions and webpage transcripts."""
+    return _should_cleanup_transcript(transcripts)
+
+
 def _step_review(
     transcripts: list[dict],
     metadata: VideoMeta,
@@ -1595,13 +1498,6 @@ def _step_review(
     """Step 4: Review/clean transcripts using Haiku."""
     if verbose:
         typer.echo("Reviewing transcripts...")
-
-    # Skip review for subtitle-sourced content (already clean)
-    source = transcripts[0].get("source", "subtitle") if transcripts else "subtitle"
-    if source == "subtitle":
-        if verbose:
-            typer.echo("  Subtitle source — skipping review")
-        return transcripts
 
     from yt2notion.review import review_segment
 
@@ -1625,202 +1521,6 @@ def _step_review(
     return reviewed
 
 
-def _step_extract(
-    reviewed: list[dict],
-    config: dict,
-    verbose: bool,
-) -> EntityResult:
-    """Step 5: Extract entities from reviewed transcripts."""
-    if verbose:
-        typer.echo("Extracting entities...")
-
-    source = reviewed[0].get("source", "subtitle") if reviewed else "subtitle"
-    if source != "asr" and len(reviewed) > ENTITY_EXTRACT_SUBTITLE_SKIP_THRESHOLD:
-        if verbose:
-            typer.echo("  Skipping entity extraction for large subtitle-derived transcript")
-        return _empty_entities()
-
-    from yt2notion.entity_extract import extract_entities
-
-    caller = create_llm_caller(config, model_key="review_model")
-    result = extract_entities(reviewed, caller, max_workers=_llm_parallel_workers(config))
-
-    if verbose:
-        typer.echo(f"  Found {len(result.entities)} entities ({result.domain})")
-
-    return result
-
-
-def _empty_entities() -> EntityResult:
-    from yt2notion.models.base import EntityResult
-
-    return EntityResult(
-        domain="",
-        is_entity_centric=False,
-        entity_types=[],
-        entities=[],
-        relations=[],
-    )
-
-
-def _step_summarize(
-    reviewed: list[dict],
-    metadata: VideoMeta,
-    config: dict,
-    verbose: bool,
-    *,
-    output_mode: str,
-) -> ChineseContent:
-    """Step 6: Summarize reviewed transcripts."""
-    if verbose:
-        typer.echo("Summarizing...")
-
-    source = reviewed[0].get("source", "subtitle") if reviewed else "subtitle"
-    summarizer = create_summarizer(config)
-
-    if (
-        output_mode == "summary"
-        and source == "asr"
-        and not _is_long_content(metadata, reviewed, config)
-    ):
-        return _summarize_short_asr_single_pass(reviewed, metadata, summarizer, config, verbose)
-
-    if not _is_long_content(metadata, reviewed, config):
-        return _summarize_short(reviewed, metadata, summarizer, config, verbose)
-
-    return _summarize_long(
-        reviewed,
-        metadata,
-        summarizer,
-        verbose,
-        max_workers=_llm_parallel_workers(config),
-    )
-
-
-def _summarize_short(
-    reviewed: list[dict],
-    metadata: VideoMeta,
-    summarizer: Summarizer,
-    config: dict,
-    verbose: bool,
-) -> ChineseContent:
-    """Single-pass summarization for short content."""
-    # Reconstruct entries for formatting
-    entries = [
-        SubtitleEntry(
-            start_seconds=seg["start_seconds"],
-            end_seconds=seg["end_seconds"],
-            text=seg["text"],
-        )
-        for seg in reviewed
-    ]
-
-    if metadata.chapters:
-        transcript = format_chapters_transcript(entries, metadata.chapters)
-        prompt_name = "summarize"
-    else:
-        transcript = format_timestamped_transcript(entries)
-        prompt_name = "summarize_freeform"
-
-    if verbose:
-        typer.echo(f"  Short content — single pass ({prompt_name})")
-    summary = summarizer.summarize(transcript, metadata, prompt_name=prompt_name)
-    if verbose:
-        typer.echo(f"  {len(summary.sections)} sections → generating Chinese content...")
-    return summarizer.to_chinese(summary, metadata)
-
-
-def _summarize_short_asr_single_pass(
-    transcripts: list[dict],
-    metadata: VideoMeta,
-    summarizer: Summarizer,
-    config: dict,
-    verbose: bool,
-) -> ChineseContent:
-    """Summarize raw ASR in one analysis call that internally reviews the text first."""
-    entries = [
-        SubtitleEntry(
-            start_seconds=seg["start_seconds"],
-            end_seconds=seg["end_seconds"],
-            text=seg["text"],
-        )
-        for seg in transcripts
-    ]
-
-    if metadata.chapters:
-        transcript = format_chapters_transcript(entries, metadata.chapters)
-        prompt_name = "summarize_reviewed"
-    else:
-        transcript = format_timestamped_transcript(entries)
-        prompt_name = "summarize_reviewed_freeform"
-
-    if verbose:
-        typer.echo(f"  Summary mode — internal review + summary ({prompt_name})")
-
-    result = summarizer.review_and_summarize(transcript, metadata, prompt_name=prompt_name)
-    summary = result.summary
-
-    if verbose:
-        typer.echo(f"  {len(summary.sections)} sections → generating Chinese content...")
-    return summarizer.to_chinese(summary, metadata)
-
-
-def _summarize_long(
-    reviewed: list[dict],
-    metadata: VideoMeta,
-    summarizer: Summarizer,
-    verbose: bool,
-    *,
-    max_workers: int = 1,
-) -> ChineseContent:
-    """Map-reduce summarization for long content.
-
-    Merges fine-grained segments into ~8-12 groups before the map phase
-    to reduce the number of LLM calls (e.g. 89 segments → 9 groups).
-    """
-    groups = _merge_segments_into_groups(reviewed)
-    if verbose:
-        typer.echo(f"  Long content — map-reduce ({len(reviewed)} segments → {len(groups)} groups)")
-
-    # Map phase: one Sonnet call per group
-    def _summarize_group(i: int, group: dict):
-        segment_info = {
-            "segment_title": group["title"],
-            "start_time": seconds_to_display(group["start_seconds"]),
-            "end_time": seconds_to_display(group["end_seconds"]),
-            "segment_index": str(i + 1),
-            "total_segments": str(len(groups)),
-        }
-        return i, summarizer.summarize_chunk(group["text"], metadata, segment_info)
-
-    chunk_summaries: list[ChunkSummary | None] = [None] * len(groups)
-    worker_count = max(1, min(max_workers, len(groups)))
-
-    if worker_count == 1:
-        for i, group in enumerate(groups):
-            _, cs = _summarize_group(i, group)
-            chunk_summaries[i] = cs
-    else:
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            futures = [
-                executor.submit(_summarize_group, i, group) for i, group in enumerate(groups)
-            ]
-            for future in as_completed(futures):
-                i, cs = future.result()
-                chunk_summaries[i] = cs
-
-    finalized_chunk_summaries = [cs for cs in chunk_summaries if cs is not None]
-
-    for i, cs in enumerate(finalized_chunk_summaries):
-        if verbose:
-            typer.echo(f"  Map [{i + 1}/{len(groups)}] {cs.segment_title}")
-
-    # Reduce phase
-    if verbose:
-        typer.echo("  Reduce: synthesizing global summary...")
-    return summarizer.synthesize(finalized_chunk_summaries, metadata)
-
-
 def _is_long_content(metadata: VideoMeta, transcripts: list[dict], config: dict) -> bool:
     """Determine if content should use the long (map-reduce) path."""
     threshold = config.get("output", {}).get("long_content_threshold_seconds", 1800)
@@ -1835,165 +1535,24 @@ def _llm_parallel_workers(config: dict) -> int:
     return 1
 
 
-def _merge_segments_into_groups(segments: list[dict]) -> list[dict]:
-    """Merge fine-grained segments into larger groups for efficient map-reduce.
-
-    Bound group size so CLI backends do not receive oversized prompts.
-    """
-    groups: list[dict] = []
-    current_batch: list[dict] = []
-    current_chars = 0
-
-    def _flush(batch: list[dict]) -> None:
-        if not batch:
-            return
-        titles = [segment.get("title", "") for segment in batch if segment.get("title")]
-        combined_title = titles[0] if len(titles) == 1 else f"{titles[0]} — {titles[-1]}"
-        groups.append(
-            {
-                "title": combined_title,
-                "start_seconds": batch[0]["start_seconds"],
-                "end_seconds": batch[-1]["end_seconds"],
-                "text": "\n\n".join(segment.get("text", "") for segment in batch),
-                "source": batch[0].get("source", "asr"),
-                "segment_count": len(batch),
-            }
-        )
-
-    for segment in segments:
-        segment_chars = len(segment.get("text", ""))
-        exceeds_char_limit = current_chars + segment_chars > SUMMARY_GROUP_CHAR_LIMIT
-        exceeds_segment_limit = len(current_batch) >= SUMMARY_GROUP_SEGMENT_LIMIT
-
-        if current_batch and (exceeds_char_limit or exceeds_segment_limit):
-            _flush(current_batch)
-            current_batch = []
-            current_chars = 0
-
-        current_batch.append(segment)
-        current_chars += segment_chars
-
-    _flush(current_batch)
-
-    return groups
-
-
-def _build_review_context(chinese_content: ChineseContent) -> dict[str, str]:
-    """Extract review context from completed summary."""
-    key_terms: list[str] = []
-    for kp in chinese_content.key_points:
-        title = kp.get("title", "")
-        if title:
-            key_terms.append(title)
-
-    return {
-        "overview": chinese_content.overview,
-        "key_terms": ", ".join(key_terms),
-        "tags": ", ".join(chinese_content.tags),
-    }
-
-
-def _review_transcript_with_summary_context(
-    transcripts: list[dict],
-    chinese_content: ChineseContent,
-    metadata: VideoMeta,
-    config: dict,
-    ws: Workspace,
-    verbose: bool,
-) -> list[dict]:
-    """Review transcript after summary generation using summary-derived terminology anchors."""
-    source = transcripts[0].get("source", "subtitle") if transcripts else "subtitle"
-    if source == "subtitle":
-        if verbose:
-            typer.echo("  Subtitle source — skipping async review")
-        return transcripts
-
-    if verbose:
-        typer.echo("Async review: context-aware transcript cleanup...")
-
-    from yt2notion.review import review_segment
-
-    review_context = _build_review_context(chinese_content)
-    groups = _merge_segments_into_groups(transcripts)
-    reviewed_groups: list[str] = []
-
-    try:
-        for i, group in enumerate(groups):
-            if verbose:
-                typer.echo(f"  Review [{i + 1}/{len(groups)}] {group.get('title', '')}")
-            cleaned = review_segment(group["text"], metadata, config, review_context)
-            reviewed_groups.append(cleaned)
-    except RetryExhaustedError as exc:
-        typer.echo(
-            f"  Warning: review retries exhausted ({exc}), using unreviewed transcript",
-            err=True,
-        )
-        reviewed = _prepend_review_failure_note(transcripts)
-        ws.save_reviewed(reviewed)
-        return reviewed
-
-    reviewed = _redistribute_reviewed_text(transcripts, groups, reviewed_groups)
-    ws.save_reviewed(reviewed)
-    return reviewed
-
-
-def _prepend_review_failure_note(transcripts: list[dict]) -> list[dict]:
-    """Add a warning note before unreviewed transcript content."""
-    note = {
-        "title": "⚠️ 逐字稿未经校对（校对步骤失败）",
-        "start_seconds": 0,
-        "end_seconds": 0,
-        "text": "逐字稿使用原始 ASR 输出，未经过校对。",
-        "source": "review_failed",
-    }
-    return [note, *transcripts]
-
-
-def _resolve_output_mode(config: AppConfig, override: str | None) -> str:
-    """Resolve output mode from CLI override or config, validating the value."""
-    mode = override or config.output.get("mode", "summary")
-    if mode not in {"summary", "full"}:
-        raise ValueError(f"Unknown output mode: {mode!r}. Valid: summary, full")
-    return mode
-
-
-def _resolve_note_mode(config: AppConfig) -> str:
-    """Resolve the note generation mode from config."""
-    mode = config.output.get("note_mode")
-    if mode is None:
-        storage_backend = config.storage.get("backend", "notion")
-        mode = "source_ab_bundle" if storage_backend == "obsidian" else "single"
-    if mode not in {"single", "source_ab_bundle"}:
-        raise ValueError(f"Unknown note mode: {mode!r}. Valid: single, source_ab_bundle")
-    return mode
-
-
 def render_prepared_output(prepared: PreparedContent, config: AppConfig) -> str:
-    """Render human-readable dry-run output from prepared content."""
+    """Render human-readable dry-run output from prepared bundle content."""
     credit_format = config.credit.get("format", "来源：{channel} 「{title}」\n链接：{url}")
     credit = credit_format.format(
         channel=prepared.metadata.channel,
         title=prepared.metadata.title,
         url=prepared.metadata.url,
     )
-    if prepared.note_bundle is not None:
-        parts = [
-            credit,
-            "# Source",
-            prepared.note_bundle.source.markdown,
-            "# A / Guide",
-            prepared.note_bundle.guide.markdown,
-            "# B / Longform",
-            prepared.note_bundle.longform.markdown,
-        ]
-    else:
-        if prepared.chinese_content is None:
-            raise RuntimeError("Prepared content is missing summary output")
-        parts = [credit, prepared.chinese_content.raw_markdown]
-    if prepared.output_mode == "full" and prepared.transcript_segments:
-        parts.append(render_transcript_markdown(prepared.metadata, prepared.transcript_segments))
+    parts = [
+        credit,
+        "# Source",
+        prepared.note_bundle.source.markdown,
+        "# A / Guide",
+        prepared.note_bundle.guide.markdown,
+        "# B / Longform",
+        prepared.note_bundle.longform.markdown,
+    ]
     return "\n\n".join(parts)
-
 
 def render_transcript_markdown(metadata: VideoMeta, transcript_segments: list[dict]) -> str:
     """Render reviewed transcript for dry-run and agent JSON output."""
@@ -2018,62 +1577,3 @@ def _is_retries_exhausted(exc: Exception) -> bool:
         next_exc = current.__cause__ or current.__context__
         current = next_exc if isinstance(next_exc, Exception) else None
     return False
-
-
-def _redistribute_reviewed_text(
-    original_segments: list[dict],
-    groups: list[dict],
-    reviewed_texts: list[str],
-) -> list[dict]:
-    """Map reviewed group text back to original segment granularity.
-
-    Uses character-length ratio to split reviewed text proportionally.
-    """
-    result: list[dict] = []
-    cursor = 0
-
-    for group, reviewed_text in zip(groups, reviewed_texts, strict=True):
-        segment_count = int(group.get("segment_count", 0))
-        if segment_count <= 0:
-            continue
-
-        batch = original_segments[cursor : cursor + segment_count]
-        cursor += segment_count
-        if not batch:
-            continue
-
-        if len(batch) == 1:
-            result.append({**batch[0], "text": reviewed_text})
-            continue
-
-        # Split proportionally by original text length
-        orig_lengths = [len(s.get("text", "")) for s in batch]
-        total_orig = sum(orig_lengths)
-        if total_orig == 0:
-            for seg in batch:
-                result.append({**seg, "text": ""})
-            continue
-
-        # Split reviewed text by paragraph boundaries (\n\n) matching original proportions
-        pos = 0
-        for j, seg in enumerate(batch):
-            ratio = orig_lengths[j] / total_orig
-            if j == len(batch) - 1:
-                chunk = reviewed_text[pos:]
-            else:
-                target_end = pos + int(len(reviewed_text) * ratio)
-                # Find nearest paragraph break
-                break_pos = reviewed_text.find("\n\n", target_end - 50, target_end + 200)
-                if break_pos == -1:
-                    break_pos = target_end
-                else:
-                    break_pos += 2  # Include the \n\n
-                chunk = reviewed_text[pos:break_pos]
-                pos = break_pos
-            result.append({**seg, "text": chunk.strip()})
-
-    # Defensive fallback for unexpected group mismatch; preserve untouched tail.
-    if cursor < len(original_segments):
-        result.extend({**seg} for seg in original_segments[cursor:])
-
-    return result

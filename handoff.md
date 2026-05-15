@@ -4,70 +4,48 @@
 
 ## 当前任务卡
 
-- 任务：收敛 prompt/AB 实验死代码，保留当前正式 Obsidian/Notion 输出路径
-- 状态：`done`
-- 当前 owner：User
-- 上一执行者：User
-- 下一执行者：User
-- 来源：用户确认当前输出效果可用，要求删除已无用的 AB/prompt 实验代码、测试引用和未运行 prompt，后续再讨论 prompt 优化
-- 分支：未创建（当前工作树已有用户脏改，且 sandbox 不允许写 git refs）
-- PR：[#22](https://github.com/apue/yt2notion/pull/22)、[#23](https://github.com/apue/yt2notion/pull/23)、[#24](https://github.com/apue/yt2notion/pull/24)
-- review 状态：等待 User 逐个 review；本地测试与 lint 已完成
+- 任务：bundle-only 输出收敛 + transcript cleanup 策略统一 + 删除存量死代码
+- 状态：`ready_to_merge`（PR #25 已更新到 `9daa62c`，本地复审和验证通过；User 已授权合入）
+- 当前 owner：Codex（合入中）
+- 上一执行者：Codex
+- 下一执行者：Codex / User
+- 来源：用户明确反馈“现在就只需要这三篇输出，其它都不用”；当前正式输出只保留 `source`、`A 导读`、`B 扩展` 三篇。auto caption 也应视作 ASR-like，需要清洗；未来输出变化可重新开发，历史实验/兼容路径无保留价值。
+- 当前工作目录：`/Users/yangtian/Developer/agent/yt2notion`
+- 分支：`bundle-only-transcript-cleanup`
+- PR：[#25](https://github.com/apue/yt2notion/pull/25)
+- review 状态：Codex review comment 已记录原 blocking finding：<https://github.com/apue/yt2notion/pull/25#issuecomment-4455966347>；本轮已在 `9daa62c` 修复并推送，复审无 blocking code findings
 - 目标：
-  - 删除只服务实验的 `prompt_experiments` 代码路径和测试引用
-  - 删除不在正式 pipeline 中运行的实验 prompt
-  - 移除仅为实验暴露的 backend/protocol 方法
-  - 保留正式 `source_ab_bundle`、Obsidian/Notion publish、当前运行 prompt
-  - 同步 `PROJECT_MAP.md` prompt binding 事实
+  - 修复 PR #25 中 `_step_segment()` 丢失 description timestamp regex fallback 的回归。
+  - 删除/收敛 `claude -p` 专属测试用例，避免继续把 Claude Code CLI 当作必须验证路径。
+  - 清理冲突后的 `README.md`、`config.example.yaml`、`handoff.md` 和 backend 测试改动。
+  - 跑本地测试/lint 后提交并推送到 PR #25。
 - 非目标：
-  - 不优化 prompt 文案
-  - 不改 Obsidian/Notion 发布行为
-  - 不调用远程 ASR/LLM/Notion 服务验证
+  - 不优化 prompt 文案。
+  - 不新增输出形态。
+  - 不调用远程 ASR/LLM/Notion/Obsidian 验证。
+  - 不合入 PR；合入仍由 User 另行决定。
 - 约束：
-  - `PROJECT_MAP.md` 是 prompt/code binding 唯一事实锚点
-  - 不修改 `prompts/` 下仍在运行的模板结构
-  - 当前工作树已有历史脏改，删除时避免无关回退
-- 受影响文件：
-  - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [handoff.md](./handoff.md)
-  - [src/yt2notion/models/base.py](./src/yt2notion/models/base.py)
-  - [src/yt2notion/models/claude_code.py](./src/yt2notion/models/claude_code.py)
-  - [src/yt2notion/models/anthropic_api.py](./src/yt2notion/models/anthropic_api.py)
-  - [src/yt2notion/models/codex_cli.py](./src/yt2notion/models/codex_cli.py)
-  - [tests/test_prompts.py](./tests/test_prompts.py)
-  - 删除：`src/yt2notion/prompt_experiments.py`
-  - 删除：`tests/test_prompt_experiments.py`
-  - 删除：旧实验 prompt：`article_ab_pair.md`、`summarize_long_direct_evidence.md`、`synthesize_guided_notes.md`、`synthesize_reading_guide.md`
-  - 删除：旧手动脚本：`scripts/batch_transcribe.sh`、`scripts/benchmark_new_pipeline.py`、`scripts/test_fun_facts.py`
-- 验收标准：
-  - 仓库运行代码不再引用旧实验模块、旧 A/B article prompt、旧长文实验 prompt
-  - 测试集中不再包含已删除实验路径
-  - 正式 bundle / pipeline / prompt 加载测试仍通过
-- 建议命令：
-  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q`
-  - `uv run ruff check src/yt2notion tests`
-- 未决问题：无
-
-## 当前执行记录
-
+  - `PROJECT_MAP.md` 是 pipeline / artifact / prompt binding 唯一事实锚点，实现变化必须同步。
+  - 当前修复只恢复已有本地 regex 分段，不引入 LLM outline-aware cleanup 新契约。
+  - `prompts/` 下仍保留的生产模板 Markdown 结构不要改。
 - 已完成：
-  - 删除旧 prompt/AB 实验模块、对应测试、未运行 prompt 模板
-  - 删除旧 benchmark / manual fun_facts / hardcoded batch ASR 脚本
-  - 从 `Summarizer` Protocol 和三个 backend 中移除仅服务实验的 direct-transcript markdown 方法
-  - 更新 `tests/test_prompts.py`，只保留当前运行 prompt 的加载测试
-  - 更新 `PROJECT_MAP.md` prompt binding 表，移除实验 helper 描述
-- 当前阻塞：无
-- 已修改文件：见任务卡受影响文件；工作树仍包含本轮开始前已存在的无关脏改
+  - 新增 failing test 复现 description 时间轴未被 `_step_segment()` 使用的问题。
+  - 已恢复 `_step_segment()` 调用本地 description timestamp parser。
+  - 已删除 `tests/test_claude_code.py` / `tests/test_llm_retry.py`，并从 factory / note bundle 测试移除 Claude CLI backend 参数。
 - 已运行验证：
-  - `uv run pytest tests/test_prompts.py tests/test_note_bundle.py tests/test_pipeline.py tests/test_obsidian_storage.py tests/test_config.py -q` → `118 passed, 4 warnings`
-  - `uv run ruff check src/yt2notion tests` → `All checks passed!`（保留 Ruff 的 `TCH003` remap warning）
-  - `uv run pytest tests/ -q` → 首次因本机环境存在 `ANTHROPIC_API_KEY` 导致 `tests/test_model_factory.py::test_create_anthropic_no_key` 预期不成立；代码无关
-  - `ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q` → `401 passed, 11 warnings`
-- 最后一次自测：`ANTHROPIC_API_KEY= .venv/bin/python -m pytest tests/ -q`
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_pipeline.py::test_step_segment_uses_description_timestamp_outline -q` → 先失败，修复后通过。
+  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_pipeline.py::test_step_segment_uses_description_timestamp_outline tests/test_anthropic_api.py tests/test_codex_cli.py tests/test_model_factory.py tests/test_note_bundle.py -q` → `43 passed`
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev ruff check src/yt2notion tests` → `All checks passed!`（仅 `TCH003` remap warning）
+  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q` → `318 passed, 6 warnings`
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev python -c 'import yaml; yaml.safe_load(open("config.example.yaml", encoding="utf-8")); print("config.example.yaml ok")'` → pass
+- 当前阻塞：
+  - 无；User 已授权合入 PR #25。
+- 下一步：
+  1. 提交本 handoff 状态修正并推送到 PR #25。
+  2. 合入 PR #25。
+  3. 合入后更新 handoff 为完成状态。
 - 风险/回滚点：
-  - 未执行任何在线 LLM/ASR/Notion 验证
-  - 历史计划文档中可能仍提到旧实验 prompt，作为归档未清理
-- 下一步：User 逐个 review PR #22 / #23 / #24，确认后再决定是否合入
+  - 未执行任何在线 ASR/LLM/Notion/Obsidian 验证。
 
 ## 上一任务归档（2026-04-30 前）
 

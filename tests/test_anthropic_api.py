@@ -7,50 +7,65 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from yt2notion.models.base import VideoMeta
+from yt2notion.models.base import NoteDocument, VideoMeta
 
-SAMPLE_SUMMARY_JSON = {
-    "sections": [
-        {
-            "title": "Test Section",
-            "timestamp": "0:00",
-            "timestamp_seconds": 0,
-            "summary": "Test summary.",
-        }
-    ],
-    "overall_summary": "Test overall.",
-    "suggested_tags": ["test"],
+GUIDE_JSON = {
+    "title": "Guide",
+    "markdown": "# Guide",
+    "tags": ["guide"],
+    "variant": "a_guide",
+}
+META_JSON = {
+    "source_title": "Source",
+    "stable_tags": ["stable"],
+    "guide_tags": ["guide"],
+    "longform_tags": ["long"],
+    "source_summary": "summary",
+    "source_topics": ["topic"],
 }
 
 
 @pytest.fixture
-def meta():
-    return VideoMeta(
-        video_id="abc123",
-        title="Test Video",
-        channel="TestChannel",
-        url="https://www.youtube.com/watch?v=abc123",
-    )
+def meta() -> VideoMeta:
+    return VideoMeta(video_id="abc123", title="Test Video", channel="TestChannel", url="u")
 
 
 @patch("yt2notion.models.anthropic_api._anthropic")
-def test_api_call_params(mock_anthropic, meta):
+def test_compose_guide_note_calls_api_and_parses_note(mock_anthropic, meta):
     mock_client = MagicMock()
     mock_anthropic.Anthropic.return_value = mock_client
-
     mock_response = MagicMock()
-    mock_response.content = [MagicMock(text=json.dumps(SAMPLE_SUMMARY_JSON))]
+    mock_response.content = [MagicMock(text=json.dumps(GUIDE_JSON))]
     mock_client.messages.create.return_value = mock_response
 
     from yt2notion.models.anthropic_api import AnthropicAPIModel
 
-    model = AnthropicAPIModel(api_key="test-key", summarize_model="sonnet")
-    result = model.summarize("transcript", meta)
+    model = AnthropicAPIModel(api_key="test-key", translate_model="opus")
+    result = model.compose_guide_note("transcript", meta, target_chars=2000)
 
-    call_kwargs = mock_client.messages.create.call_args[1]
-    assert "claude-sonnet-4-6" in call_kwargs["model"]
-    assert call_kwargs["max_tokens"] == 4096
-    assert len(result.sections) == 1
+    assert result.variant == "a_guide"
+    call_kwargs = mock_client.messages.create.call_args.kwargs
+    assert call_kwargs["model"] == "claude-opus-4-6"
+    assert call_kwargs["max_tokens"] == 8192
+    assert "transcript" in call_kwargs["messages"][0]["content"]
+
+
+@patch("yt2notion.models.anthropic_api._anthropic")
+def test_compose_note_metadata_calls_api_and_parses_metadata(mock_anthropic, meta):
+    mock_client = MagicMock()
+    mock_anthropic.Anthropic.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text=json.dumps(META_JSON))]
+    mock_client.messages.create.return_value = mock_response
+
+    from yt2notion.models.anthropic_api import AnthropicAPIModel
+
+    note = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
+    long = NoteDocument(title="Long", markdown="# Long", tags=[], variant="b_longform")
+    result = AnthropicAPIModel(api_key="test-key").compose_note_metadata(note, long, meta)
+
+    assert result.source_title == "Source"
+    assert result.source_topics == ["topic"]
 
 
 @patch("yt2notion.models.anthropic_api._anthropic")
@@ -63,32 +78,4 @@ def test_api_error_handling(mock_anthropic, meta):
 
     model = AnthropicAPIModel(api_key="test-key")
     with pytest.raises(AnthropicAPIError, match="API call failed"):
-        model.summarize("transcript", meta)
-
-
-@patch("yt2notion.models.anthropic_api._anthropic")
-def test_review_and_summarize(mock_anthropic, meta):
-    mock_client = MagicMock()
-    mock_anthropic.Anthropic.return_value = mock_client
-
-    combined = dict(SAMPLE_SUMMARY_JSON)
-    combined["reviewed_transcript"] = "[0:00] cleaned transcript"
-    mock_response = MagicMock()
-    mock_response.content = [MagicMock(text=json.dumps(combined))]
-    mock_client.messages.create.return_value = mock_response
-
-    from yt2notion.models.anthropic_api import AnthropicAPIModel
-
-    model = AnthropicAPIModel(api_key="test-key", summarize_model="sonnet")
-    result = model.review_and_summarize("transcript", meta)
-    assert result.reviewed_transcript == "[0:00] cleaned transcript"
-    assert result.summary.overall_summary == "Test overall."
-
-
-def test_reuses_parsers():
-    """Verify the same JSON output parses identically in both backends."""
-    from yt2notion.models._parsers import parse_summary_json
-
-    raw = json.dumps(SAMPLE_SUMMARY_JSON)
-    result = parse_summary_json(raw)
-    assert result.sections[0].title == "Test Section"
+        model.compose_guide_note("transcript", meta, target_chars=2000)

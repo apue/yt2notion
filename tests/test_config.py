@@ -32,7 +32,7 @@ def test_default_values(tmp_path):
     assert config.storage["backend"] == "notion"
     assert config.extract["subtitle_priority"] == ["zh-Hans", "zh-Hant", "en"]
     assert config.output["mode"] == "summary"
-    assert config.output.get("note_mode") is None
+    assert "note_mode" not in config.output
     assert config.output["chunk_duration_seconds"] == 120
     assert config.credit["always_include"] is True
 
@@ -58,18 +58,11 @@ def test_invalid_output_mode(tmp_path):
         load_config(str(cfg_file))
 
 
-def test_invalid_note_mode(tmp_path):
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("output:\n  note_mode: unknown\n")
-    with pytest.raises(ConfigError, match="output.note_mode"):
-        load_config(str(cfg_file))
-
-
-def test_source_ab_bundle_note_mode_is_valid(tmp_path):
+def test_legacy_note_mode_is_ignored(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("output:\n  note_mode: source_ab_bundle\n")
     config = load_config(str(cfg_file))
-    assert config.output["note_mode"] == "source_ab_bundle"
+    assert "note_mode" not in config.output
 
 
 def test_deep_merge_preserves_nested(tmp_path):

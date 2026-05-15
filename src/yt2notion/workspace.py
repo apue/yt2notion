@@ -16,7 +16,7 @@ from yt2notion.models.base import (
 )
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, EntityResult, NoteBundle, VideoMeta
+    from yt2notion.models.base import NoteBundle, VideoMeta
 
 # Step name → output artifact filename
 _STEP_ARTIFACTS: dict[str, str] = {
@@ -24,13 +24,11 @@ _STEP_ARTIFACTS: dict[str, str] = {
     "segment": "segments.json",
     "transcribe": "transcripts.json",
     "review": "reviewed.json",
-    "extract": "entities.json",
-    "summarize": "summary.json",
+    "summarize": "note_bundle.json",
 }
-_SUMMARY_ARTIFACTS = ("summary.json", "note_bundle.json")
 _ASR_FALLBACK_MARKER = "asr_fallback_used.json"
 
-STEPS = ("download", "segment", "transcribe", "review", "extract", "summarize")
+STEPS = ("download", "segment", "transcribe", "review", "summarize")
 
 
 class Workspace:
@@ -48,8 +46,6 @@ class Workspace:
 
     def step_done(self, step: str) -> bool:
         """Check if a step's output artifact exists."""
-        if step == "summarize":
-            return any((self.dir / filename).exists() for filename in _SUMMARY_ARTIFACTS)
         filename = _STEP_ARTIFACTS.get(step, "")
         if not filename:
             return False
@@ -104,6 +100,19 @@ class Workspace:
         if src != dst:
             shutil.copy2(src, dst)
         return dst
+
+
+    def save_subtitle_source(self, source: str) -> None:
+        """Persist the subtitle origin marker for cleanup policy decisions."""
+        self._write_json("subtitle_source.json", {"source": source})
+
+    def load_subtitle_source(self) -> str | None:
+        """Load the persisted subtitle origin marker, if present."""
+        data = self._read_json("subtitle_source.json")
+        if not isinstance(data, dict):
+            return None
+        source = data.get("source")
+        return str(source) if source else None
 
     @property
     def audio_path(self) -> Path | None:
@@ -164,49 +173,6 @@ class Workspace:
 
     def load_reviewed(self) -> list[dict] | None:
         return self._read_json("reviewed.json")
-
-    # --- Entities ---
-
-    def save_entities(self, result: EntityResult) -> None:
-        from dataclasses import asdict
-
-        self._write_json("entities.json", asdict(result))
-
-    def load_entities(self) -> EntityResult | None:
-        d = self._read_json("entities.json")
-        if d is None:
-            return None
-        from yt2notion.models.base import Entity, EntityResult
-
-        entities = [
-            Entity(
-                name=e["name"],
-                type=e["type"],
-                attributes=e.get("attributes", {}),
-                linkable=e.get("linkable", True),
-            )
-            for e in d.get("entities", [])
-        ]
-        return EntityResult(
-            domain=d.get("domain", ""),
-            is_entity_centric=d.get("is_entity_centric", False),
-            entity_types=d.get("entity_types", []),
-            entities=entities,
-            relations=d.get("relations", []),
-        )
-
-    # --- Summary ---
-
-    def save_summary(self, content: ChineseContent) -> None:
-        d = {
-            "overview": content.overview,
-            "key_points": content.key_points,
-            "tags": content.tags,
-            "fun_facts": content.fun_facts,
-            "raw_markdown": content.raw_markdown,
-            "mindmap": content.mindmap,
-        }
-        self._write_json("summary.json", d)
 
     # --- Note bundle ---
 
