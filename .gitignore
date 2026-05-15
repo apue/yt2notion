@@ -1,6 +1,9 @@
 # Config with secrets
 config.yaml
 
+# Local Codex session config
+.codex/config.toml
+
 # Python
 __pycache__/
 *.py[cod]
