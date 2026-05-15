@@ -5,51 +5,47 @@
 ## 当前任务卡
 
 - 任务：bundle-only 输出收敛 + transcript cleanup 策略统一 + 删除存量死代码
-- 状态：`ready_for_user_review`（实现、本地验证、PR、自我 review 已完成；等待 User 决定是否合入）
-- 当前 owner：User
+- 状态：`ready_for_user_review`（blocking issue 已修复，本地验证通过；待提交/push 到 PR #25，不合入）
+- 当前 owner：Codex（提交和 push 中）
 - 上一执行者：Codex
-- 下一执行者：User
+- 下一执行者：Codex / User
 - 来源：用户明确反馈“现在就只需要这三篇输出，其它都不用”；当前正式输出只保留 `source`、`A 导读`、`B 扩展` 三篇。auto caption 也应视作 ASR-like，需要清洗；未来输出变化可重新开发，历史实验/兼容路径无保留价值。
-- 实现工作目录：`/tmp/yt2notion-main-final-1777534880`
+- 当前工作目录：`/Users/yangtian/Developer/agent/yt2notion`
 - 分支：`bundle-only-transcript-cleanup`
-- 已提交 commit：`43bc800 docs: plan bundle-only transcript cleanup`、`3b9ac37 refactor: enforce bundle-only pipeline`、`c70e7be docs: sync bundle-only cleanup references`
 - PR：[#25](https://github.com/apue/yt2notion/pull/25)
-- review 状态：Codex 自我 review 已完成并在 PR 评论记录；GitHub 无 checks reported；本地测试/lint 通过
+- review 状态：Codex review comment 已记录原 blocking finding：<https://github.com/apue/yt2notion/pull/25#issuecomment-4455966347>；本轮已在 PR 分支修复，待 push
 - 目标：
-  - Pipeline 收敛为 bundle-only：只产出并发布 `source` / `A 导读` / `B 扩展`。
-  - 删除 legacy single summary、full transcript 子页、entity extraction、LLM chapter extraction、map/reduce/chinese prompt 等不再运行路径。
-  - transcript cleanup 策略：manual subtitle 跳过清洗；auto caption / webpage transcript / ASR / legacy subtitle 均走 cleanup。
-  - 同步 `PROJECT_MAP.md`、`README.md`、`config.example.yaml` 等设计/契约文档。
+  - 修复 PR #25 中 `_step_segment()` 丢失 description timestamp regex fallback 的回归。
+  - 删除/收敛 `claude -p` 专属测试用例，避免继续把 Claude Code CLI 当作必须验证路径。
+  - 清理冲突后的 `README.md`、`config.example.yaml`、`handoff.md` 和 backend 测试改动。
+  - 跑本地测试/lint 后提交并推送到 PR #25。
 - 非目标：
   - 不优化 prompt 文案。
   - 不新增输出形态。
   - 不调用远程 ASR/LLM/Notion/Obsidian 验证。
+  - 不合入 PR；合入仍由 User 另行决定。
 - 约束：
-  - `PROJECT_MAP.md` 是 pipeline / artifact / prompt binding 唯一事实锚点。
-  - 用户希望 aggressive cleanup，不要求 backward compatibility。
+  - `PROJECT_MAP.md` 是 pipeline / artifact / prompt binding 唯一事实锚点，实现变化必须同步。
+  - 当前修复只恢复已有本地 regex 分段，不引入 LLM outline-aware cleanup 新契约。
   - `prompts/` 下仍保留的生产模板 Markdown 结构不要改。
 - 已完成：
-  - 恢复并重写 `tests/test_pipeline.py`，覆盖 bundle-only、cleanup policy、Obsidian bundle publish、ASR checkpoint 保留语义。
-  - `pipeline.py` 保持 bundle-only `PreparedContent`，`prepare_content()` 总是构建 `note_bundle.json`，`mode="full"` 早拒绝，非 dry-run publish 仅允许 Obsidian。
-  - subtitle 下载现在记录 `manual_subtitle` / `auto_caption` 来源；webpage transcript 记录 `webpage_transcript`；resume 旧 workspace 无 marker 时按 legacy `subtitle` 清洗。
-  - 删除旧 prompt 文件；backend protocol / Claude / Anthropic / Codex 测试已收敛到 `compose_*`。
-  - 删除 `entity_extract.py`、`chapter_extract.py` 及对应测试；description chapter 仅走本地 timestamp regex。
-  - `review.py` 删除 `review_with_context` 分支，只保留 `review.md` baseline cleanup。
-  - `workspace.py` 步骤收敛为 `download -> segment -> transcribe -> review -> summarize`，移除 `entities.json` / `summary.json` helpers，新增 subtitle source marker roundtrip。
-  - `config.py` 只接受 `output.mode = summary`，忽略 legacy `output.note_mode`。
-  - `PROJECT_MAP.md` / `README.md` / `config.example.yaml` 已同步 bundle-only 事实。
-- 已删除/改写测试：
-  - 删除旧实体抽取、LLM chapter extract、旧 integration、旧 parser extended、entity obsidian 测试。
-  - 保留 Obsidian/Notion legacy storage 测试与现有 storage 代码（当前 pipeline 不再调用 legacy `save()`）。
+  - 新增 failing test 复现 description 时间轴未被 `_step_segment()` 使用的问题。
+  - 已恢复 `_step_segment()` 调用本地 description timestamp parser。
+  - 已删除 `tests/test_claude_code.py` / `tests/test_llm_retry.py`，并从 factory / note bundle 测试移除 Claude CLI backend 参数。
 - 已运行验证：
-  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q` → `330 passed, 6 warnings`
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_pipeline.py::test_step_segment_uses_description_timestamp_outline -q` → 先失败，修复后通过。
+  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_pipeline.py::test_step_segment_uses_description_timestamp_outline tests/test_anthropic_api.py tests/test_codex_cli.py tests/test_model_factory.py tests/test_note_bundle.py -q` → `43 passed`
   - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev ruff check src/yt2notion tests` → `All checks passed!`（仅 `TCH003` remap warning）
-- 最后一次自测：`ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q`；随后 `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev ruff check src/yt2notion tests`
-- 当前阻塞：无
-- 下一步：User review PR #25；如确认通过，再由 User 明确批准后合入 `main`。
+  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q` → `318 passed, 6 warnings`
+  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev python -c 'import yaml; yaml.safe_load(open("config.example.yaml", encoding="utf-8")); print("config.example.yaml ok")'` → pass
+- 当前阻塞：
+  - 无；待提交和 push。
+- 下一步：
+  1. `git add` 标记冲突解决。
+  2. 提交并 push 到 PR #25。
+  3. User review PR #25；是否合入 main 由 User 决定。
 - 风险/回滚点：
-  - 未执行任何在线 LLM/ASR/Notion/Obsidian 验证。
-  - storage 层仍保留 legacy `save()` 能力以避免本轮扩大到存储后端删除；pipeline 已不调用。
+  - 未执行任何在线 ASR/LLM/Notion/Obsidian 验证。
 
 ## 上一任务归档（2026-04-30 前）
 

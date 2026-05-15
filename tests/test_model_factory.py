@@ -9,14 +9,6 @@ import pytest
 from yt2notion.models import create_summarizer
 
 
-def test_create_claude_code():
-    config = {"model": {"backend": "claude_code", "summarize_model": "sonnet"}}
-    model = create_summarizer(config)
-    from yt2notion.models.claude_code import ClaudeCodeModel
-
-    assert isinstance(model, ClaudeCodeModel)
-
-
 def test_create_codex_cli():
     config = {"model": {"backend": "codex_cli", "summarize_model": "gpt-5.4"}}
     model = create_summarizer(config)

@@ -12,9 +12,8 @@ Extract media content (YouTube videos, Podcasts), compose source/A/B Chinese not
 - **Timestamped source material**: source title, channel, URL, and timestamped transcript context remain available to generated notes
 - **Current publish target**: the source/A/B bundle publishes through Obsidian; Notion storage is retained for legacy single-note code paths
 - **Always credits the source**: channel name, video title, and URL included automatically
-- **Pluggable LLM backends**: swap Claude Code, Anthropic API, or Codex CLI model providers
+- **Pluggable LLM backends**: swap Codex CLI or Anthropic API model providers
 - **Workspace persistence**: resume interrupted pipelines from any step
-- **Zero API cost option**: use your existing Claude Code subscription via `claude -p`
 - **Codex backend support**: use local `codex exec` with GPT-5.x style models
 
 ## Quick Start
@@ -46,7 +45,7 @@ Use the `agent` command group when you want a local file-backed queue that drain
 Fixed behavior for this workflow:
 - LLM backend is always `codex_cli`
 - Storage backend is always `obsidian`
-- Output mode is always `summary`
+- Output is always the source/A/B note bundle
 - Runtime state lives under `~/.yt2notion-agent/`
 - Runtime control plane lives in `~/.yt2notion-agent/agent.yaml`
 - Runtime pipeline config lives in `~/.yt2notion-agent/config.yaml`
@@ -109,7 +108,6 @@ Set `codex_profile` when you need `yt2notion` to force a named Codex profile suc
 
 | Backend | Config value | Cost | Requirements |
 |---------|-------------|------|--------------|
-| Claude Code CLI | `claude_code` | Included in subscription | `claude` on PATH |
 | Codex CLI | `codex_cli` | Depends on your Codex setup | `codex` on PATH |
 | Anthropic API | `anthropic_api` | ~$0.30/video | `ANTHROPIC_API_KEY` |
 | OpenAI alias | `openai_api` | Depends on your Codex setup | routes to `codex_cli` |
@@ -128,7 +126,7 @@ See [config.example.yaml](config.example.yaml) for all options.
 
 Key options:
 - `output.mode: summary` (bundle-only; `full` is no longer supported)
-- `model.backend: claude_code|codex_cli|anthropic_api|openai_api`
+- `model.backend: codex_cli|anthropic_api|openai_api`
 - `extract.asr.backend: groq|remote` (recommended: `groq`)
 - `extract.asr.fallback_backend: remote|groq|null` (recommended with Groq primary: `remote`)
 - `extract.asr.groq.*` for Groq endpoint/model/limits (set key via `GROQ_API_KEY` or config)

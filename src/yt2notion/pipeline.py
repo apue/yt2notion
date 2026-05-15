@@ -392,6 +392,22 @@ def _step_segment(metadata: VideoMeta, config: dict, verbose: bool) -> list[dict
                     "end_seconds": ch.end_seconds,
                 }
             )
+    elif metadata.description:
+        from yt2notion.segment import _extract_chapters_from_description
+
+        chapters = _extract_chapters_from_description(
+            metadata.description, metadata.duration_seconds, config
+        )
+        if verbose and chapters:
+            typer.echo(f"  Found {len(chapters)} timestamp chapters in description")
+        for ch in chapters:
+            segments.append(
+                {
+                    "title": ch.title,
+                    "start_seconds": ch.start_seconds,
+                    "end_seconds": ch.end_seconds,
+                }
+            )
     if not segments and verbose:
         typer.echo("  No structural info — will segment after transcription")
 

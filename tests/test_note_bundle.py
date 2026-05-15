@@ -17,7 +17,6 @@ from yt2notion.models.base import (
     NoteMetadata,
     VideoMeta,
 )
-from yt2notion.models.claude_code import ClaudeCodeModel
 from yt2notion.models.codex_cli import CodexCLIModel
 from yt2notion.note_bundle import (
     build_note_bundle,
@@ -376,13 +375,12 @@ def test_parse_note_metadata_json_rejects_empty_strings_and_empty_lists() -> Non
 @pytest.mark.parametrize(
     ("backend", "call_attr"),
     [
-        (ClaudeCodeModel(), "_call_claude"),
         (CodexCLIModel(), "_translate_caller"),
         ("anthropic", "_call_api"),
     ],
 )
 def test_compose_note_backend_smoke(
-    backend: ClaudeCodeModel | CodexCLIModel | AnthropicAPIModel | str,
+    backend: CodexCLIModel | AnthropicAPIModel | str,
     call_attr: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

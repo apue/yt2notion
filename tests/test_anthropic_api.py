@@ -9,7 +9,12 @@ import pytest
 
 from yt2notion.models.base import NoteDocument, VideoMeta
 
-GUIDE_JSON = {"title": "Guide", "markdown": "# Guide", "tags": ["guide"], "variant": "a_guide"}
+GUIDE_JSON = {
+    "title": "Guide",
+    "markdown": "# Guide",
+    "tags": ["guide"],
+    "variant": "a_guide",
+}
 META_JSON = {
     "source_title": "Source",
     "stable_tags": ["stable"],
@@ -35,14 +40,14 @@ def test_compose_guide_note_calls_api_and_parses_note(mock_anthropic, meta):
 
     from yt2notion.models.anthropic_api import AnthropicAPIModel
 
-    result = AnthropicAPIModel(api_key="test-key", translate_model="opus").compose_guide_note(
-        "transcript", meta, target_chars=2000
-    )
+    model = AnthropicAPIModel(api_key="test-key", translate_model="opus")
+    result = model.compose_guide_note("transcript", meta, target_chars=2000)
 
     assert result.variant == "a_guide"
     call_kwargs = mock_client.messages.create.call_args.kwargs
     assert call_kwargs["model"] == "claude-opus-4-6"
     assert call_kwargs["max_tokens"] == 8192
+    assert "transcript" in call_kwargs["messages"][0]["content"]
 
 
 @patch("yt2notion.models.anthropic_api._anthropic")
@@ -55,9 +60,9 @@ def test_compose_note_metadata_calls_api_and_parses_metadata(mock_anthropic, met
 
     from yt2notion.models.anthropic_api import AnthropicAPIModel
 
-    guide = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
+    note = NoteDocument(title="Guide", markdown="# Guide", tags=[], variant="a_guide")
     long = NoteDocument(title="Long", markdown="# Long", tags=[], variant="b_longform")
-    result = AnthropicAPIModel(api_key="test-key").compose_note_metadata(guide, long, meta)
+    result = AnthropicAPIModel(api_key="test-key").compose_note_metadata(note, long, meta)
 
     assert result.source_title == "Source"
     assert result.source_topics == ["topic"]

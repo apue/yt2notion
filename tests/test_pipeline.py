@@ -78,6 +78,30 @@ def _minimal_transcript(source: str, text: str = "raw text") -> list[dict]:
     ]
 
 
+def test_step_segment_uses_description_timestamp_outline(config):
+    from yt2notion.pipeline import _step_segment
+
+    metadata = VideoMeta(
+        video_id="outline123",
+        title="Outlined Episode",
+        channel="TestChannel",
+        duration_seconds=1800,
+        description=(
+            "00:00 Opening\n"
+            "12:30 Training plan\n"
+            "28:10 Diet notes\n"
+        ),
+    )
+
+    segments = _step_segment(metadata, {"output": {"max_segment_seconds": 1000}}, verbose=False)
+
+    assert segments == [
+        {"title": "Opening", "start_seconds": 0, "end_seconds": 750},
+        {"title": "Training plan", "start_seconds": 750, "end_seconds": 1690},
+        {"title": "Diet notes", "start_seconds": 1690, "end_seconds": 1800},
+    ]
+
+
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
 @patch("yt2notion.pipeline.segment_transcript")
