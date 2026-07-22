@@ -30,6 +30,7 @@ from yt2notion.agent_worker import (
     spawn_background_worker,
     validate_job_id,
 )
+from yt2notion.application import create_yt2notion
 from yt2notion.config import ConfigError, load_config
 from yt2notion.extract import ExtractionError
 
@@ -58,12 +59,9 @@ def process(
         typer.echo(f"Configuration error: {e}", err=True)
         raise typer.Exit(1) from None
 
-    from yt2notion.pipeline import run_pipeline
-
     try:
-        result = run_pipeline(
+        result = create_yt2notion(config, verbose=verbose).process(
             url,
-            config,
             verbose=verbose,
             dry_run=dry_run,
             resume_from=from_step,
@@ -97,12 +95,9 @@ def prepare(
         typer.echo(f"Configuration error: {e}", err=True)
         raise typer.Exit(1) from None
 
-    from yt2notion.pipeline import prepare_content
-
     try:
-        prepared = prepare_content(
+        prepared = create_yt2notion(config, verbose=verbose).prepare(
             url,
-            config,
             verbose=verbose,
             resume_from=from_step,
             workspace_dir=resume or workspace_dir,
@@ -132,7 +127,10 @@ def transcribe(
         None,
         "--config",
         "-c",
-        help="Config file path; defaults to ~/.yt2notion-agent/config.yaml then ./config.yaml",
+        help=(
+            "Config file path; defaults to ~/.yt2notion/config.yaml, "
+            "agent config, then ./config.yaml"
+        ),
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     workspace_dir: str | None = typer.Option(None, "--workspace-dir", help="Workspace base dir"),

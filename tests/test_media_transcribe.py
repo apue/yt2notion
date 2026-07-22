@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,16 +15,19 @@ from yt2notion.media_transcribe import (
 from yt2notion.models.base import VideoMeta
 
 
-def test_resolve_config_prefers_agent_runtime_path(monkeypatch, tmp_path: Path) -> None:
+def test_resolve_config_prefers_user_config_path(monkeypatch, tmp_path: Path) -> None:
+    user_config = tmp_path / "user-config.yaml"
     agent_config = tmp_path / "agent-config.yaml"
     repo_config = tmp_path / "config.yaml"
+    user_config.write_text("workspace: {}\n", encoding="utf-8")
     agent_config.write_text("workspace: {}\n", encoding="utf-8")
     repo_config.write_text("workspace: {}\n", encoding="utf-8")
 
+    monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_USER_CONFIG_PATH", user_config)
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_AGENT_CONFIG_PATH", agent_config)
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_REPO_CONFIG_PATH", repo_config)
 
-    assert resolve_media_transcribe_config_path(None) == agent_config
+    assert resolve_media_transcribe_config_path(None) == user_config
 
 
 def test_resolve_config_uses_explicit_path(tmp_path: Path) -> None:
@@ -36,6 +38,7 @@ def test_resolve_config_uses_explicit_path(tmp_path: Path) -> None:
 
 
 def test_resolve_config_errors_when_no_candidate(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_USER_CONFIG_PATH", tmp_path / "user")
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_AGENT_CONFIG_PATH", tmp_path / "agent")
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_REPO_CONFIG_PATH", tmp_path / "repo")
 
@@ -70,18 +73,15 @@ def test_transcribe_media_writes_workspace_artifacts(monkeypatch, tmp_path: Path
         return output_path
 
     transcript_text = "hello"
-    transcriber = MagicMock()
-
-    monkeypatch.setattr("yt2notion.media_transcribe.extract_metadata", lambda url: metadata)
-    monkeypatch.setattr("yt2notion.media_transcribe.extract_video", fake_extract_video)
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_metadata", lambda url: metadata)
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_video", fake_extract_video)
     monkeypatch.setattr(
-        "yt2notion.media_transcribe.extract_audio_from_video",
+        "yt2notion.media_source.ytdlp.extract_audio_from_video",
         fake_extract_audio_from_video,
     )
-    monkeypatch.setattr("yt2notion.transcribe.create_transcriber", lambda config: transcriber)
     monkeypatch.setattr(
-        "yt2notion.media_transcribe._transcribe_from_audio",
-        lambda *args, **kwargs: [
+        "yt2notion.transcribe.engine.TranscriptionEngine.transcribe_audio",
+        lambda self, *args, **kwargs: [
             {
                 "title": "Part 1",
                 "start_seconds": 0,
@@ -136,16 +136,15 @@ def test_transcribe_media_no_video_clears_stale_video_and_markdown(
         output_path.write_bytes(b"audio")
         return output_path
 
-    monkeypatch.setattr("yt2notion.media_transcribe.extract_metadata", lambda url: metadata)
-    monkeypatch.setattr("yt2notion.media_transcribe.extract_video", fake_extract_video)
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_metadata", lambda url: metadata)
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_video", fake_extract_video)
     monkeypatch.setattr(
-        "yt2notion.media_transcribe.extract_audio_from_video",
+        "yt2notion.media_source.ytdlp.extract_audio_from_video",
         fake_extract_audio_from_video,
     )
-    monkeypatch.setattr("yt2notion.transcribe.create_transcriber", lambda config: MagicMock())
     monkeypatch.setattr(
-        "yt2notion.media_transcribe._transcribe_from_audio",
-        lambda *args, **kwargs: [
+        "yt2notion.transcribe.engine.TranscriptionEngine.transcribe_audio",
+        lambda self, *args, **kwargs: [
             {
                 "title": "Part 1",
                 "start_seconds": 0,

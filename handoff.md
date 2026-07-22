@@ -4,70 +4,72 @@
 
 ## 当前任务卡
 
-- 任务：新增 repo-local 媒体转写 CLI 能力并走 PR / review / merge 流程
-- 状态：`in_progress`
+- 任务：以高内聚、低耦合的用例 Interface + provider Adapter 重构 pipeline 架构
+- 状态：`pr_ready`
 - 当前 owner：Codex
-- 上一执行者：User
-- 下一执行者：Codex
-- 来源：User 要求把“下载视频、提取音频、Groq 分片转写、输出本地文本”的能力沉淀到仓库中，并让未来 Codex 通过仓库入口文档快速发现；随后明确要求完成开发、PR、CR、Merge。
+- 上一执行者：GPT-5.5 medium implementation subagent / Codex review owner
+- 下一执行者：Codex GitHub workflow / User merge decision
+- 来源：User 要求从最佳实践重新审视长 pipeline；确认采用统一能力接口、行为各异的 provider Adapter，并要求由 GPT-5.5 medium 子代理实施。User 授权实现细节自主设计，原则为高内聚、低耦合。
 - 当前工作目录：`/Users/yangtian/Developer/agent/yt2notion`
-- 分支：`media-transcribe-cli`
-- PR：[#26](https://github.com/apue/yt2notion/pull/26)
-- review 状态：本地 Codex review 发现并修复 stale video / stale transcript artifact 泄漏问题；复测通过
+- 分支：`architecture-usecase-interfaces`
+- PR：待创建
+- review 状态：双轴 review 最终 Standards / Spec 均无 findings；正式 `/review` 的三轮 findings 均已修复并本地复测
 - 目标：
-  - 新增稳定命令 `uv run yt2notion transcribe "URL"`，作为只转写、不发布的旁路能力。
-  - 默认复用 `~/.yt2notion-agent/config.yaml`，也支持显式 `--config`。
-  - 复用现有 `yt-dlp`、ffmpeg、Groq backend、分片、checkpoint 与 workspace artifact 逻辑。
-  - 输出可阅读 Markdown transcript 和结构化 `transcripts.json`，并保留来源信息。
-  - 在 `AGENTS.md` 与 `PROJECT_MAP.md` 中登记触发方式和 artifact 契约，让 Codex 无需代码探索即可命中。
+  - 提供显式 `Yt2Notion.prepare/process/transcribe` 应用 Interface。
+  - 提供高层 `MediaSource` Protocol 和 config 选择的 yt-dlp primary Adapter。
+  - 将音频规划、分片、checkpoint、Groq 等待/降级和真实 backend 结果内聚到 `TranscriptionEngine`。
+  - 主 pipeline 与 transcript-only 路径复用同一引擎，不再跨模块调用 pipeline 私有函数。
+  - 保持 CLI、artifact、resume/fresh 和发布安全行为兼容。
 - 非目标：
-  - 不触发 review/summarize/publish。
-  - 不修改 `prompts/` 模板。
-  - 不修改或回显任何密钥。
-  - 不改变现有 `process` / `prepare` 主 pipeline 行为。
+  - 不引入通用 Node/DAG/registry/plugin discovery。
+  - 不实现 ElevenLabs 等新 provider。
+  - 不修改 prompt 结构、凭证或自动发布策略。
+  - 不在无 benchmark 的情况下改变 ASR 性能参数。
 - 约束：
-  - `PROJECT_MAP.md` 是 pipeline / artifact / entrypoint 事实锚点，涉及契约变化必须同步。
+  - `PROJECT_MAP.md` 是 pipeline / artifact / extension 事实锚点，结构事实变化先更新该文件。
   - 现有用户本地改动 `.codex/config.toml`、`.gitignore` 保留，不作为本功能必要改动处理。
-  - `/review` 后只做本地测试/lint，不调用远程 ASR/LLM。
+  - 实现及 review 后只做本地测试/lint，不调用远程 ASR/LLM/Storage。
 - 受影响文件：
-  - [AGENTS.md](./AGENTS.md)
+  - [docs/harness/](./docs/harness/)
   - [PROJECT_MAP.md](./PROJECT_MAP.md)
-  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
-  - [src/yt2notion/extract.py](./src/yt2notion/extract.py)
+  - [src/yt2notion/application.py](./src/yt2notion/application.py)
+  - [src/yt2notion/media_source/](./src/yt2notion/media_source/)
+  - [src/yt2notion/transcribe/](./src/yt2notion/transcribe/)
+  - [src/yt2notion/pipeline.py](./src/yt2notion/pipeline.py)
   - [src/yt2notion/media_transcribe.py](./src/yt2notion/media_transcribe.py)
-  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
-  - [tests/test_media_transcribe.py](./tests/test_media_transcribe.py)
-  - [tests/test_cli.py](./tests/test_cli.py)
-  - [tests/test_extract.py](./tests/test_extract.py)
-  - [tests/test_workspace.py](./tests/test_workspace.py)
+  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/agent_worker.py](./src/yt2notion/agent_worker.py)
+  - 相关 tests
 - 验收标准：
-  - `yt2notion transcribe URL` 可从 agent runtime config 默认读取 Groq 配置。
-  - 命令执行下载媒体、提取音频、ASR 转写、保存 transcript artifacts，不发布。
-  - 生成 Markdown 输出包含标题、频道、URL 和分段文本。
-  - 单元测试覆盖配置路径解析、CLI 调用、媒体/音频保存与 artifact 写入。
-  - 本地 pytest 与 ruff 通过。
+  - 详见 [docs/harness/ACCEPTANCE.md](./docs/harness/ACCEPTANCE.md)。
 - 已完成：
-  - 已读取 `AGENTS.md`、`handoff.md`、当前 git status/diff、相关技能与仓库关键代码。
-  - 已确认现有 `extract_cmd.py` 是 legacy helper，不适合作为最终入口。
-  - 已确认应扩展现有 CLI 与 pipeline 分片转写逻辑，而不是把实现放入 skill。
-  - 已新增 `yt2notion transcribe` CLI、媒体下载/audio 提取 helper、workspace video artifact、standalone 转写编排和测试。
-  - 已更新 `PROJECT_MAP.md`、`AGENTS.md`、`README.md`，登记 Codex 快速发现入口和 artifact 契约。
-  - 已创建 PR #26，并完成本地 code review；修复同 workspace 复跑时 `--no-video` 仍可能暴露旧 `video.*`、失败前旧 `transcript.md` 残留的问题。
+  - 已完成三套独立架构设计比较，均拒绝通用 DAG/Node，收敛到显式 use-case + 深 Module。
+  - 已完成并接受 SPEC、ARCHITECTURE、ACCEPTANCE、DECISIONS、VALIDATION_PLAN、复用/清理报告。
+  - 已创建分支 `architecture-usecase-interfaces`。
+  - 已新增 `Yt2Notion.prepare/process/transcribe` 应用 Interface 与 `create_yt2notion()` composition root。
+  - 已新增高层 `MediaSource` Protocol、typed acquire request/result、config 选择的 `yt_dlp` Adapter 与工厂。
+  - 已将 provider 配置注入 Adapter 构造器，并用 content/transcript 两种 result 类型避免 optional 字段袋。
+  - 已将 ASR chunking / checkpoint / hourly wait / daily fallback / backend outcome 迁入 `transcribe.engine.TranscriptionEngine`。
+  - 已新增 `ContentPreparation` 深模块，application 不再反向导入 pipeline；pipeline 仅保留兼容 facade/wrapper。
+  - 已通过 `create_transcription_engine()` 延迟注入 primary/fallback `Transcriber` Adapter，避免未用 ASR 时提前读取凭证。
+  - 已让 CLI process/prepare、agent worker、standalone transcribe 路径经由应用 Interface；`media_transcribe.py` 不再导入 pipeline 私有函数。
+  - 已保留 `pipeline.py` 兼容 facade/helper patch points，并更新 `PROJECT_MAP.md`、`config.example.yaml` 与 tests。
+  - 已补齐下载/转写失败记录、成功后清理失败标记、provider video path、旧 transcript renderer 兼容和 fallback Adapter 单例生命周期。
 - 已运行验证：
-  - `uv run --extra dev pytest tests/test_media_transcribe.py tests/test_cli.py::test_cli_transcribe_outputs_json tests/test_extract.py::test_extract_video_downloads_playable_media tests/test_audio.py::test_extract_audio_from_video_writes_asr_friendly_mp3 tests/test_workspace.py::test_video_path -q` → `9 passed`
-  - `uv run --extra dev pytest tests/test_media_transcribe.py tests/test_workspace.py::test_video_path tests/test_workspace.py::test_discard_video_artifacts -q` → `8 passed`
-  - `ANTHROPIC_API_KEY= uv run --extra dev pytest tests/ -q` → `329 passed, 6 warnings`
+  - 架构前基线：`329 passed, 6 warnings`；ruff check passed。
+  - review 修复后 focused tests → `49 passed, 1 warning`
+  - 最终 `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → `341 passed, 6 warnings`
   - `uv run --extra dev ruff check src/yt2notion tests` → `All checks passed!`
-  - `uv run --extra dev ruff format src/yt2notion/media_transcribe.py src/yt2notion/audio.py src/yt2notion/cli.py src/yt2notion/extract.py src/yt2notion/workspace.py tests/test_media_transcribe.py tests/test_audio.py tests/test_cli.py tests/test_extract.py tests/test_workspace.py` → `2 files reformatted, 8 files left unchanged`
+  - changed-source `uv run --extra dev ruff format --check ...` → pass
+  - `rg` architecture checks: no `media_transcribe.py` private pipeline import; ASR state machine owner is `transcribe/engine.py`; no new DAG/Node/registry implementation found.
 - 当前阻塞：
-  - 无。
+  - 无；待 commit / push / PR。
 - 下一步：
-  1. 更新 PR #26 分支。
-  2. 合并 PR #26。
-  3. 合入后更新 handoff 为完成状态。
+  1. 仅暂存本任务文件，排除用户本地 `.codex/config.toml`、`.gitignore`。
+  2. 创建/更新 PR，交由 User 决定最终 merge。
 - 风险/回滚点：
-  - 真实 ASR 调用依赖外部 Groq quota；本轮代码 review 后不做远程 ASR 验证。
-  - 保留原始视频会占用磁盘空间；CLI 应提供可关闭选项或明确默认行为。
+  - ASR 状态机迁移已由本地 regression tests 覆盖，但未做任何远程 Groq / remote ASR 在线验证。
+  - `pipeline.py` 仍保留 behavior-free compatibility helper patch points；正式移除需后续明确批准。
 
 ## 上一任务归档（2026-04-30 前）
 

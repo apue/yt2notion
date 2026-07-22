@@ -11,6 +11,7 @@ import sys
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from yt2notion.agent_runtime import (
@@ -20,7 +21,10 @@ from yt2notion.agent_runtime import (
     read_queue,
     write_job,
 )
-from yt2notion.pipeline import run_pipeline
+from yt2notion.application import ProgressCallback, create_yt2notion
+
+if TYPE_CHECKING:
+    from yt2notion.config import AppConfig
 
 _JOB_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _SPAWNING_GRACE_SECONDS = 10
@@ -28,6 +32,29 @@ _SPAWNING_GRACE_SECONDS = 10
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def run_pipeline(
+    url: str,
+    app_config: AppConfig,
+    *,
+    verbose: bool = False,
+    dry_run: bool = False,
+    resume_from: str | None = None,
+    workspace_dir: str | None = None,
+    mode: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> str:
+    """Compatibility patch point delegating agent jobs to the application interface."""
+    return create_yt2notion(app_config, verbose=verbose).process(
+        url,
+        verbose=verbose,
+        dry_run=dry_run,
+        resume_from=resume_from,
+        workspace_dir=workspace_dir,
+        mode=mode,
+        progress_callback=progress_callback,
+    )
 
 
 def validate_job_id(job_id: str) -> str:
