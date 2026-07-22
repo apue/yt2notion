@@ -133,6 +133,64 @@ def test_cli_prepare_outputs_bundle_json(mock_prepare_content, mock_load_config,
     assert payload["note_bundle"]["longform"]["variant"] == "b_longform"
 
 
+@patch("yt2notion.media_transcribe.transcribe_media")
+@patch("yt2notion.media_transcribe.resolve_media_transcribe_config_path")
+@patch("yt2notion.cli.load_config")
+def test_cli_transcribe_outputs_json(
+    mock_load_config,
+    mock_resolve_config,
+    mock_transcribe_media,
+    tmp_path,
+):
+    from yt2notion.config import AppConfig
+    from yt2notion.media_transcribe import MediaTranscribeResult
+    from yt2notion.models.base import VideoMeta
+    from yt2notion.workspace import Workspace
+
+    config_path = tmp_path / "config.yaml"
+    mock_resolve_config.return_value = config_path
+    mock_load_config.return_value = AppConfig()
+    workspace = Workspace(tmp_path, "abc123")
+    result_payload = MediaTranscribeResult(
+        metadata=VideoMeta(
+            video_id="abc123",
+            title="Test Video",
+            channel="TestChannel",
+            url="https://example.com/video",
+        ),
+        workspace=workspace,
+        video_path=workspace.dir / "video.mp4",
+        audio_path=workspace.dir / "audio.mp3",
+        transcripts_path=workspace.dir / "transcripts.json",
+        transcript_markdown_path=workspace.dir / "transcript.md",
+    )
+    mock_transcribe_media.return_value = result_payload
+
+    result = runner.invoke(
+        app,
+        [
+            "transcribe",
+            "https://example.com/video",
+            "--config",
+            str(config_path),
+            "--workspace-dir",
+            str(tmp_path / "workspace"),
+            "--no-video",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["workspace_dir"] == str(workspace.dir)
+    assert payload["transcript_markdown_path"] == str(workspace.dir / "transcript.md")
+    mock_resolve_config.assert_called_once_with(str(config_path))
+    mock_transcribe_media.assert_called_once()
+    call_kwargs = mock_transcribe_media.call_args.kwargs
+    assert call_kwargs["workspace_dir"] == str(tmp_path / "workspace")
+    assert call_kwargs["keep_video"] is False
+
+
 def test_agent_init_creates_runtime_home_without_starting_worker(tmp_path: Path) -> None:
     agent_home = tmp_path / "agent-home"
 

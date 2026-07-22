@@ -263,6 +263,18 @@ Codex 执行时应遵守：
 
 ## 快速入口
 
+### 常用能力入口
+
+媒体转写：当用户要求“下载视频 / 提取音频 / Groq 转写 / 输出 transcript”且不要求总结或发布时，优先使用：
+
+```bash
+uv run yt2notion transcribe "URL"
+```
+
+默认配置读取顺序：显式 `--config` → `~/.yt2notion-agent/config.yaml` → 当前仓库 `config.yaml`。
+
+默认输出：`workspace/<media-id>/metadata.json`、`video.*`、`audio.mp3`、`transcripts.json`、`transcript.md`，不触发 review / summarize / Notion / Obsidian 发布。需要机器可读结果时加 `--json`。
+
 - 项目规则与底线：[CLAUDE.md](./CLAUDE.md)
 - 代码地图与数据契约：[PROJECT_MAP.md](./PROJECT_MAP.md)
 - 工具行为与风格限制：[.cursorrules](./.cursorrules)

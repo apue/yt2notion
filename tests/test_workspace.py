@@ -59,6 +59,29 @@ def test_audio_path(tmp_path):
     assert saved.name == "audio.mp3"
 
 
+def test_video_path(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    assert ws.video_path is None
+
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"fake video")
+    saved = ws.save_video(video)
+    assert ws.video_path == saved
+    assert saved.name == "video.mp4"
+
+
+def test_discard_video_artifacts(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    (ws.dir / "video.mp4").write_bytes(b"old")
+    (ws.dir / "video.webm").write_bytes(b"old")
+
+    ws.discard_video_artifacts()
+
+    assert ws.video_path is None
+    assert not (ws.dir / "video.mp4").exists()
+    assert not (ws.dir / "video.webm").exists()
+
+
 def test_subtitle_path(tmp_path):
     ws = Workspace(tmp_path, "test123")
     assert ws.subtitle_path is None

@@ -125,6 +125,67 @@ def prepare(
     typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+@app.command("transcribe")
+def transcribe(
+    url: str = typer.Argument(help="Media URL"),
+    config_path: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Config file path; defaults to ~/.yt2notion-agent/config.yaml then ./config.yaml",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    workspace_dir: str | None = typer.Option(None, "--workspace-dir", help="Workspace base dir"),
+    keep_video: bool = typer.Option(
+        True,
+        "--keep-video/--no-video",
+        help="Keep the downloaded video artifact in the workspace",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON result summary"),
+) -> None:
+    """Download media, extract audio, transcribe via ASR, and write local artifacts."""
+    from yt2notion.audio import AudioError
+    from yt2notion.media_transcribe import (
+        resolve_media_transcribe_config_path,
+        transcribe_media,
+        write_result_json,
+    )
+
+    try:
+        resolved_config_path = resolve_media_transcribe_config_path(config_path)
+        config = load_config(str(resolved_config_path))
+        result = transcribe_media(
+            url,
+            config,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
+        )
+    except ConfigError as e:
+        typer.echo(f"Configuration error: {e}", err=True)
+        raise typer.Exit(1) from None
+    except ExtractionError as e:
+        typer.echo(f"Extraction error: {e}", err=True)
+        raise typer.Exit(1) from None
+    except AudioError as e:
+        typer.echo(f"Audio error: {e}", err=True)
+        raise typer.Exit(1) from None
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1) from None
+
+    if json_output:
+        typer.echo(write_result_json(result))
+        return
+
+    typer.echo(f"Workspace: {result.workspace.dir}")
+    if result.video_path:
+        typer.echo(f"Video: {result.video_path}")
+    typer.echo(f"Audio: {result.audio_path}")
+    typer.echo(f"Transcript JSON: {result.transcripts_path}")
+    typer.echo(f"Transcript Markdown: {result.transcript_markdown_path}")
+
+
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 

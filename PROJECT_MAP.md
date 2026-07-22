@@ -28,6 +28,7 @@
 |---|---|---|
 | `uv run yt2notion process "URL"` | `cli.py` → `pipeline.run_pipeline()` | Main CLI entrypoint via Typer (publishes by default) |
 | `uv run yt2notion prepare "URL"` | `cli.py` → `pipeline.prepare_content()` | Shared no-publish JSON entrypoint for Claude/Codex wrappers |
+| `uv run yt2notion transcribe "URL"` | `cli.py` → `media_transcribe.transcribe_media()` | Standalone media download → audio extraction → ASR transcript artifacts; no review/summarize/publish |
 | `uv run yt2notion agent <subcommand>` | `cli.py` → `agent_runtime.py` / `agent_worker.py` | File-backed local agent wrapper for queued Codex→Obsidian summary runs |
 | `python -m yt2notion.extract_cmd` | `extract_cmd.py` | Legacy transcript-only extraction helper |
 
@@ -152,6 +153,7 @@ Canonical workspace artifacts:
 | `transcribe_state.json` | `TRANSCRIBE` | `{version, job_mode, status, next_attempt_at, last_error, defer_reason, ash_defer_count, chunks[]}` |
 | `transcribe_chunks/<chunk_id>.json` | `TRANSCRIBE` | `list[{start_seconds, end_seconds, text, source}]` for each completed chunk |
 | `transcripts.json` | `TRANSCRIBE` / `TOPIC SEGMENT` | `list[{title, start_seconds, end_seconds, text, source}]` |
+| `transcript.md` | standalone `transcribe` | readable transcript Markdown with title, channel, source URL, ASR backend, and timestamped segments |
 | `reviewed.json` | `REVIEW` | same shape as `transcripts.json`; present only when transcript cleanup runs |
 | `note_bundle.json` | `SUMMARIZE` | `NoteBundle {source, guide, longform, stable_tags, source_topics}` where each note is `NoteDocument {title, markdown, tags, variant}` |
 | `failed.json` | top-level pipeline error handling | `{url, step, error_type, error_message, retries_exhausted, timestamp}` style failure record |
@@ -161,8 +163,10 @@ Common non-JSON side artifacts:
 | Artifact | Producer | Notes |
 |---|---|---|
 | `subtitles.srt` / `subtitles.vtt` | subtitle download | exact suffix depends on source |
-| `audio.mp3` | audio download | used for ASR path |
+| `video.*` | standalone `transcribe` | downloaded source media, kept by default; disabled with `--no-video` |
+| `audio.mp3` | audio download / standalone `transcribe` | used for ASR path; standalone `transcribe` extracts it from downloaded media with ffmpeg |
 | `segments/*.mp3` | per-segment ASR | transient workspace split files |
+| `full_audio_chunks/*.mp3` | full-audio ASR | transient workspace split files for long media |
 
 Core runtime model types live in `models/base.py`: `VideoMeta`, `Chapter`, `NoteMetadata`, `NoteDocument`, and `NoteBundle`.
 
@@ -170,6 +174,7 @@ Core runtime model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Note
 
 Path resolution note:
 - Main CLI (`process` / `prepare`) uses normal `config.yaml` resolution.
+- Standalone `transcribe` uses explicit `--config` if present, otherwise tries `~/.yt2notion-agent/config.yaml` before local `config.yaml`.
 - Agent commands use `<agent_home>/config.yaml` by default unless `--config` is provided.
 
 | `config.yaml` path | Consumer | Purpose |
@@ -289,7 +294,8 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 ## Dependency Map
 
 ```text
-cli.py -> config.py, pipeline.py
+cli.py -> config.py, pipeline.py, media_transcribe.py
+media_transcribe.py -> extract.py, audio.py, workspace.py, pipeline.py, transcribe/__init__.py
 pipeline.py -> extract.py, process.py, workspace.py, note_bundle.py,
                segment.py, topic_segment.py, review.py,
                models/__init__.py, storage/__init__.py, transcribe/__init__.py

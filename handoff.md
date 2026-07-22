@@ -4,48 +4,70 @@
 
 ## 当前任务卡
 
-- 任务：bundle-only 输出收敛 + transcript cleanup 策略统一 + 删除存量死代码
-- 状态：`ready_to_merge`（PR #25 已更新到 `9daa62c`，本地复审和验证通过；User 已授权合入）
-- 当前 owner：Codex（合入中）
-- 上一执行者：Codex
-- 下一执行者：Codex / User
-- 来源：用户明确反馈“现在就只需要这三篇输出，其它都不用”；当前正式输出只保留 `source`、`A 导读`、`B 扩展` 三篇。auto caption 也应视作 ASR-like，需要清洗；未来输出变化可重新开发，历史实验/兼容路径无保留价值。
+- 任务：新增 repo-local 媒体转写 CLI 能力并走 PR / review / merge 流程
+- 状态：`in_progress`
+- 当前 owner：Codex
+- 上一执行者：User
+- 下一执行者：Codex
+- 来源：User 要求把“下载视频、提取音频、Groq 分片转写、输出本地文本”的能力沉淀到仓库中，并让未来 Codex 通过仓库入口文档快速发现；随后明确要求完成开发、PR、CR、Merge。
 - 当前工作目录：`/Users/yangtian/Developer/agent/yt2notion`
-- 分支：`bundle-only-transcript-cleanup`
-- PR：[#25](https://github.com/apue/yt2notion/pull/25)
-- review 状态：Codex review comment 已记录原 blocking finding：<https://github.com/apue/yt2notion/pull/25#issuecomment-4455966347>；本轮已在 `9daa62c` 修复并推送，复审无 blocking code findings
+- 分支：`media-transcribe-cli`
+- PR：[#26](https://github.com/apue/yt2notion/pull/26)
+- review 状态：本地 Codex review 发现并修复 stale video / stale transcript artifact 泄漏问题；复测通过
 - 目标：
-  - 修复 PR #25 中 `_step_segment()` 丢失 description timestamp regex fallback 的回归。
-  - 删除/收敛 `claude -p` 专属测试用例，避免继续把 Claude Code CLI 当作必须验证路径。
-  - 清理冲突后的 `README.md`、`config.example.yaml`、`handoff.md` 和 backend 测试改动。
-  - 跑本地测试/lint 后提交并推送到 PR #25。
+  - 新增稳定命令 `uv run yt2notion transcribe "URL"`，作为只转写、不发布的旁路能力。
+  - 默认复用 `~/.yt2notion-agent/config.yaml`，也支持显式 `--config`。
+  - 复用现有 `yt-dlp`、ffmpeg、Groq backend、分片、checkpoint 与 workspace artifact 逻辑。
+  - 输出可阅读 Markdown transcript 和结构化 `transcripts.json`，并保留来源信息。
+  - 在 `AGENTS.md` 与 `PROJECT_MAP.md` 中登记触发方式和 artifact 契约，让 Codex 无需代码探索即可命中。
 - 非目标：
-  - 不优化 prompt 文案。
-  - 不新增输出形态。
-  - 不调用远程 ASR/LLM/Notion/Obsidian 验证。
-  - 不合入 PR；合入仍由 User 另行决定。
+  - 不触发 review/summarize/publish。
+  - 不修改 `prompts/` 模板。
+  - 不修改或回显任何密钥。
+  - 不改变现有 `process` / `prepare` 主 pipeline 行为。
 - 约束：
-  - `PROJECT_MAP.md` 是 pipeline / artifact / prompt binding 唯一事实锚点，实现变化必须同步。
-  - 当前修复只恢复已有本地 regex 分段，不引入 LLM outline-aware cleanup 新契约。
-  - `prompts/` 下仍保留的生产模板 Markdown 结构不要改。
+  - `PROJECT_MAP.md` 是 pipeline / artifact / entrypoint 事实锚点，涉及契约变化必须同步。
+  - 现有用户本地改动 `.codex/config.toml`、`.gitignore` 保留，不作为本功能必要改动处理。
+  - `/review` 后只做本地测试/lint，不调用远程 ASR/LLM。
+- 受影响文件：
+  - [AGENTS.md](./AGENTS.md)
+  - [PROJECT_MAP.md](./PROJECT_MAP.md)
+  - [src/yt2notion/cli.py](./src/yt2notion/cli.py)
+  - [src/yt2notion/extract.py](./src/yt2notion/extract.py)
+  - [src/yt2notion/media_transcribe.py](./src/yt2notion/media_transcribe.py)
+  - [src/yt2notion/workspace.py](./src/yt2notion/workspace.py)
+  - [tests/test_media_transcribe.py](./tests/test_media_transcribe.py)
+  - [tests/test_cli.py](./tests/test_cli.py)
+  - [tests/test_extract.py](./tests/test_extract.py)
+  - [tests/test_workspace.py](./tests/test_workspace.py)
+- 验收标准：
+  - `yt2notion transcribe URL` 可从 agent runtime config 默认读取 Groq 配置。
+  - 命令执行下载媒体、提取音频、ASR 转写、保存 transcript artifacts，不发布。
+  - 生成 Markdown 输出包含标题、频道、URL 和分段文本。
+  - 单元测试覆盖配置路径解析、CLI 调用、媒体/音频保存与 artifact 写入。
+  - 本地 pytest 与 ruff 通过。
 - 已完成：
-  - 新增 failing test 复现 description 时间轴未被 `_step_segment()` 使用的问题。
-  - 已恢复 `_step_segment()` 调用本地 description timestamp parser。
-  - 已删除 `tests/test_claude_code.py` / `tests/test_llm_retry.py`，并从 factory / note bundle 测试移除 Claude CLI backend 参数。
+  - 已读取 `AGENTS.md`、`handoff.md`、当前 git status/diff、相关技能与仓库关键代码。
+  - 已确认现有 `extract_cmd.py` 是 legacy helper，不适合作为最终入口。
+  - 已确认应扩展现有 CLI 与 pipeline 分片转写逻辑，而不是把实现放入 skill。
+  - 已新增 `yt2notion transcribe` CLI、媒体下载/audio 提取 helper、workspace video artifact、standalone 转写编排和测试。
+  - 已更新 `PROJECT_MAP.md`、`AGENTS.md`、`README.md`，登记 Codex 快速发现入口和 artifact 契约。
+  - 已创建 PR #26，并完成本地 code review；修复同 workspace 复跑时 `--no-video` 仍可能暴露旧 `video.*`、失败前旧 `transcript.md` 残留的问题。
 - 已运行验证：
-  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_pipeline.py::test_step_segment_uses_description_timestamp_outline -q` → 先失败，修复后通过。
-  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_pipeline.py::test_step_segment_uses_description_timestamp_outline tests/test_anthropic_api.py tests/test_codex_cli.py tests/test_model_factory.py tests/test_note_bundle.py -q` → `43 passed`
-  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev ruff check src/yt2notion tests` → `All checks passed!`（仅 `TCH003` remap warning）
-  - `ANTHROPIC_API_KEY= UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/ -q` → `318 passed, 6 warnings`
-  - `UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev python -c 'import yaml; yaml.safe_load(open("config.example.yaml", encoding="utf-8")); print("config.example.yaml ok")'` → pass
+  - `uv run --extra dev pytest tests/test_media_transcribe.py tests/test_cli.py::test_cli_transcribe_outputs_json tests/test_extract.py::test_extract_video_downloads_playable_media tests/test_audio.py::test_extract_audio_from_video_writes_asr_friendly_mp3 tests/test_workspace.py::test_video_path -q` → `9 passed`
+  - `uv run --extra dev pytest tests/test_media_transcribe.py tests/test_workspace.py::test_video_path tests/test_workspace.py::test_discard_video_artifacts -q` → `8 passed`
+  - `ANTHROPIC_API_KEY= uv run --extra dev pytest tests/ -q` → `329 passed, 6 warnings`
+  - `uv run --extra dev ruff check src/yt2notion tests` → `All checks passed!`
+  - `uv run --extra dev ruff format src/yt2notion/media_transcribe.py src/yt2notion/audio.py src/yt2notion/cli.py src/yt2notion/extract.py src/yt2notion/workspace.py tests/test_media_transcribe.py tests/test_audio.py tests/test_cli.py tests/test_extract.py tests/test_workspace.py` → `2 files reformatted, 8 files left unchanged`
 - 当前阻塞：
-  - 无；User 已授权合入 PR #25。
+  - 无。
 - 下一步：
-  1. 提交本 handoff 状态修正并推送到 PR #25。
-  2. 合入 PR #25。
+  1. 更新 PR #26 分支。
+  2. 合并 PR #26。
   3. 合入后更新 handoff 为完成状态。
 - 风险/回滚点：
-  - 未执行任何在线 ASR/LLM/Notion/Obsidian 验证。
+  - 真实 ASR 调用依赖外部 Groq quota；本轮代码 review 后不做远程 ASR 验证。
+  - 保留原始视频会占用磁盘空间；CLI 应提供可关闭选项或明确默认行为。
 
 ## 上一任务归档（2026-04-30 前）
 

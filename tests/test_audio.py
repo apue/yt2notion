@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from yt2notion.audio import AudioError, get_duration, split_audio
+from yt2notion.audio import AudioError, extract_audio_from_video, get_duration, split_audio
 
 
 @patch("yt2notion.audio.subprocess.run")
@@ -27,6 +27,28 @@ def test_get_duration_error(mock_run, tmp_path):
 
     with pytest.raises(AudioError, match="Failed to get duration"):
         get_duration(tmp_path / "test.mp3")
+
+
+@patch("yt2notion.audio.subprocess.run")
+def test_extract_audio_from_video_writes_asr_friendly_mp3(mock_run, tmp_path):
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"video")
+    audio = tmp_path / "out" / "audio.mp3"
+
+    def side_effect(cmd, **kwargs):
+        audio.write_bytes(b"audio")
+        return type("Result", (), {"returncode": 0})()
+
+    mock_run.side_effect = side_effect
+
+    result = extract_audio_from_video(video, audio)
+
+    assert result == audio
+    cmd = mock_run.call_args.args[0]
+    assert "-vn" in cmd
+    assert cmd[cmd.index("-ac") + 1] == "1"
+    assert cmd[cmd.index("-ar") + 1] == "16000"
+    assert cmd[cmd.index("-b:a") + 1] == "32k"
 
 
 @patch("yt2notion.audio.subprocess.run")

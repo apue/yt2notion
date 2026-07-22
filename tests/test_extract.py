@@ -13,6 +13,7 @@ from yt2notion.extract import (
     extract_metadata,
     extract_subtitles,
     extract_subtitles_with_source,
+    extract_video,
     extract_webpage_transcript,
     write_transcript_srt,
 )
@@ -157,6 +158,28 @@ def test_cookies_flag(mock_run, tmp_path):
     sub_calls = [c for c in calls if "--cookies-from-browser" in c]
     assert len(sub_calls) > 0
     assert "chrome" in sub_calls[0]
+
+
+@patch("yt2notion.extract.subprocess.run")
+def test_extract_video_downloads_playable_media(mock_run, tmp_path):
+    def side_effect(cmd, **kwargs):
+        video = tmp_path / "abc123.mp4"
+        video.write_bytes(b"video")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = side_effect
+
+    path = extract_video(
+        "https://www.youtube.com/watch?v=abc123",
+        tmp_path,
+        video_id="abc123",
+        cookies_from="chrome",
+    )
+
+    assert path == tmp_path / "abc123.mp4"
+    cmd = mock_run.call_args.args[0]
+    assert "--merge-output-format" in cmd
+    assert "--cookies-from-browser" in cmd
 
 
 @patch("yt2notion.extract.httpx.get")

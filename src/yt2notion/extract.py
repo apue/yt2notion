@@ -197,6 +197,39 @@ def extract_audio(
     raise ExtractionError(f"Audio download succeeded but file not found in {output_dir}")
 
 
+def extract_video(
+    url: str,
+    output_dir: Path,
+    *,
+    video_id: str = "",
+    cookies_from: str | None = None,
+) -> Path:
+    """Download a playable video file using yt-dlp.
+
+    Returns the path to the downloaded video file.
+    """
+    args = [
+        "-f",
+        "bestvideo*+bestaudio/best",
+        "--merge-output-format",
+        "mp4",
+        "-o",
+        str(output_dir / "%(id)s.%(ext)s"),
+    ]
+    if cookies_from:
+        args.extend(["--cookies-from-browser", cookies_from])
+    args.append(url)
+    _run_ytdlp(args)
+
+    video_extensions = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
+    pattern = f"{video_id}*" if video_id else "*"
+    for candidate in sorted(output_dir.glob(pattern), key=lambda p: p.stat().st_size, reverse=True):
+        if candidate.suffix in video_extensions:
+            return candidate
+
+    raise ExtractionError(f"Video download succeeded but file not found in {output_dir}")
+
+
 def extract_webpage_transcript(url: str, metadata: VideoMeta) -> list[SubtitleEntry]:
     """Extract a transcript from the source page or a linked episode webpage."""
     page_html = _fetch_page(url)
