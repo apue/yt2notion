@@ -36,6 +36,9 @@ uv run yt2notion process "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Prepare JSON for Claude/Codex wrappers without publishing
 uv run yt2notion prepare "https://www.youtube.com/watch?v=VIDEO_ID" --mode summary
+
+# Download media, extract audio, and write transcript artifacts only
+uv run yt2notion transcribe "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 ## Queued Agent Workflow

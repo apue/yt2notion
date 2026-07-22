@@ -31,6 +31,39 @@ def get_duration(audio_path: Path) -> float:
         raise AudioError(f"Failed to get duration for {audio_path}: {e}") from e
 
 
+def extract_audio_from_video(
+    video_path: Path,
+    output_path: Path,
+    *,
+    sample_rate: int = 16000,
+    channels: int = 1,
+    bitrate: str = "32k",
+) -> Path:
+    """Extract MP3 audio from a media file via ffmpeg for ASR upload."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-ac",
+        str(channels),
+        "-ar",
+        str(sample_rate),
+        "-b:a",
+        bitrate,
+        str(output_path),
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except FileNotFoundError as e:
+        raise AudioError("ffmpeg not found. Install ffmpeg.") from e
+    except subprocess.CalledProcessError as e:
+        raise AudioError(f"Failed to extract audio from {video_path}: {e.stderr.strip()}") from e
+    return output_path
+
+
 def split_audio(
     audio_path: Path,
     segments: list[dict],

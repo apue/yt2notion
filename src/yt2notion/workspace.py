@@ -94,13 +94,26 @@ class Workspace:
             shutil.copy2(src, dst)
         return dst
 
+    def save_video(self, src: Path) -> Path:
+        """Copy video file into workspace. Returns destination path."""
+        dst = self.dir / f"video{src.suffix}"
+        if src != dst:
+            shutil.copy2(src, dst)
+        return dst
+
+    def discard_video_artifacts(self) -> None:
+        """Remove saved video artifacts from this workspace."""
+        for ext in (".mp4", ".mkv", ".webm", ".mov", ".m4v"):
+            path = self.dir / f"video{ext}"
+            if path.exists():
+                path.unlink()
+
     def save_subtitles(self, src: Path) -> Path:
         """Copy subtitle file into workspace. Returns destination path."""
         dst = self.dir / f"subtitles{src.suffix}"
         if src != dst:
             shutil.copy2(src, dst)
         return dst
-
 
     def save_subtitle_source(self, source: str) -> None:
         """Persist the subtitle origin marker for cleanup policy decisions."""
@@ -118,6 +131,14 @@ class Workspace:
     def audio_path(self) -> Path | None:
         for ext in (".mp3", ".m4a", ".wav", ".opus", ".ogg"):
             p = self.dir / f"audio{ext}"
+            if p.exists():
+                return p
+        return None
+
+    @property
+    def video_path(self) -> Path | None:
+        for ext in (".mp4", ".mkv", ".webm", ".mov", ".m4v"):
+            p = self.dir / f"video{ext}"
             if p.exists():
                 return p
         return None
