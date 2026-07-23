@@ -48,7 +48,8 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 - `models/llm.py` → `LLMCaller` Protocol：Claude/Codex/Anthropic 文本调用
 - `storage/base.py` → `Storage` Protocol：保存 Obsidian source/A/B bundle
 
-实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` 仅有 `ClaudeCodeCaller` 实现。
+实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` adapters
+为 `ClaudeCodeCaller`、`CodexCLICaller` 和 `AnthropicAPICaller`。
 
 流水线的唯一规范真源在 [PROJECT_MAP.md](./PROJECT_MAP.md)。本文件只保留开发者视角的高层摘要：
 - `PROJECT_MAP.md` 负责步骤顺序、条件分支、JSON 契约、prompt 绑定和扩展入口

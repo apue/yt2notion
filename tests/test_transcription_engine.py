@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from yt2notion.models.base import VideoMeta
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
 from yt2notion.transcribe.engine import TranscriptionEngine
@@ -19,16 +19,8 @@ from yt2notion.transcribe.errors import (
 )
 from yt2notion.workspace import Workspace
 
-
-@pytest.fixture
-def metadata() -> VideoMeta:
-    return VideoMeta(
-        video_id="abc123",
-        title="Test Video",
-        channel="TestChannel",
-        url="https://www.youtube.com/watch?v=abc123",
-        duration_seconds=120,
-    )
+if TYPE_CHECKING:
+    from yt2notion.models.base import VideoMeta
 
 
 def _segment_result(entries: list[SubtitleEntry], _max_seconds: int) -> list[Segment]:
@@ -316,3 +308,207 @@ def test_oversize_short_audio_fails_before_provider_upload(
 
     primary.transcribe.assert_not_called()
     split_audio.assert_not_called()
+
+
+@patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
+@patch("yt2notion.audio.split_audio")
+def test_small_full_audio_uses_single_upload_fast_path(
+    split_audio: MagicMock,
+    _split_by_duration: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    primary = MagicMock(max_upload_bytes=100)
+    primary.transcribe.return_value = [SubtitleEntry(0.0, 1.0, "single request")]
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "groq", "chunk_seconds": 300}}},
+        primary_transcriber=primary,
+        primary_backend="groq",
+    )
+
+    result = engine.transcribe_audio(audio_path, [], metadata, workspace)
+
+    assert result[0]["text"] == "single request"
+    primary.transcribe.assert_called_once_with(audio_path, language=None)
+    split_audio.assert_not_called()
+
+
+@patch("yt2notion.audio.split_audio")
+def test_non_retryable_error_does_not_load_fallback(
+    split_audio: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    segment_file = tmp_path / "segment.mp3"
+    segment_file.write_bytes(b"segment")
+    split_audio.return_value = [segment_file]
+    primary = MagicMock(max_upload_bytes=None)
+    primary.transcribe.side_effect = TranscriptionError("bad request")
+    fallback_factory = MagicMock()
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+        primary_transcriber=primary,
+        primary_backend="groq",
+        fallback_backend="remote",
+        fallback_transcriber_factory=fallback_factory,
+    )
+
+    with pytest.raises(TranscriptionError, match="bad request"):
+        engine.transcribe_audio(
+            audio_path,
+            [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+            metadata,
+            workspace,
+        )
+
+    fallback_factory.assert_not_called()
+    assert workspace.asr_fallback_used() is False
+
+
+@patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
+def test_daily_limit_without_fallback_is_propagated(
+    _split_by_duration: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    primary = MagicMock(max_upload_bytes=None)
+    primary.transcribe.side_effect = TranscriptionDailyLimitError("daily")
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "groq"}}},
+        primary_transcriber=primary,
+        primary_backend="groq",
+    )
+
+    with pytest.raises(TranscriptionDailyLimitError, match="daily"):
+        engine.transcribe_audio(audio_path, [], metadata, workspace)
+
+    assert workspace.asr_fallback_used() is False
+
+
+@patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
+def test_primary_success_does_not_load_fallback(
+    _split_by_duration: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    primary = MagicMock(max_upload_bytes=None)
+    primary.transcribe.return_value = [SubtitleEntry(0.0, 1.0, "primary")]
+    fallback_factory = MagicMock(side_effect=AssertionError("fallback must stay lazy"))
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+        primary_transcriber=primary,
+        primary_backend="groq",
+        fallback_backend="remote",
+        fallback_transcriber_factory=fallback_factory,
+    )
+
+    result = engine.transcribe_audio(audio_path, [], metadata, workspace)
+
+    assert result[0]["text"] == "primary"
+    fallback_factory.assert_not_called()
+
+
+@patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
+@patch("yt2notion.audio.split_audio")
+def test_full_audio_chunks_still_enforce_upload_budget(
+    split_audio: MagicMock,
+    _split_by_duration: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    audio_path.write_bytes(b"x" * 1000)
+    oversized = tmp_path / "chunk_001.mp3"
+    oversized.write_bytes(b"x" * 250)
+    remaining = [tmp_path / f"chunk_{index:03d}.mp3" for index in range(2, 5)]
+    for path in remaining:
+        path.write_bytes(b"x" * 80)
+    split_audio.return_value = [oversized, *remaining]
+    primary = MagicMock(max_upload_bytes=200)
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "groq", "chunk_seconds": 300}}},
+        primary_transcriber=primary,
+        primary_backend="groq",
+    )
+
+    with pytest.raises(TranscriptionError, match="minimum chunk size"):
+        engine.transcribe_audio(audio_path, [], metadata, workspace)
+
+    primary.transcribe.assert_not_called()
+    split_audio.assert_called_once()
+
+
+@patch("yt2notion.audio.split_audio")
+def test_oversized_segment_is_subdivided_before_upload(
+    split_audio: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    oversized = tmp_path / "segment_001.mp3"
+    oversized.write_bytes(b"x" * 180)
+    children = [tmp_path / f"segment_001_child_{index}.mp3" for index in range(1, 3)]
+    for path in children:
+        path.write_bytes(b"x" * 90)
+    split_audio.side_effect = [[oversized], children]
+    primary = MagicMock(max_upload_bytes=100)
+    primary.transcribe.side_effect = [
+        [SubtitleEntry(0.0, 1.0, "child one")],
+        [SubtitleEntry(0.0, 1.0, "child two")],
+    ]
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "groq", "chunk_seconds": 300}}},
+        primary_transcriber=primary,
+        primary_backend="groq",
+    )
+
+    result = engine.transcribe_audio(
+        audio_path,
+        [{"title": "Long segment", "start_seconds": 0, "end_seconds": 120}],
+        metadata,
+        workspace,
+    )
+
+    assert result[0]["text"] == "child one child two"
+    assert split_audio.call_count == 2
+    assert [call.args[0] for call in primary.transcribe.call_args_list] == children
+
+
+@patch("yt2notion.transcribe.engine._rebase_chunk_entries")
+@patch("yt2notion.audio.split_audio")
+def test_segmented_audio_without_upload_limit_keeps_direct_timestamps(
+    split_audio: MagicMock,
+    rebase_chunk_entries: MagicMock,
+    tmp_path: Path,
+    metadata: VideoMeta,
+) -> None:
+    workspace, audio_path = _audio_workspace(tmp_path, metadata)
+    segment_file = tmp_path / "segment_001.mp3"
+    segment_file.write_bytes(b"segment")
+    split_audio.return_value = [segment_file]
+    primary = MagicMock(max_upload_bytes=None)
+    primary.transcribe.return_value = [
+        SubtitleEntry(0.0, 0.4, "first"),
+        SubtitleEntry(1.0, 3.0, "second"),
+    ]
+    rebase_chunk_entries.side_effect = AssertionError("segment entries must not be rebased")
+    engine = TranscriptionEngine(
+        {"extract": {"asr": {"backend": "remote"}}},
+        primary_transcriber=primary,
+        primary_backend="remote",
+    )
+
+    result = engine.transcribe_audio(
+        audio_path,
+        [{"title": "Part 1", "start_seconds": 100, "end_seconds": 130}],
+        metadata,
+        workspace,
+    )
+
+    assert result[0]["text"] == "first second"
+    primary.transcribe.assert_called_once_with(segment_file, language=None)
+    rebase_chunk_entries.assert_not_called()

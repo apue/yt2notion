@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
 
+from yt2notion.models.base import (
+    NOTE_VARIANT_GUIDE,
+    NOTE_VARIANT_LONGFORM,
+    NOTE_VARIANT_SOURCE,
+    NoteVariant,
+)
 from yt2notion.process import seconds_to_display
 
 if TYPE_CHECKING:
@@ -36,18 +43,19 @@ def _detect_media_type(url: str) -> str:
 
 
 def _navigation(
-    source_stem: str,
-    guide_stem: str,
-    longform_stem: str,
-    current_variant: str,
+    note_stems: Mapping[NoteVariant, str],
+    current_variant: NoteVariant,
 ) -> list[str]:
-    if current_variant == "source":
-        targets = [guide_stem, longform_stem]
-    elif current_variant == "a_guide":
-        targets = [source_stem, longform_stem]
-    else:
-        targets = [source_stem, guide_stem]
-    return [f"- [[{target}]]" for target in targets]
+    linked_variants: dict[NoteVariant, tuple[NoteVariant, NoteVariant]] = {
+        NOTE_VARIANT_SOURCE: (NOTE_VARIANT_GUIDE, NOTE_VARIANT_LONGFORM),
+        NOTE_VARIANT_GUIDE: (NOTE_VARIANT_SOURCE, NOTE_VARIANT_LONGFORM),
+        NOTE_VARIANT_LONGFORM: (NOTE_VARIANT_SOURCE, NOTE_VARIANT_GUIDE),
+    }
+    try:
+        targets = linked_variants[current_variant]
+    except KeyError as exc:
+        raise ObsidianStorageError(f"Unknown note variant: {current_variant!r}") from exc
+    return [f"- [[{note_stems[target]}]]" for target in targets]
 
 
 def _render_note(
@@ -55,9 +63,7 @@ def _render_note(
     metadata: VideoMeta,
     today: str,
     *,
-    source_stem: str,
-    guide_stem: str,
-    longform_stem: str,
+    note_stems: Mapping[NoteVariant, str],
 ) -> str:
     frontmatter = {
         "source_url": metadata.url,
@@ -79,7 +85,7 @@ def _render_note(
         [
             "## 导航",
             "",
-            *_navigation(source_stem, guide_stem, longform_stem, note.variant),
+            *_navigation(note_stems, note.variant),
         ]
     )
     return (
@@ -112,40 +118,40 @@ class ObsidianStorage:
     def save_note_bundle(self, bundle: NoteBundle, metadata: VideoMeta) -> str:
         """Write three linked notes and return the source-note path."""
         today = date.today().isoformat()
-        source_file, guide_file, longform_file = self._resolve_bundle_paths(metadata, today)
-        paths_and_notes = (
-            (source_file, bundle.source),
-            (guide_file, bundle.guide),
-            (longform_file, bundle.longform),
-        )
+        note_paths = self._resolve_bundle_paths(metadata, today)
+        note_stems = {variant: path.stem for variant, path in note_paths.items()}
+        notes = {
+            NOTE_VARIANT_SOURCE: bundle.source,
+            NOTE_VARIANT_GUIDE: bundle.guide,
+            NOTE_VARIANT_LONGFORM: bundle.longform,
+        }
 
-        for path, note in paths_and_notes:
+        for variant, note in notes.items():
+            path = note_paths[variant]
             path.write_text(
                 _render_note(
                     note,
                     metadata,
                     today,
-                    source_stem=source_file.stem,
-                    guide_stem=guide_file.stem,
-                    longform_stem=longform_file.stem,
+                    note_stems=note_stems,
                 ),
                 encoding="utf-8",
             )
 
-        return str(source_file)
+        return str(note_paths[NOTE_VARIANT_SOURCE])
 
-    def _resolve_bundle_paths(self, metadata: VideoMeta, today: str) -> tuple[Path, Path, Path]:
+    def _resolve_bundle_paths(self, metadata: VideoMeta, today: str) -> dict[NoteVariant, Path]:
         summaries_path = self.vault_path / self.summaries_dir
         summaries_path.mkdir(parents=True, exist_ok=True)
         base = _sanitize_title(metadata.title)
         counter = 1
         while True:
             stem = f"{today} {base}" if counter == 1 else f"{today} {base}-{counter}"
-            paths = (
-                summaries_path / f"{stem}.md",
-                summaries_path / f"{stem} - 导读.md",
-                summaries_path / f"{stem} - 扩展.md",
-            )
-            if not any(path.exists() for path in paths):
+            paths: dict[NoteVariant, Path] = {
+                NOTE_VARIANT_SOURCE: summaries_path / f"{stem}.md",
+                NOTE_VARIANT_GUIDE: summaries_path / f"{stem} - 导读.md",
+                NOTE_VARIANT_LONGFORM: summaries_path / f"{stem} - 扩展.md",
+            }
+            if not any(path.exists() for path in paths.values()):
                 return paths
             counter += 1

@@ -20,6 +20,10 @@ class ClaudeCodeError(Exception):
     """Raised when the Claude CLI cannot complete a call."""
 
 
+class LLMConfigError(ValueError):
+    """Raised when an LLM adapter cannot be selected or configured."""
+
+
 class ClaudeCodeCaller:
     """One-shot LLM caller using `claude -p`."""
 
@@ -96,9 +100,9 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
 
         api_key = model_config.get("api_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
-            raise ValueError(
+            raise LLMConfigError(
                 "Anthropic API key required. "
                 "Set model.api_key in config or ANTHROPIC_API_KEY env var."
             )
         return AnthropicAPICaller(api_key=api_key, model=model)
-    raise ValueError(f"Unknown LLM backend: {backend!r}")
+    raise LLMConfigError(f"Unknown LLM backend: {backend!r}")

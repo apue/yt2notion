@@ -8,12 +8,16 @@ if TYPE_CHECKING:
     from yt2notion.storage.base import Storage
 
 
+class StorageConfigError(ValueError):
+    """Raised when a storage adapter cannot be selected or configured."""
+
+
 def create_storage(config: dict) -> Storage:
     """Create the configured Obsidian bundle storage adapter."""
     storage_config = config.get("storage", {})
     backend = storage_config.get("backend", "obsidian")
     if backend != "obsidian":
-        raise ValueError(f"Unknown storage backend: {backend!r}")
+        raise StorageConfigError(f"Unknown storage backend: {backend!r}")
 
     from yt2notion.storage.obsidian import ObsidianStorage
 

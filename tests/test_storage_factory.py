@@ -2,7 +2,7 @@
 
 import pytest
 
-from yt2notion.storage import create_storage
+from yt2notion.storage import StorageConfigError, create_storage
 from yt2notion.storage.obsidian import ObsidianStorage
 
 
@@ -15,5 +15,5 @@ def test_create_obsidian(tmp_path) -> None:
 
 
 def test_unknown_backend_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown storage backend"):
+    with pytest.raises(StorageConfigError, match="Unknown storage backend"):
         create_storage({"storage": {"backend": "dropbox"}})

@@ -7,6 +7,7 @@ import pytest
 from yt2notion.models import create_summarizer
 from yt2notion.models.anthropic_api import AnthropicAPICaller
 from yt2notion.models.codex_cli import CodexCLICaller
+from yt2notion.models.llm import LLMConfigError
 from yt2notion.models.note_composer import NoteComposer
 
 
@@ -33,11 +34,13 @@ def test_create_anthropic_composer(_anthropic) -> None:
     assert isinstance(composer.caller, AnthropicAPICaller)
 
 
-def test_create_anthropic_requires_key() -> None:
-    with pytest.raises(ValueError, match="API key required"):
+def test_create_anthropic_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(LLMConfigError, match="API key required"):
         create_summarizer({"model": {"backend": "anthropic_api"}})
 
 
 def test_unknown_backend_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown LLM backend"):
+    with pytest.raises(LLMConfigError, match="Unknown LLM backend"):
         create_summarizer({"model": {"backend": "gpt4"}})
