@@ -25,7 +25,7 @@ class MediaTranscribeResult:
     transcript_markdown_path: Path
 
     def to_dict(self) -> dict:
-        """Return a JSON-serializable summary for CLI and agent wrappers."""
+        """Return a JSON-serializable CLI summary."""
         return {
             "video_id": self.metadata.video_id,
             "title": self.metadata.title,
@@ -66,18 +66,3 @@ def render_media_transcript_markdown(
             ]
         )
     return "\n".join(lines).strip() + "\n"
-
-
-def render_reviewed_transcript_markdown(
-    metadata: VideoMeta,
-    transcript_segments: list[dict],
-) -> str:
-    """Render the legacy reviewed-transcript Markdown format."""
-    lines = [f"## 逐字稿：{metadata.title}", ""]
-    for segment in transcript_segments:
-        start = int(segment.get("start_seconds", 0))
-        lines.append(f"### [{seconds_to_display(start)}] {str(segment.get('title', '')).strip()}")
-        lines.append("")
-        lines.append(str(segment.get("text", "")).strip())
-        lines.append("")
-    return "\n".join(lines).strip()

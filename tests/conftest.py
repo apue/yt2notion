@@ -69,3 +69,15 @@ def sample_meta():
         duration_seconds=300,
         subtitles_available=True,
     )
+
+
+@pytest.fixture
+def metadata():
+    """Metadata for transcription-engine contract tests."""
+    return VideoMeta(
+        video_id="abc123",
+        title="Test Video",
+        channel="TestChannel",
+        url="https://www.youtube.com/watch?v=abc123",
+        duration_seconds=120,
+    )

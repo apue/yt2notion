@@ -423,26 +423,6 @@ def _transcribe_from_subtitles(
         ]
 
 
-def transcribe_from_subtitles(
-    sub_path: Path,
-    segments: list[dict],
-    metadata: VideoMeta,
-    config: dict,
-    verbose: bool,
-    *,
-    source: str = "subtitle",
-) -> list[dict]:
-    """Public compatibility wrapper for subtitle transcript assignment."""
-    return _transcribe_from_subtitles(
-        sub_path,
-        segments,
-        metadata,
-        config,
-        verbose,
-        source=source,
-    )
-
-
 def _assign_entries_to_segments(
     entries: list[SubtitleEntry], segments: list[dict], *, source: str = "subtitle"
 ) -> list[dict]:
@@ -1132,31 +1112,6 @@ def _rebase_chunk_entries(entries: list[SubtitleEntry], chunk_spec: dict) -> lis
         )
 
     return rebased
-
-
-def rebase_chunk_entries(entries: list[SubtitleEntry], chunk_spec: dict) -> list[SubtitleEntry]:
-    """Public compatibility wrapper for timestamp rebasing tests/callers."""
-    return _rebase_chunk_entries(entries, chunk_spec)
-
-
-def transcribe_full_audio_entries(
-    audio_path: Path,
-    metadata: VideoMeta,
-    config: dict,
-    transcriber: Transcriber,
-    *,
-    language: str | None,
-    verbose: bool,
-) -> list[SubtitleEntry]:
-    """Public compatibility wrapper for full-audio transcription helpers."""
-    return _transcribe_full_audio_entries(
-        audio_path,
-        metadata,
-        config,
-        transcriber,
-        language=language,
-        verbose=verbose,
-    )
 
 
 def describe_backend_outcome(ws: Workspace, *, default_backend: str) -> str:

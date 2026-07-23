@@ -1,6 +1,6 @@
 # yt2notion
 
-媒体内容（YouTube 视频、Podcast 等）→ 字幕/转写 → LLM 总结 → Notion / Obsidian 发布的 CLI 管道工具。
+媒体内容（YouTube 视频、Podcast 等）→ 字幕/转写 → LLM 总结 → Obsidian bundle 发布的 CLI 管道工具。
 
 ## Working Style
 
@@ -25,7 +25,7 @@
 - Python 3.11+, uv 包管理
 - yt-dlp 字幕提取
 - Anthropic Claude（通过 `claude -p` 或 API）
-- Notion API 发布
+- Obsidian Markdown bundle 发布
 - typer CLI 框架
 - mlx-whisper / Qwen ASR（Podcast 转写，本地 Mac Mini 运行）
 
@@ -33,9 +33,9 @@
 
 ```bash
 uv sync                        # 安装依赖
-uv sync --extra notion         # 安装 Notion 可选依赖
 uv sync --extra anthropic      # 安装 API 可选依赖
-uv run yt2notion "URL"         # 运行
+uv run yt2notion process "URL" # 生成并显式发布
+uv run yt2notion transcribe "URL" # 只下载、提取音频和转写
 uv run pytest tests/ -v        # 测试
 uv run ruff check src/         # lint
 uv run ruff format src/        # format
@@ -44,11 +44,12 @@ uv run ruff format src/        # format
 ## Architecture
 
 Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
-- `models/base.py` → `Summarizer` Protocol：多步 LLM 总结 + 中文化（Sonnet map / Opus reduce）
-- `models/llm.py` → `LLMCaller` Protocol：轻量一次性 LLM 调用（章节提取 / 转录校对 / 话题分段）
-- `storage/base.py` → `Storage` Protocol：保存到 Notion / Obsidian（已实现） / ...
+- `models/base.py` → `Summarizer` Protocol：source/A/B note composition
+- `models/llm.py` → `LLMCaller` Protocol：Claude/Codex/Anthropic 文本调用
+- `storage/base.py` → `Storage` Protocol：保存 Obsidian source/A/B bundle
 
-实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` 仅有 `ClaudeCodeCaller` 实现。
+实现通过 `config.yaml` 的 `backend` 字段选择，运行时动态加载。当前 `LLMCaller` adapters
+为 `ClaudeCodeCaller`、`CodexCLICaller` 和 `AnthropicAPICaller`。
 
 流水线的唯一规范真源在 [PROJECT_MAP.md](./PROJECT_MAP.md)。本文件只保留开发者视角的高层摘要：
 - `PROJECT_MAP.md` 负责步骤顺序、条件分支、JSON 契约、prompt 绑定和扩展入口
@@ -61,8 +62,8 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 
 模型角色只保留到“用途级”：
 - 章节提取、转录校对、话题分段使用 `LLMCaller`
-- 多步总结使用 `Summarizer`
-- ASR 使用本地 `mlx-whisper / Qwen` 路径
+- 多步总结使用 `NoteComposer` 实现的 `Summarizer`
+- ASR 使用 Groq 或 remote `Transcriber`
 
 ## Code Style
 
@@ -76,13 +77,13 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 
 - `claude -p --max-turns 1` 调用 CC 时禁止 agentic 行为，只做文本处理
 - 字幕优先级：zh-Hans > zh-Hant > en (manual) > en (auto)
-- Sonnet 做英文总结 + 结构提取，Opus 做中文化润色（非逐字翻译）
+- `translate_model` 负责 guide / longform / metadata composition
 - 时间戳在预处理阶段绑定到 chunk，不依赖 LLM 猜测
-- Podcast ASR 在本地运行（Mac Mini + mlx-whisper/Qwen），不走云端 API
+- Podcast ASR 通过配置选择 Groq 或 remote adapter
 
 <important>
 - ALWAYS include source credit in output: channel name, video title/episode title, URL
-- NEVER auto-publish without user confirmation step
+- NEVER auto-publish to Obsidian without user confirmation
 - prompts/ 目录下的 .md 文件是 prompt template，不是文档，不要修改格式
 - 性能敏感的改动（特别是 ASR 管道）需要有 benchmark 数据支持，不要凭感觉优化
 </important>

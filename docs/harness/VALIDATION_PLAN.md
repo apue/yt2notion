@@ -4,37 +4,20 @@ Status: accepted
 
 ## Validation Mode
 
-Selected modes: regression-test + contract-test + review-only architecture check.
+Selected modes: regression-test + contract-test + review.
 
-Reason: this is a behavior-preserving refactor that changes public/internal Interfaces, checkpoint ownership, and provider composition.
-
-## Commands
+Commands:
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q
 uv run --extra dev ruff check src/yt2notion tests
-uv run --extra dev ruff format --check <changed-python-files>
+uv run --extra dev ruff format --check src/yt2notion tests
+uv run yt2notion --help
 ```
 
-Run focused tests first for application, media source, transcription engine, pipeline compatibility, CLI, Workspace, Groq, and factories.
+Pass criteria:
 
-## Pass Criteria
-
-- Full local suite passes with zero failures.
-- Full-repository Ruff check and changed-file format check pass.
-- No test invokes remote ASR, Groq, model, Notion, or Obsidian services.
-- Contract tests cover all provider/application Interfaces and fake Adapters.
-- Regression tests cover resume preservation, fresh invalidation, quota fallback, actual backend attribution, and no-publish safety.
-- `rg` confirms standalone code no longer imports pipeline private functions and pipeline no longer owns the ASR state machine.
-
-## Manual Checks
-
-- [x] Compare implementation with SPEC/ARCHITECTURE/DECISIONS.
-- [x] Confirm no generic Node/DAG framework or registry was introduced.
-- [x] Confirm compatibility facades contain no domain behavior.
-- [x] Review artifact changes against PROJECT_MAP.md.
-
-## Known Gaps
-
-- No live provider verification during review.
-- ASR performance is expected to remain unchanged; if implementation changes encoding/chunk parameters, stop and obtain benchmark evidence.
+- zero test or lint failures;
+- help exposes only the three supported commands;
+- repository search finds none of the deleted surfaces;
+- no remote ASR, LLM, or storage calls.

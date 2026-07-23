@@ -1,31 +1,37 @@
-"""Lightweight LLM caller for one-shot text-in/text-out tasks.
-
-Used by utility modules (review, topic_segment) that need
-a single LLM call without the full Summarizer protocol machinery.
-"""
+"""Text-in/text-out LLM provider adapters."""
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import Protocol
 
+from yt2notion.retry import retry
+
 
 class LLMCaller(Protocol):
-    """Protocol for one-shot LLM calls."""
+    """Perform one provider call and return raw text."""
 
-    def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:
-        """Send system + user prompt, return raw text response."""
-        ...
+    def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str: ...
+
+
+class ClaudeCodeError(Exception):
+    """Raised when the Claude CLI cannot complete a call."""
+
+
+class LLMConfigError(ValueError):
+    """Raised when an LLM adapter cannot be selected or configured."""
 
 
 class ClaudeCodeCaller:
-    """LLM caller using the claude CLI (claude -p)."""
+    """One-shot LLM caller using `claude -p`."""
 
     def __init__(self, model: str = "haiku") -> None:
         self.model = model
 
     def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:
+        del max_tokens
         prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
         cmd = [
             "claude",
@@ -38,68 +44,65 @@ class ClaudeCodeCaller:
             "json",
         ]
 
-        from yt2notion.retry import RetryExhaustedError, retry
-
         class _EmptyOutputError(Exception):
             pass
 
         def _run() -> str:
             try:
                 result = subprocess.run(
-                    cmd, input=prompt, capture_output=True, text=True, check=True, timeout=120
+                    cmd,
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=120,
                 )
-            except FileNotFoundError:
-                raise RuntimeError("'claude' CLI not found on PATH") from None
-            raw = result.stdout
-            if not raw or not raw.strip():
+            except FileNotFoundError as exc:
+                raise ClaudeCodeError("'claude' CLI not found on PATH") from exc
+            if not result.stdout.strip():
                 raise _EmptyOutputError("claude returned empty output")
             try:
-                output = json.loads(raw)
-                return output.get("result", raw)
+                payload = json.loads(result.stdout)
+                return payload.get("result", result.stdout)
             except json.JSONDecodeError:
-                return raw
+                return result.stdout
 
-        try:
-            return retry(
-                _run,
-                max_retries=3,
-                base_delay=5.0,
-                retryable=(
-                    subprocess.CalledProcessError,
-                    subprocess.TimeoutExpired,
-                    _EmptyOutputError,
-                ),
-                label=f"claude -p {self.model}",
-            )
-        except RetryExhaustedError:
-            raise
+        return retry(
+            _run,
+            max_retries=3,
+            base_delay=5.0,
+            retryable=(
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                _EmptyOutputError,
+            ),
+            label=f"claude -p {self.model}",
+        )
 
 
 def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCaller:
-    """Create an LLMCaller from config.
-
-    Args:
-        config: Raw config dict (top-level, containing "model" key).
-        model_key: Which model field to use (default: "review_model").
-    """
-    model_cfg = config.get("model", {})
-    backend = model_cfg.get("backend", "claude_code")
-    model = model_cfg.get(model_key, "haiku")
-    reasoning_effort = model_cfg.get("reasoning_effort", "low")
-    runtime_cfg = model_cfg.get("_runtime", {})
-    codex_workdir = runtime_cfg.get("codex_workdir")
-    codex_profile = runtime_cfg.get("codex_profile")
+    """Create an LLM provider adapter for the requested model role."""
+    model_config = config.get("model", {})
+    backend = model_config.get("backend", "claude_code")
+    model = model_config.get(model_key) or ("haiku" if model_key == "review_model" else "opus")
 
     if backend == "claude_code":
         return ClaudeCodeCaller(model=model)
-    if backend in {"codex_cli", "openai_api"}:
+    if backend == "codex_cli":
         from yt2notion.models.codex_cli import CodexCLICaller
 
         return CodexCLICaller(
-            model=model or "gpt-5.4",
-            reasoning_effort=reasoning_effort,
-            profile=codex_profile,
-            workdir=codex_workdir,
+            model=model,
+            reasoning_effort=model_config.get("reasoning_effort", "low"),
         )
+    if backend == "anthropic_api":
+        from yt2notion.models.anthropic_api import AnthropicAPICaller
 
-    raise ValueError(f"Unknown LLM backend: {backend!r}")
+        api_key = model_config.get("api_key", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise LLMConfigError(
+                "Anthropic API key required. "
+                "Set model.api_key in config or ANTHROPIC_API_KEY env var."
+            )
+        return AnthropicAPICaller(api_key=api_key, model=model)
+    raise LLMConfigError(f"Unknown LLM backend: {backend!r}")

@@ -1,1 +1,1 @@
-"""yt2notion: YouTube subtitles → LLM summary → Notion"""
+"""Media transcription and structured Obsidian note bundles."""

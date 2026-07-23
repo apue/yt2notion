@@ -2,38 +2,22 @@
 
 Status: accepted
 
-## Decision Log
+## 2026-07-23: Remove compatibility instead of preserving patch points
 
-### 2026-07-22: Explicit use-case Interface over generic workflow engine
+`Yt2Notion` and `TranscriptionEngine` are the test surfaces. The alpha package
+does not retain `pipeline` private-function compatibility.
 
-Status: accepted
+## 2026-07-23: Keep only the current storage contract
 
-Decision: expose `prepare`, `process`, and `transcribe` through `Yt2Notion`; keep ordering explicit and fixed.
+Obsidian source/A/B bundle publishing is supported. Legacy Notion single-note
+publishing and the unimplemented Markdown backend are removed.
 
-Alternatives considered: generic DAG, orchestrator/nodes, single intent-driven `run()`.
+## 2026-07-23: Remove the file-backed Agent product
 
-Consequences: less speculative extensibility; clearer safety and caller intent; introduce recipes only after a second real processing order exists.
+Codex can invoke the repository CLI directly. Queue, worker, PID, retry, and
+notification semantics are outside this project's supported use cases.
 
-### 2026-07-22: Capability Interfaces with config-selected primary Adapters
+## 2026-07-23: Provider adapters do not own note composition
 
-Status: accepted
-
-Decision: use Protocols at real provider variation points. Composition root selects a primary Adapter explicitly from config. No automatic URL routing or registry.
-
-Consequences: provider behavior is replaceable/testable without coupling use cases to provider names.
-
-### 2026-07-22: High-level MediaSource Interface
-
-Status: accepted
-
-Decision: MediaSource owns one acquisition operation with typed profiles/results rather than separate metadata/subtitle/audio/video Protocols.
-
-Consequences: provider coordination and options retain Locality; request/result invariants must avoid optional-field bags.
-
-### 2026-07-22: Transcription lifecycle stays in a deep Module
-
-Status: accepted
-
-Decision: chunking, checkpoint, quota policy, fallback, and provider outcome belong to `TranscriptionEngine`; provider Adapters only transcribe a valid audio input.
-
-Consequences: two use cases share one test surface; provider-specific errors must normalize into common transcription errors.
+Provider variation lives at the `LLMCaller` seam. Prompt payload construction
+and parsing live once in `NoteComposer`.

@@ -248,10 +248,6 @@ class Yt2Notion:
         progress_callback: ProgressCallback | None = None,
     ) -> str:
         """Prepare and explicitly publish through the configured storage backend."""
-        storage_backend = self.config.storage.get("backend", "notion")
-        if storage_backend != "obsidian" and not dry_run:
-            raise ValueError("source/A/B bundle publish currently requires obsidian backend")
-
         prepared = self.prepare(
             url,
             verbose=verbose,
@@ -267,7 +263,7 @@ class Yt2Notion:
             return output
 
         if verbose:
-            typer.echo(f"Publishing to {storage_backend}...")
+            typer.echo("Publishing to Obsidian...")
         storage = self.storage_factory(self.raw_config)
         emit_progress(progress_callback, "publish", "started")
         result_url = storage.save_note_bundle(prepared.note_bundle, prepared.metadata)

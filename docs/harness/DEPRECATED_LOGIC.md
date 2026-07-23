@@ -2,20 +2,14 @@
 
 Status: accepted
 
-## Deprecated or Legacy Logic
+All previously recorded removal conditions are satisfied by the application
+and transcription-engine contract tests.
 
-- `src/yt2notion/media_transcribe.py` orchestration
-  - Replacement: `Yt2Notion.transcribe` plus rendering/result compatibility helpers.
-  - Removal condition: CLI and tests use application Interface; compatibility import policy is separately approved.
-- `src/yt2notion/pipeline.py` ASR chunk/checkpoint private cluster
-  - Replacement: `transcribe/engine.py`.
-  - Removal condition: engine contract/regression coverage passes and both callers use it.
-- `src/yt2notion/extract_cmd.py`
-  - Replacement: normal CLI application Interface.
-  - Removal condition: no documented/external caller remains; not removed in this task.
+Delete in this change:
 
-## Deletion Candidates
-
-- Tests that patch `_step_transcribe` or `_transcribe_from_audio`
-  - Evidence: implementation-detail coupling identified in architecture review.
-  - Required validation: equivalent application/engine contract tests.
+- `pipeline.py` compatibility facade and public helper wrappers;
+- `extract_cmd.py`;
+- `agent_runtime.py`, `agent_worker.py`, and `yt2notion agent`;
+- Notion and legacy single-note storage contracts;
+- `openai_api`, `note_mode`, and unsupported `markdown` aliases;
+- history-only `docs/superpowers` plans/specs.

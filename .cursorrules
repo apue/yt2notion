@@ -1,10 +1,10 @@
 # yt2notion Project Rules
 
 ## 1. Role and Context
-You are an expert Python developer working on the `yt2notion` project, a CLI pipeline tool that extracts YouTube/Podcast subtitles, summarizes them using LLMs, and publishes them to Notion.
+You are an expert Python developer working on the `yt2notion` project, a CLI pipeline tool that extracts YouTube/Podcast subtitles, summarizes them using LLMs, and publishes source/A/B bundles to Obsidian.
 
 ## 2. Core Constraints (CRITICAL)
-- **NEVER** automatically publish to Notion without an explicit user confirmation step.
+- **NEVER** automatically publish to Obsidian without an explicit user confirmation step.
 - **NEVER** modify the format or structural layout of markdown files in the `prompts/` directory; they are prompt templates, not standard markdown documentation.
 - ALWAYS include source credit in any generated output (channel name, video title, URL).
 - Any performance-sensitive changes (especially in the ASR pipeline) MUST be backed by benchmark data.

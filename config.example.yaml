@@ -1,97 +1,53 @@
-# yt2notion 配置文件
-# 复制为 config.yaml 并填入你的实际值
-
 model:
-  # 可选: codex_cli | anthropic_api | openai_api
+  # claude_code | codex_cli | anthropic_api
   backend: codex_cli
-  summarize_model: gpt-5.4    # bundle compose model
-  translate_model: gpt-5.4     # guide / longform / metadata composition
-  review_model: gpt-5.4        # transcript cleanup + topic segmentation
+  translate_model: gpt-5.4
+  review_model: gpt-5.4
+  reasoning_effort: low
+  # api_key: ""  # Anthropic only; prefer ANTHROPIC_API_KEY
 
 storage:
-  # Choose one backend: notion | obsidian | markdown
-  # Current source/A/B bundle publishing requires obsidian; notion is legacy single-note storage.
-  backend: notion
-
-  # --- Notion ---
-  notion:
-    token: ""                 # Notion integration token (CLI 模式需要)
-    database_id: ""           # 目标 database ID (CLI 模式)
-    parent_page_id: ""        # Notion 父页面 ID (slash command 模式，MCP 免 token)
-    # 目录路由规则：根据关键词自动归类
-    directory_rules:
-      - match: ["muscle", "stretch", "rehab", "训练", "健身", "拉伸"]
-        parent: "健身/训练笔记"
-      - match: ["AI", "LLM", "agent", "model", "coding", "程序"]
-        parent: "技术/AI"
-      - match: ["travel", "food", "旅行", "美食"]
-        parent: "生活/旅行"
-      - default: "收件箱"
-
-  # --- Obsidian ---
-  # obsidian:
-  #   vault_path: "/path/to/your/vault"
-  #   summaries_dir: "yt2notion/summaries"       # optional, default as shown
-  #   transcripts_dir: "yt2notion/transcripts"   # optional, default as shown
+  backend: obsidian
+  obsidian:
+    vault_path: "/path/to/your/vault"
+    summaries_dir: "yt2notion/summaries"
 
 extract:
   media_source:
-    backend: yt_dlp                 # 当前唯一媒体获取 adapter
-  # 字幕优先级（从左到右尝试）
-  subtitle_priority:
-    - "zh-Hans"
-    - "zh-Hant"
-    - "en"
-  # 自动字幕作为 fallback
+    backend: yt_dlp
+  subtitle_priority: ["zh-Hans", "zh-Hant", "en"]
   auto_subtitle_fallback: true
-  auto_subtitle_lang: "en"
-  # 从 Chrome 读取 cookies（访问会员/年龄限制内容）
+  auto_subtitle_lang: en
   cookies_from: chrome
-  # ASR 语音识别 fallback（无字幕时自动启用）
   asr:
-    backend: groq                # 推荐: groq (primary), 可选: remote
-    fallback_backend: remote     # 推荐 fallback: remote；当前仅用于 Groq 日配额触发后接管剩余 pending chunk
-    endpoint: ""                 # remote backend/fallback 的服务地址，或设置 ASR_ENDPOINT 环境变量
-    groq:
-      api_key: ""                # 留空并改用 GROQ_API_KEY 环境变量（不要把真实 key 写入文件）
-      model: "whisper-large-v3-turbo"
-      max_upload_bytes: 24000000
-      endpoint: "https://api.groq.com/openai/v1/audio/transcriptions"
-      timeout_seconds: 600
-    # 健康检查（用于自动重启场景）
-    healthcheck_path: "/health"
+    backend: groq
+    fallback_backend: remote
+    endpoint: ""
+    healthcheck_path: /health
     healthcheck_timeout_seconds: 3.0
-    # 下面重启参数作用于 remote backend/fallback
-    # 启用后：每次进入 remote ASR 流程前先执行一次重启命令
     restart_before_transcribe: false
-    # 启用后：仅在 remote 健康检查失败时重启
     restart_on_unhealthy: false
-    # 推荐：使用仓库脚本（固定 PATH + 健康检查）
-    # restart_command: "<repo_root>/scripts/asr/restart_remote_asr.sh <asr_host>"
     restart_command: ""
-    # 重启后的就绪等待参数
     restart_readiness_timeout_seconds: 90.0
     restart_readiness_interval_seconds: 3.0
-    # 当 healthcheck endpoint 不可用时，重启后固定等待时间
     restart_grace_seconds: 5.0
+    groq:
+      api_key: ""  # Prefer GROQ_API_KEY
+      model: whisper-large-v3-turbo
+      max_upload_bytes: 24000000
+      endpoint: https://api.groq.com/openai/v1/audio/transcriptions
+      timeout_seconds: 600
 
 credit:
-  # 始终在输出中包含来源信息
   always_include: true
   format: "来源：{channel} 「{title}」\n链接：{url}"
 
 output:
-  # 输出模式固定为 summary；运行时始终生成 source / A 导读 / B 扩展 三篇 bundle 输出
   mode: summary
-  # chunk 分段长度（秒），用于时间戳关联
   chunk_duration_seconds: 120
-  # 最终输出语言
-  target_language: "zh-CN"
-  # 长内容阈值（秒），超过此值使用 map-reduce 分层总结
+  target_language: zh-CN
   long_content_threshold_seconds: 1800
-  # 单个 segment 最大长度（秒），超过会按句子边界细分
   max_segment_seconds: 900
 
 workspace:
-  # 工作目录，保存中间产物用于 resume
-  base_dir: "./workspace"
+  base_dir: ./workspace
