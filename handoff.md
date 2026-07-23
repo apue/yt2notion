@@ -5,15 +5,15 @@
 ## 当前任务卡
 
 - 任务：以高内聚、低耦合的用例 Interface + provider Adapter 重构 pipeline 架构
-- 状态：`pr_ready`
+- 状态：`awaiting_merge_approval`
 - 当前 owner：Codex
 - 上一执行者：GPT-5.5 medium implementation subagent / Codex review owner
 - 下一执行者：Codex GitHub workflow / User merge decision
 - 来源：User 要求从最佳实践重新审视长 pipeline；确认采用统一能力接口、行为各异的 provider Adapter，并要求由 GPT-5.5 medium 子代理实施。User 授权实现细节自主设计，原则为高内聚、低耦合。
 - 当前工作目录：`/Users/yangtian/Developer/agent/yt2notion`
 - 分支：`architecture-usecase-interfaces`
-- PR：待创建
-- review 状态：双轴 review 最终 Standards / Spec 均无 findings；正式 `/review` 的三轮 findings 均已修复并本地复测
+- PR：[#27](https://github.com/apue/yt2notion/pull/27)
+- review 状态：双轴 review 最终 Standards / Spec 均无 findings；正式 `/review` 的三轮 findings 均已修复并本地复测；PR 无 GitHub checks
 - 目标：
   - 提供显式 `Yt2Notion.prepare/process/transcribe` 应用 Interface。
   - 提供高层 `MediaSource` Protocol 和 config 选择的 yt-dlp primary Adapter。
@@ -63,10 +63,9 @@
   - changed-source `uv run --extra dev ruff format --check ...` → pass
   - `rg` architecture checks: no `media_transcribe.py` private pipeline import; ASR state machine owner is `transcribe/engine.py`; no new DAG/Node/registry implementation found.
 - 当前阻塞：
-  - 无；待 commit / push / PR。
+  - 依据仓库 workflow，最终 merge 需要 User 明确确认。
 - 下一步：
-  1. 仅暂存本任务文件，排除用户本地 `.codex/config.toml`、`.gitignore`。
-  2. 创建/更新 PR，交由 User 决定最终 merge。
+  1. User 确认后 squash merge PR #27。
 - 风险/回滚点：
   - ASR 状态机迁移已由本地 regression tests 覆盖，但未做任何远程 Groq / remote ASR 在线验证。
   - `pipeline.py` 仍保留 behavior-free compatibility helper patch points；正式移除需后续明确批准。
