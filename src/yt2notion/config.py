@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +17,7 @@ class ConfigError(Exception):
 VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "codex_cli", "openai_api"}
 VALID_STORAGE_BACKENDS = {"notion", "obsidian", "markdown"}
 VALID_ASR_BACKENDS: set[str] = {"remote", "groq"}
+VALID_MEDIA_SOURCE_BACKENDS = {"yt_dlp"}
 
 DEFAULTS: dict = {
     "model": {
@@ -35,6 +37,7 @@ DEFAULTS: dict = {
         },
     },
     "extract": {
+        "media_source": {"backend": "yt_dlp"},
         "subtitle_priority": ["zh-Hans", "zh-Hant", "en"],
         "auto_subtitle_fallback": True,
         "auto_subtitle_lang": "en",
@@ -81,12 +84,12 @@ DEFAULTS: dict = {
 class AppConfig:
     """Strongly-typed application configuration."""
 
-    model: dict = field(default_factory=lambda: dict(DEFAULTS["model"]))
-    storage: dict = field(default_factory=lambda: dict(DEFAULTS["storage"]))
-    extract: dict = field(default_factory=lambda: dict(DEFAULTS["extract"]))
-    credit: dict = field(default_factory=lambda: dict(DEFAULTS["credit"]))
-    output: dict = field(default_factory=lambda: dict(DEFAULTS["output"]))
-    workspace: dict = field(default_factory=lambda: dict(DEFAULTS["workspace"]))
+    model: dict = field(default_factory=lambda: deepcopy(DEFAULTS["model"]))
+    storage: dict = field(default_factory=lambda: deepcopy(DEFAULTS["storage"]))
+    extract: dict = field(default_factory=lambda: deepcopy(DEFAULTS["extract"]))
+    credit: dict = field(default_factory=lambda: deepcopy(DEFAULTS["credit"]))
+    output: dict = field(default_factory=lambda: deepcopy(DEFAULTS["output"]))
+    workspace: dict = field(default_factory=lambda: deepcopy(DEFAULTS["workspace"]))
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -144,6 +147,16 @@ def load_config(path: str) -> AppConfig:
         vault = Path(vault_path)
         if not vault.is_dir():
             raise ConfigError(f"Obsidian vault path does not exist: {vault_path}")
+
+    media_source_cfg = merged.get("extract", {}).get("media_source", {})
+    if not isinstance(media_source_cfg, dict):
+        raise ConfigError("extract.media_source must be a mapping")
+    media_source_backend = media_source_cfg.get("backend", "yt_dlp")
+    if media_source_backend not in VALID_MEDIA_SOURCE_BACKENDS:
+        raise ConfigError(
+            f"Invalid media-source backend: {media_source_backend!r}. "
+            f"Must be one of: {sorted(VALID_MEDIA_SOURCE_BACKENDS)}"
+        )
 
     # Validate ASR backend(s)
     asr_cfg = merged.get("extract", {}).get("asr", {})

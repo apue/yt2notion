@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -39,12 +39,14 @@ def test_cli_missing_config():
 
 
 @patch("yt2notion.cli.load_config")
-@patch("yt2notion.pipeline.run_pipeline")
-def test_cli_dry_run(mock_pipeline, mock_load_config):
+@patch("yt2notion.cli.create_yt2notion")
+def test_cli_dry_run(mock_create_app, mock_load_config):
     from yt2notion.config import AppConfig
 
     mock_load_config.return_value = AppConfig()
-    mock_pipeline.return_value = "dry run output"
+    app_instance = MagicMock()
+    app_instance.process.return_value = "dry run output"
+    mock_create_app.return_value = app_instance
 
     result = runner.invoke(
         app,
@@ -55,18 +57,20 @@ def test_cli_dry_run(mock_pipeline, mock_load_config):
         # If there's an error, print it for debugging
         print(result.output)
     assert result.exit_code == 0
-    mock_pipeline.assert_called_once()
-    call_kwargs = mock_pipeline.call_args
+    app_instance.process.assert_called_once()
+    call_kwargs = app_instance.process.call_args
     assert call_kwargs.kwargs.get("dry_run") is True
 
 
 @patch("yt2notion.cli.load_config")
-@patch("yt2notion.pipeline.run_pipeline")
-def test_cli_process_invocation(mock_pipeline, mock_load_config):
+@patch("yt2notion.cli.create_yt2notion")
+def test_cli_process_invocation(mock_create_app, mock_load_config):
     from yt2notion.config import AppConfig
 
     mock_load_config.return_value = AppConfig()
-    mock_pipeline.return_value = "https://notion.so/page123"
+    app_instance = MagicMock()
+    app_instance.process.return_value = "https://notion.so/page123"
+    mock_create_app.return_value = app_instance
 
     result = runner.invoke(
         app,
@@ -83,17 +87,17 @@ def test_cli_process_invocation(mock_pipeline, mock_load_config):
         # If there's an error, print it for debugging
         print(result.output)
     assert result.exit_code == 0
-    call_kwargs = mock_pipeline.call_args
+    call_kwargs = app_instance.process.call_args
     assert call_kwargs.kwargs.get("verbose") is True
     assert call_kwargs.kwargs.get("mode") == "full"
 
 
 @patch("yt2notion.cli.load_config")
-@patch("yt2notion.pipeline.prepare_content")
-def test_cli_prepare_outputs_bundle_json(mock_prepare_content, mock_load_config, tmp_path):
+@patch("yt2notion.cli.create_yt2notion")
+def test_cli_prepare_outputs_bundle_json(mock_create_app, mock_load_config, tmp_path):
+    from yt2notion.application import PreparedContent
     from yt2notion.config import AppConfig
     from yt2notion.models.base import NoteBundle, NoteDocument, VideoMeta
-    from yt2notion.pipeline import PreparedContent
     from yt2notion.workspace import Workspace
 
     mock_load_config.return_value = AppConfig()
@@ -107,7 +111,8 @@ def test_cli_prepare_outputs_bundle_json(mock_prepare_content, mock_load_config,
         stable_tags=["stable"],
         source_topics=["topic"],
     )
-    mock_prepare_content.return_value = PreparedContent(
+    app_instance = MagicMock()
+    app_instance.prepare.return_value = PreparedContent(
         metadata=VideoMeta(
             video_id="abc123",
             title="Test Video",
@@ -118,6 +123,7 @@ def test_cli_prepare_outputs_bundle_json(mock_prepare_content, mock_load_config,
         workspace=workspace,
         is_long=False,
     )
+    mock_create_app.return_value = app_instance
 
     result = runner.invoke(
         app,

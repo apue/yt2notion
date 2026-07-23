@@ -78,6 +78,18 @@ def _minimal_transcript(source: str, text: str = "raw text") -> list[dict]:
     ]
 
 
+def _configure_media_source(mock_factory, metadata: VideoMeta, config: AppConfig) -> None:
+    from yt2notion.media_source import ContentMediaAcquireResult
+    from yt2notion.workspace import Workspace
+
+    workspace = Workspace(Path(config.workspace["base_dir"]), metadata.video_id)
+    workspace.save_metadata(metadata)
+    mock_factory.return_value.acquire.return_value = ContentMediaAcquireResult(
+        metadata=metadata,
+        workspace=workspace,
+    )
+
+
 def test_step_segment_uses_description_timestamp_outline(config):
     from yt2notion.pipeline import _step_segment
 
@@ -86,11 +98,7 @@ def test_step_segment_uses_description_timestamp_outline(config):
         title="Outlined Episode",
         channel="TestChannel",
         duration_seconds=1800,
-        description=(
-            "00:00 Opening\n"
-            "12:30 Training plan\n"
-            "28:10 Diet notes\n"
-        ),
+        description=("00:00 Opening\n12:30 Training plan\n28:10 Diet notes\n"),
     )
 
     segments = _step_segment(metadata, {"output": {"max_segment_seconds": 1000}}, verbose=False)
@@ -105,19 +113,15 @@ def test_step_segment_uses_description_timestamp_outline(config):
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
 @patch("yt2notion.pipeline.segment_transcript")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline.create_media_source")
 @patch("yt2notion.pipeline._step_review")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._step_download")
 def test_prepare_content_manual_subtitle_skips_cleanup(
-    mock_step_download,
     mock_step_segment,
     mock_step_transcribe,
     mock_step_review,
-    mock_download_audio,
-    mock_download_webpage_transcript,
+    mock_create_media_source,
     mock_segment_transcript,
     mock_create_summarizer,
     mock_build_note_bundle,
@@ -128,8 +132,7 @@ def test_prepare_content_manual_subtitle_skips_cleanup(
     from yt2notion.pipeline import prepare_content
 
     transcripts = _minimal_transcript("manual_subtitle", "manual transcript")
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
+    _configure_media_source(mock_create_media_source, mock_meta, config)
     mock_step_segment.return_value = []
     mock_step_transcribe.return_value = transcripts
     mock_create_summarizer.return_value = MagicMock()
@@ -150,19 +153,15 @@ def test_prepare_content_manual_subtitle_skips_cleanup(
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
 @patch("yt2notion.pipeline.segment_transcript")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline.create_media_source")
 @patch("yt2notion.pipeline._step_review")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._step_download")
 def test_prepare_content_asr_like_sources_are_cleaned(
-    mock_step_download,
     mock_step_segment,
     mock_step_transcribe,
     mock_step_review,
-    mock_download_audio,
-    mock_download_webpage_transcript,
+    mock_create_media_source,
     mock_segment_transcript,
     mock_create_summarizer,
     mock_build_note_bundle,
@@ -175,8 +174,7 @@ def test_prepare_content_asr_like_sources_are_cleaned(
 
     transcripts = _minimal_transcript(source, "raw transcript")
     reviewed = _minimal_transcript(source, "cleaned transcript")
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
+    _configure_media_source(mock_create_media_source, mock_meta, config)
     mock_step_segment.return_value = []
     mock_step_transcribe.return_value = transcripts
     mock_segment_transcript.side_effect = lambda segments, *_args, **_kwargs: segments
@@ -197,19 +195,15 @@ def test_prepare_content_asr_like_sources_are_cleaned(
 
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline.create_media_source")
 @patch("yt2notion.pipeline._step_review")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._step_download")
 def test_prepare_content_always_writes_note_bundle_not_legacy_artifacts(
-    mock_step_download,
     mock_step_segment,
     mock_step_transcribe,
     mock_step_review,
-    mock_download_audio,
-    mock_download_webpage_transcript,
+    mock_create_media_source,
     mock_create_summarizer,
     mock_build_note_bundle,
     mock_meta,
@@ -220,8 +214,7 @@ def test_prepare_content_always_writes_note_bundle_not_legacy_artifacts(
 
     transcripts = _minimal_transcript("asr")
     reviewed = _minimal_transcript("asr", "cleaned")
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
+    _configure_media_source(mock_create_media_source, mock_meta, config)
     mock_step_segment.return_value = []
     mock_step_transcribe.return_value = transcripts
     mock_step_review.return_value = reviewed
@@ -313,17 +306,13 @@ def test_run_pipeline_dry_run_allows_non_obsidian_backend(
 
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline.create_media_source")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._step_download")
 def test_prepare_content_records_summarize_failure(
-    mock_step_download,
     mock_step_segment,
     mock_step_transcribe,
-    mock_download_audio,
-    mock_download_webpage_transcript,
+    mock_create_media_source,
     mock_create_summarizer,
     mock_build_note_bundle,
     mock_meta,
@@ -331,8 +320,7 @@ def test_prepare_content_records_summarize_failure(
 ):
     from yt2notion.pipeline import prepare_content
 
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
+    _configure_media_source(mock_create_media_source, mock_meta, config)
     mock_step_segment.return_value = []
     mock_step_transcribe.return_value = _minimal_transcript("manual_subtitle")
     mock_create_summarizer.return_value = MagicMock()
@@ -348,19 +336,24 @@ def test_prepare_content_records_summarize_failure(
     assert '"retries_exhausted": false' in data.lower()
 
 
+def test_render_transcript_markdown_remains_importable(mock_meta) -> None:
+    from yt2notion.pipeline import render_transcript_markdown
+
+    rendered = render_transcript_markdown(mock_meta, _minimal_transcript("asr"))
+
+    assert rendered.startswith(f"## 逐字稿：{mock_meta.title}")
+    assert "### [0:00] Part 1" in rendered
+
+
 @patch("yt2notion.pipeline.build_note_bundle")
 @patch("yt2notion.pipeline.create_summarizer")
-@patch("yt2notion.pipeline._download_webpage_transcript")
-@patch("yt2notion.pipeline._download_audio")
+@patch("yt2notion.pipeline.create_media_source")
 @patch("yt2notion.pipeline._step_transcribe")
 @patch("yt2notion.pipeline._step_segment")
-@patch("yt2notion.pipeline._step_download")
 def test_prepare_content_clears_stale_asr_fallback_marker_when_transcribe_runs_fresh(
-    mock_step_download,
     mock_step_segment,
     mock_step_transcribe,
-    mock_download_audio,
-    mock_download_webpage_transcript,
+    mock_create_media_source,
     mock_create_summarizer,
     mock_build_note_bundle,
     mock_meta,
@@ -370,8 +363,7 @@ def test_prepare_content_clears_stale_asr_fallback_marker_when_transcribe_runs_f
     from yt2notion.pipeline import prepare_content
     from yt2notion.workspace import Workspace
 
-    mock_step_download.return_value = mock_meta
-    mock_download_webpage_transcript.return_value = False
+    _configure_media_source(mock_create_media_source, mock_meta, config)
     mock_step_segment.return_value = []
     mock_step_transcribe.return_value = _minimal_transcript("manual_subtitle")
     mock_create_summarizer.return_value = MagicMock()
@@ -593,8 +585,6 @@ def test_rebase_chunk_entries_drops_overlap_duplicates():
     assert rebased[0].end_seconds == pytest.approx(302.5)
 
 
-
-
 def test_step_transcribe_preserves_saved_subtitle_source(tmp_path, mock_meta):
     from yt2notion.pipeline import _step_transcribe
     from yt2notion.workspace import Workspace
@@ -680,8 +670,8 @@ def test_transcribe_from_audio_chunks_long_full_audio(
 
 
 @patch("yt2notion.audio.split_audio")
-@patch("yt2notion.pipeline._now")
-@patch("yt2notion.pipeline.time.sleep")
+@patch("yt2notion.transcribe.engine._now")
+@patch("yt2notion.transcribe.engine.time.sleep")
 @patch("yt2notion.transcribe.create_transcriber")
 def test_step_transcribe_waits_and_retries_hourly_groq_limit(
     mock_create_transcriber,
@@ -1433,7 +1423,6 @@ def test_transcribe_from_audio_raises_when_min_chunk_still_exceeds_upload_budget
 
     assert mock_split_audio.call_count == 2
     assert transcriber.transcribe.call_count == 0
-
 
 
 @patch("yt2notion.transcribe.create_transcriber")

@@ -26,9 +26,9 @@
 
 | Entry | File | Purpose |
 |---|---|---|
-| `uv run yt2notion process "URL"` | `cli.py` → `pipeline.run_pipeline()` | Main CLI entrypoint via Typer (publishes by default) |
-| `uv run yt2notion prepare "URL"` | `cli.py` → `pipeline.prepare_content()` | Shared no-publish JSON entrypoint for Claude/Codex wrappers |
-| `uv run yt2notion transcribe "URL"` | `cli.py` → `media_transcribe.transcribe_media()` | Standalone media download → audio extraction → ASR transcript artifacts; no review/summarize/publish |
+| `uv run yt2notion process "URL"` | `cli.py` → `application.Yt2Notion.process()` | Main CLI entrypoint via Typer (publishes by explicit process invocation) |
+| `uv run yt2notion prepare "URL"` | `cli.py` → `application.Yt2Notion.prepare()` | Shared no-publish JSON entrypoint for Claude/Codex wrappers |
+| `uv run yt2notion transcribe "URL"` | `cli.py` → `media_transcribe.transcribe_media()` → `application.Yt2Notion.transcribe()` | Standalone media download → audio extraction → ASR transcript artifacts; no review/summarize/publish |
 | `uv run yt2notion agent <subcommand>` | `cli.py` → `agent_runtime.py` / `agent_worker.py` | File-backed local agent wrapper for queued Codex→Obsidian summary runs |
 | `python -m yt2notion.extract_cmd` | `extract_cmd.py` | Legacy transcript-only extraction helper |
 
@@ -36,7 +36,7 @@
 
 ### Agent Runtime Entry Points
 
-The CLI agent is a thin wrapper around the canonical pipeline, not a separate pipeline.
+The CLI agent is a thin wrapper around the canonical application interface, not a separate pipeline.
 
 Supported subcommands:
 
@@ -81,7 +81,7 @@ MVP scope note:
 
 ## Canonical Pipeline Map
 
-Precision rule: this ordered list reflects the current implementation in `src/yt2notion/pipeline.py`. The pipeline is bundle-only: it always builds one `note_bundle.json` containing `source`, `A 导读`, and `B 扩展`; legacy single-summary, entity extraction, full transcript subpage, and map/reduce summary paths are no longer runtime paths.
+Precision rule: this ordered list reflects the current implementation in `src/yt2notion/application.py`, with `src/yt2notion/pipeline.py` retained as a compatibility facade/helper module. The pipeline is bundle-only: it always builds one `note_bundle.json` containing `source`, `A 导读`, and `B 扩展`; legacy single-summary, entity extraction, full transcript subpage, and map/reduce summary paths are no longer runtime paths.
 
 1. `DOWNLOAD`
    `metadata.json` + one of `subtitles.*` or `audio.*`
@@ -107,11 +107,11 @@ Precision rule: this ordered list reflects the current implementation in `src/yt
 
 | Step | Main function | Input | Output | Notes |
 |---|---|---|---|---|
-| `DOWNLOAD` | `pipeline._step_download()` + subtitle/audio download helpers | URL | `metadata.json`, `subtitles.*` or `audio.*` | Uses `subtitles_available` to choose subtitle vs audio path, with audio fallback on subtitle failure |
-| `SEGMENT` | `pipeline._step_segment()` | `VideoMeta` | `segments.json` | Uses author chapters or local timestamp regex from description; no LLM chapter extraction |
-| `TRANSCRIBE` | `pipeline._step_transcribe()` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely; audio path persists `transcribe_plan.json`, `transcribe_state.json`, and `transcribe_chunks/<chunk_id>.json` while running chunked ASR, then writes final `transcripts.json` only after every chunk completes |
+| `DOWNLOAD` | `media_source.YtDlpMediaSource.acquire()` | URL | `metadata.json`, `subtitles.*` or `audio.*` | Config-selected media adapter uses `subtitles_available` to choose subtitle vs audio path, with audio fallback on subtitle failure |
+| `SEGMENT` | `content_preparation.ContentPreparation.segment()` | `VideoMeta` | `segments.json` | Uses author chapters or local timestamp regex from description; no LLM chapter extraction |
+| `TRANSCRIBE` | `transcribe.engine.TranscriptionEngine` | workspace media + optional segments | `transcripts.json` | Subtitles bypass ASR entirely; audio path persists `transcribe_plan.json`, `transcribe_state.json`, and `transcribe_chunks/<chunk_id>.json` while running chunked ASR, then writes final `transcripts.json` only after every chunk completes |
 | `TOPIC SEGMENT` | `topic_segment.segment_transcript()` | `transcripts.json` | rewritten `transcripts.json` | Runs after transcription for ASR-like transcript sources, never before |
-| `REVIEW` | `pipeline._step_review()` | transcripts | `reviewed.json` | Runs only when `_should_cleanup_transcript()` is true |
+| `REVIEW` | `content_preparation.ContentPreparation.review()` | transcripts | `reviewed.json` | Runs only when `should_cleanup()` is true |
 | `SUMMARIZE` | `note_bundle.build_note_bundle()` | cleaned or accepted transcripts | `note_bundle.json` | Calls `compose_guide_note`, `compose_longform_note`, and `compose_note_metadata` |
 | `PUBLISH` | `storage.save_note_bundle()` | note bundle + metadata | backend artifact | Non-dry-run publish currently requires Obsidian |
 
@@ -174,7 +174,7 @@ Core runtime model types live in `models/base.py`: `VideoMeta`, `Chapter`, `Note
 
 Path resolution note:
 - Main CLI (`process` / `prepare`) uses normal `config.yaml` resolution.
-- Standalone `transcribe` uses explicit `--config` if present, otherwise tries `~/.yt2notion-agent/config.yaml` before local `config.yaml`.
+- Standalone `transcribe` uses explicit `--config` if present, otherwise tries `~/.yt2notion/config.yaml`, then `~/.yt2notion-agent/config.yaml`, then local `config.yaml`.
 - Agent commands use `<agent_home>/config.yaml` by default unless `--config` is provided.
 
 | `config.yaml` path | Consumer | Purpose |
@@ -186,6 +186,7 @@ Path resolution note:
 | `storage.backend` | `storage/__init__.py:create_storage()` | choose storage backend |
 | `storage.notion.*` | `storage/notion.py:NotionStorage.__init__()` | token / database / parent / rules |
 | `storage.obsidian.*` | `storage/obsidian.py:ObsidianStorage.__init__()` | vault and directory paths |
+| `extract.media_source.backend` | `media_source/__init__.py:create_media_source()` | choose media acquisition adapter; current implementation is `yt_dlp` |
 | `extract.subtitle_priority` | `extract.py:extract_subtitles()` | subtitle language preference |
 | `extract.asr.backend` | `transcribe/__init__.py:create_transcriber()` | choose primary ASR backend (`remote` / `groq`) |
 | `extract.asr.fallback_backend` | `transcribe/__init__.py:create_fallback_transcriber()` | choose optional fallback ASR backend (must differ from primary); current pipeline only uses it for Groq daily-quota remainder fallback |
@@ -200,10 +201,10 @@ Path resolution note:
 | `extract.asr.restart_grace_seconds` | `transcribe/remote.py:RemoteTranscriber` | fallback fixed wait when health endpoint is unavailable |
 | `extract.asr.groq.api_key` | `transcribe/__init__.py:_create_groq_transcriber()` | Groq API key (or `GROQ_API_KEY` env override) |
 | `extract.asr.groq.model` | `transcribe/groq.py:GroqTranscriber` | Groq transcription model name |
-| `extract.asr.groq.max_upload_bytes` | `transcribe/groq.py:GroqTranscriber` + `pipeline.py` audio chunking helpers | max bytes per Groq upload; drives chunk/sub-chunk split behavior |
+| `extract.asr.groq.max_upload_bytes` | `transcribe/groq.py:GroqTranscriber` + `transcribe/engine.py` audio chunking helpers | max bytes per Groq upload; drives chunk/sub-chunk split behavior |
 | `extract.asr.groq.endpoint` | `transcribe/groq.py:GroqTranscriber` | Groq OpenAI-compatible transcription endpoint |
 | `extract.asr.groq.timeout_seconds` | `transcribe/groq.py:GroqTranscriber` | HTTP timeout for Groq transcription requests |
-| `output.mode` | `config.py` / `pipeline.prepare_content()` | must be `summary`; `full` is rejected |
+| `output.mode` | `config.py` / `application.Yt2Notion.prepare()` | must be `summary`; `full` is rejected |
 | `output.note_mode` | `config.py` | ignored legacy setting; runtime is always source/A/B bundle |
 | `output.max_segment_seconds` | `pipeline.py` + `topic_segment.py` | pre-split long chapter segments and trigger topic split threshold |
 | `output.long_content_threshold_seconds` | `pipeline.py:_is_long_content()` | short vs long content branching |
@@ -238,10 +239,13 @@ Backends are selected by explicit `if/elif` factories, not registries:
 
 | Factory | Location | Config field | Current implementations |
 |---|---|---|---|
+| `create_yt2notion(config)` | `application.py` | composition root | wires `Yt2Notion`, `MediaSource`, `TranscriptionEngine`, `ContentPreparation`, and storage factory |
+| `create_media_source(config)` | `media_source/__init__.py` | `extract.media_source.backend` | `yt_dlp` |
 | `create_summarizer(config)` | `models/__init__.py` | `model.backend` | `claude_code`, `anthropic_api`, `codex_cli`, `openai_api` alias |
 | `create_storage(config)` | `storage/__init__.py` | `storage.backend` | `notion`, `obsidian` |
 | `create_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.backend` | `remote`, `groq` |
 | `create_fallback_transcriber(config)` | `transcribe/__init__.py` | `extract.asr.fallback_backend` | optional `remote` / `groq` fallback transcriber |
+| `create_transcription_engine(config)` | `transcribe/__init__.py` | ASR composition root | injects lazy primary/fallback `Transcriber` factories into `TranscriptionEngine` |
 | `create_llm_caller(config, model_key=)` | `models/llm.py` | `model.backend` + `model.{model_key}` | `claude_code`, `codex_cli`, `openai_api` alias |
 
 ## Prompt Templates ↔ Code Bindings
@@ -279,6 +283,13 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 2. Extend `src/yt2notion/transcribe/__init__.py:create_transcriber()`.
 3. Update `config.example.yaml`.
 
+### Add a media-source backend
+
+1. Create an adapter implementing `media_source.base.MediaSource`.
+2. Extend `src/yt2notion/media_source/__init__.py:create_media_source()`.
+3. Update `src/yt2notion/config.py` valid media-source backends.
+4. Update `config.example.yaml`.
+
 ### Add a prompt template
 
 1. Create `src/yt2notion/prompts/<template>.md`.
@@ -294,11 +305,15 @@ Prompt rendering uses `prompts/__init__.py:render_prompt(name, **kwargs)`, imple
 ## Dependency Map
 
 ```text
-cli.py -> config.py, pipeline.py, media_transcribe.py
-media_transcribe.py -> extract.py, audio.py, workspace.py, pipeline.py, transcribe/__init__.py
-pipeline.py -> extract.py, process.py, workspace.py, note_bundle.py,
-               segment.py, topic_segment.py, review.py,
-               models/__init__.py, storage/__init__.py, transcribe/__init__.py
+cli.py -> config.py, application.py, media_transcribe.py
+application.py -> media_source/, transcribe/engine.py, workspace.py, storage/__init__.py,
+                  content_preparation.py, transcript_artifacts.py
+media_transcribe.py -> application.py, transcript_artifacts.py compatibility helpers
+pipeline.py -> application.py, content_preparation.py compatibility facades for existing imports/tests
+media_source/ytdlp.py -> extract.py, audio.py, workspace.py
+transcribe/__init__.py -> transcribe/engine.py plus config-selected Transcriber factories
+transcribe/engine.py -> transcribe/base.py, process.py, workspace.py
+content_preparation.py -> segment.py, topic_segment.py, review.py, note_bundle.py
 note_bundle.py -> models/base.py, process.py
 review.py, topic_segment.py -> models/llm.py, prompts/
 models/claude_code.py, models/anthropic_api.py -> prompts/, models/_parsers.py

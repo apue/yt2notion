@@ -271,7 +271,7 @@ Codex 执行时应遵守：
 uv run yt2notion transcribe "URL"
 ```
 
-默认配置读取顺序：显式 `--config` → `~/.yt2notion-agent/config.yaml` → 当前仓库 `config.yaml`。
+默认配置读取顺序：显式 `--config` → `~/.yt2notion/config.yaml` → `~/.yt2notion-agent/config.yaml` → 当前仓库 `config.yaml`。
 
 默认输出：`workspace/<media-id>/metadata.json`、`video.*`、`audio.mp3`、`transcripts.json`、`transcript.md`，不触发 review / summarize / Notion / Obsidian 发布。需要机器可读结果时加 `--json`。
 

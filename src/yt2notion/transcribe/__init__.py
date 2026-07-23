@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yt2notion.transcribe.base import Transcriber
+    from yt2notion.transcribe.engine import TranscriptionEngine
 
 
 def _resolve_asr_config(config: dict) -> dict:
@@ -11,7 +15,7 @@ def _resolve_asr_config(config: dict) -> dict:
     return extract_cfg.get("asr", {})
 
 
-def _create_remote_transcriber(asr_cfg: dict) -> Any:
+def _create_remote_transcriber(asr_cfg: dict) -> Transcriber:
     from yt2notion.transcribe.remote import RemoteTranscriber
 
     endpoint = asr_cfg.get("endpoint", "") or os.environ.get("ASR_ENDPOINT", "")
@@ -33,7 +37,7 @@ def _create_remote_transcriber(asr_cfg: dict) -> Any:
     )
 
 
-def _create_groq_transcriber(asr_cfg: dict) -> Any:
+def _create_groq_transcriber(asr_cfg: dict) -> Transcriber:
     from yt2notion.transcribe.groq import GroqTranscriber
 
     groq_cfg = asr_cfg.get("groq", {})
@@ -51,7 +55,7 @@ def _create_groq_transcriber(asr_cfg: dict) -> Any:
     )
 
 
-def _create_transcriber_for_backend(config: dict, backend: str) -> Any:
+def _create_transcriber_for_backend(config: dict, backend: str) -> Transcriber:
     asr_cfg = _resolve_asr_config(config)
     if backend == "remote":
         return _create_remote_transcriber(asr_cfg)
@@ -60,17 +64,41 @@ def _create_transcriber_for_backend(config: dict, backend: str) -> Any:
     raise ValueError(f"Unknown ASR backend: {backend!r}. Supported: remote, groq")
 
 
-def create_transcriber(config: dict) -> Any:
+def create_transcriber(config: dict) -> Transcriber:
     """Create primary transcriber based on extract.asr.backend."""
     asr_cfg = _resolve_asr_config(config)
     backend = asr_cfg.get("backend", "remote")
     return _create_transcriber_for_backend(config, backend)
 
 
-def create_fallback_transcriber(config: dict) -> Any | None:
+def create_fallback_transcriber(config: dict) -> Transcriber | None:
     """Create optional fallback transcriber based on extract.asr.fallback_backend."""
     asr_cfg = _resolve_asr_config(config)
     fallback_backend = asr_cfg.get("fallback_backend")
     if not fallback_backend:
         return None
     return _create_transcriber_for_backend(config, fallback_backend)
+
+
+def create_transcription_engine(config: dict) -> TranscriptionEngine:
+    """Compose the deep transcription engine with lazy provider Adapters."""
+    from yt2notion.transcribe.engine import TranscriptionEngine
+
+    asr_cfg = _resolve_asr_config(config)
+    fallback_backend = asr_cfg.get("fallback_backend")
+    fallback_transcriber: Transcriber | None = None
+    fallback_loaded = False
+
+    def _load_fallback_transcriber() -> Transcriber | None:
+        nonlocal fallback_loaded, fallback_transcriber
+        if not fallback_loaded:
+            fallback_transcriber = create_fallback_transcriber(config)
+            fallback_loaded = True
+        return fallback_transcriber
+
+    return TranscriptionEngine(
+        config,
+        primary_transcriber_factory=lambda: create_transcriber(config),
+        fallback_backend=fallback_backend,
+        fallback_transcriber_factory=(_load_fallback_transcriber if fallback_backend else None),
+    )

@@ -35,6 +35,8 @@ storage:
   #   transcripts_dir: "yt2notion/transcripts"   # optional, default as shown
 
 extract:
+  media_source:
+    backend: yt_dlp                 # 当前唯一媒体获取 adapter
   # 字幕优先级（从左到右尝试）
   subtitle_priority:
     - "zh-Hans"
