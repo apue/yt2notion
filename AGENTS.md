@@ -27,7 +27,7 @@
 
 ## 项目概述
 
-`yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对、实体提取、总结与发布，最终输出到 Notion 或 Obsidian。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
+`yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对和总结，最终可显式发布 source/A/B bundle 到 Obsidian。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
 
 默认分工如下：
 
@@ -137,7 +137,7 @@ Codex 执行时应遵守：
 
 - 先读相关文件，再改动
 - 不修改 `prompts/` 下模板的 Markdown 结构
-- 不自动发布到 Notion
+- 不自动发布到 Obsidian
 - 不做无关重构
 - 保持公开函数 type hints、`typing.Protocol` 接口风格、自定义异常约定
 
@@ -227,7 +227,7 @@ Codex 执行时应遵守：
 
 以下操作必须停下来等待用户明确确认：
 
-- 发布到 Notion / Obsidian
+- 发布到 Obsidian
 - 修改密钥、账号、外部服务配置
 - 删除大量文件或执行破坏性 git 操作
 - 改动性能敏感路径但没有 benchmark 证据
@@ -271,9 +271,9 @@ Codex 执行时应遵守：
 uv run yt2notion transcribe "URL"
 ```
 
-默认配置读取顺序：显式 `--config` → `~/.yt2notion/config.yaml` → `~/.yt2notion-agent/config.yaml` → 当前仓库 `config.yaml`。
+默认配置读取顺序：显式 `--config` → `~/.yt2notion/config.yaml` → 当前仓库 `config.yaml`。
 
-默认输出：`workspace/<media-id>/metadata.json`、`video.*`、`audio.mp3`、`transcripts.json`、`transcript.md`，不触发 review / summarize / Notion / Obsidian 发布。需要机器可读结果时加 `--json`。
+默认输出：`workspace/<media-id>/metadata.json`、`video.*`、`audio.mp3`、`transcripts.json`、`transcript.md`，不触发 review / summarize / Obsidian 发布。需要机器可读结果时加 `--json`。
 
 - 项目规则与底线：[CLAUDE.md](./CLAUDE.md)
 - 代码地图与数据契约：[PROJECT_MAP.md](./PROJECT_MAP.md)

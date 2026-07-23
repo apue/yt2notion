@@ -1,60 +1,43 @@
-"""Tests for model backend factory."""
-
-from __future__ import annotations
+"""Tests for note-composer construction."""
 
 from unittest.mock import patch
 
 import pytest
 
 from yt2notion.models import create_summarizer
+from yt2notion.models.anthropic_api import AnthropicAPICaller
+from yt2notion.models.codex_cli import CodexCLICaller
+from yt2notion.models.note_composer import NoteComposer
 
 
-def test_create_codex_cli():
-    config = {"model": {"backend": "codex_cli", "summarize_model": "gpt-5.4"}}
-    model = create_summarizer(config)
-    from yt2notion.models.codex_cli import CodexCLIModel
+def test_create_codex_composer() -> None:
+    composer = create_summarizer({"model": {"backend": "codex_cli", "translate_model": "gpt-5.4"}})
 
-    assert isinstance(model, CodexCLIModel)
-
-
-def test_create_openai_alias_routes_to_codex_cli():
-    config = {"model": {"backend": "openai_api", "summarize_model": "gpt-5.4"}}
-    model = create_summarizer(config)
-    from yt2notion.models.codex_cli import CodexCLIModel
-
-    assert isinstance(model, CodexCLIModel)
-
-
-def test_create_openai_alias_normalizes_legacy_model_names():
-    config = {
-        "model": {
-            "backend": "openai_api",
-            "summarize_model": "sonnet",
-            "translate_model": "opus",
-        }
-    }
-    model = create_summarizer(config)
-
-    assert model.summarize_model == "gpt-5.4"
-    assert model.translate_model == "gpt-5.4"
+    assert isinstance(composer, NoteComposer)
+    assert isinstance(composer.caller, CodexCLICaller)
 
 
 @patch("yt2notion.models.anthropic_api._anthropic")
-def test_create_anthropic(mock_anthropic):
-    config = {"model": {"backend": "anthropic_api", "api_key": "test-key"}}
-    model = create_summarizer(config)
-    from yt2notion.models.anthropic_api import AnthropicAPIModel
+def test_create_anthropic_composer(_anthropic) -> None:
+    composer = create_summarizer(
+        {
+            "model": {
+                "backend": "anthropic_api",
+                "api_key": "test-key",
+                "translate_model": "opus",
+            }
+        }
+    )
 
-    assert isinstance(model, AnthropicAPIModel)
+    assert isinstance(composer, NoteComposer)
+    assert isinstance(composer.caller, AnthropicAPICaller)
 
 
-def test_create_anthropic_no_key():
-    config = {"model": {"backend": "anthropic_api"}}
+def test_create_anthropic_requires_key() -> None:
     with pytest.raises(ValueError, match="API key required"):
-        create_summarizer(config)
+        create_summarizer({"model": {"backend": "anthropic_api"}})
 
 
-def test_unknown_backend_raises():
-    config = {"model": {"backend": "gpt4"}}
-    with pytest.raises(ValueError, match="Unknown model backend"):
-        create_summarizer(config)
+def test_unknown_backend_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown LLM backend"):
+        create_summarizer({"model": {"backend": "gpt4"}})

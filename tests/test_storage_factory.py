@@ -1,32 +1,19 @@
-"""Tests for storage backend factory."""
-
-from __future__ import annotations
-
-from unittest.mock import patch
+"""Tests for storage composition."""
 
 import pytest
 
 from yt2notion.storage import create_storage
+from yt2notion.storage.obsidian import ObsidianStorage
 
 
-@patch("yt2notion.storage.notion._NotionClient")
-def test_create_notion(mock_client):
-    config = {"storage": {"backend": "notion", "notion": {"token": "t", "database_id": "d"}}}
-    storage = create_storage(config)
-    from yt2notion.storage.notion import NotionStorage
-
-    assert isinstance(storage, NotionStorage)
-
-
-def test_create_obsidian(tmp_path):
-    config = {"storage": {"backend": "obsidian", "obsidian": {"vault_path": str(tmp_path)}}}
-    storage = create_storage(config)
-    from yt2notion.storage.obsidian import ObsidianStorage
+def test_create_obsidian(tmp_path) -> None:
+    storage = create_storage(
+        {"storage": {"backend": "obsidian", "obsidian": {"vault_path": str(tmp_path)}}}
+    )
 
     assert isinstance(storage, ObsidianStorage)
 
 
-def test_unknown_backend_raises():
-    config = {"storage": {"backend": "dropbox"}}
+def test_unknown_backend_raises() -> None:
     with pytest.raises(ValueError, match="Unknown storage backend"):
-        create_storage(config)
+        create_storage({"storage": {"backend": "dropbox"}})

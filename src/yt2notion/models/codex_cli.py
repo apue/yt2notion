@@ -2,52 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from yt2notion.models._parsers import (
-    parse_note_document_json,
-    parse_note_metadata_json,
-)
-from yt2notion.prompts import load_prompt
 from yt2notion.retry import RetryExhaustedError, retry
-
-if TYPE_CHECKING:
-    from yt2notion.models.base import (
-        NoteDocument,
-        NoteMetadata,
-        VideoMeta,
-    )
 
 
 class CodexCLIError(Exception):
     """Raised when codex CLI invocation fails."""
-
-
-def _source_context(metadata: VideoMeta) -> dict[str, object]:
-    """Build compact source context for note composition prompts."""
-    return {
-        "video_id": metadata.video_id,
-        "title": metadata.title,
-        "channel": metadata.channel,
-        "url": metadata.url,
-        "duration_seconds": metadata.duration_seconds,
-        "description": metadata.description,
-        "series": metadata.series,
-    }
-
-
-def _note_document_payload(note: NoteDocument) -> dict[str, object]:
-    """Serialize a note document for prompt input."""
-    return {
-        "title": note.title,
-        "markdown": note.markdown,
-        "tags": note.tags,
-        "variant": note.variant,
-    }
 
 
 _CLAUDE_ALIASES = {"sonnet", "opus", "haiku"}
@@ -189,102 +152,3 @@ class CodexCLICaller:
             )
         except RetryExhaustedError:
             raise
-
-
-class CodexCLIModel:
-    """Summarizer backend using `codex exec`."""
-
-    def __init__(
-        self,
-        summarize_model: str = "gpt-5.4",
-        translate_model: str = "gpt-5.4",
-        *,
-        reasoning_effort: str = "low",
-        profile: str | None = None,
-        workdir: str | None = None,
-    ) -> None:
-        self.summarize_model = _normalize_codex_model(summarize_model)
-        self.translate_model = _normalize_codex_model(translate_model)
-        self.reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
-        self.profile = _normalize_profile(profile)
-        self.workdir = workdir
-        self._summarize_caller = CodexCLICaller(
-            self.summarize_model,
-            reasoning_effort=self.reasoning_effort,
-            profile=self.profile,
-            workdir=self.workdir,
-        )
-        self._translate_caller = CodexCLICaller(
-            self.translate_model,
-            reasoning_effort=self.reasoning_effort,
-            profile=self.profile,
-            workdir=self.workdir,
-        )
-
-    def compose_guide_note(
-        self,
-        transcript: str,
-        metadata: VideoMeta,
-        *,
-        target_chars: int,
-        prompt_name: str = "compose_guide",
-    ) -> NoteDocument:
-        """Compose a strict JSON guide note from transcript input."""
-        system_prompt = load_prompt(prompt_name)
-        user_prompt = json.dumps(
-            {
-                "source": _source_context(metadata),
-                "target_chars": target_chars,
-                "transcript": transcript,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        raw = self._translate_caller.call(system_prompt, user_prompt)
-        return parse_note_document_json(raw, expected_variant="a_guide")
-
-    def compose_longform_note(
-        self,
-        transcript: str,
-        guide_note: NoteDocument,
-        metadata: VideoMeta,
-        *,
-        target_chars: int,
-        prompt_name: str = "compose_longform",
-    ) -> NoteDocument:
-        """Compose a strict JSON longform note from guide + transcript input."""
-        system_prompt = load_prompt(prompt_name)
-        user_prompt = json.dumps(
-            {
-                "source": _source_context(metadata),
-                "guide_note": _note_document_payload(guide_note),
-                "target_chars": target_chars,
-                "transcript": transcript,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        raw = self._translate_caller.call(system_prompt, user_prompt)
-        return parse_note_document_json(raw, expected_variant="b_longform")
-
-    def compose_note_metadata(
-        self,
-        guide_note: NoteDocument,
-        longform_note: NoteDocument,
-        metadata: VideoMeta,
-        *,
-        prompt_name: str = "compose_note_metadata",
-    ) -> NoteMetadata:
-        """Compose strict note metadata from guide and longform notes."""
-        system_prompt = load_prompt(prompt_name)
-        user_prompt = json.dumps(
-            {
-                "source": _source_context(metadata),
-                "guide_note": _note_document_payload(guide_note),
-                "longform_note": _note_document_payload(longform_note),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        raw = self._translate_caller.call(system_prompt, user_prompt)
-        return parse_note_metadata_json(raw)

@@ -17,14 +17,11 @@ from yt2notion.models.base import VideoMeta
 
 def test_resolve_config_prefers_user_config_path(monkeypatch, tmp_path: Path) -> None:
     user_config = tmp_path / "user-config.yaml"
-    agent_config = tmp_path / "agent-config.yaml"
     repo_config = tmp_path / "config.yaml"
     user_config.write_text("workspace: {}\n", encoding="utf-8")
-    agent_config.write_text("workspace: {}\n", encoding="utf-8")
     repo_config.write_text("workspace: {}\n", encoding="utf-8")
 
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_USER_CONFIG_PATH", user_config)
-    monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_AGENT_CONFIG_PATH", agent_config)
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_REPO_CONFIG_PATH", repo_config)
 
     assert resolve_media_transcribe_config_path(None) == user_config
@@ -39,7 +36,6 @@ def test_resolve_config_uses_explicit_path(tmp_path: Path) -> None:
 
 def test_resolve_config_errors_when_no_candidate(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_USER_CONFIG_PATH", tmp_path / "user")
-    monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_AGENT_CONFIG_PATH", tmp_path / "agent")
     monkeypatch.setattr("yt2notion.media_transcribe.DEFAULT_REPO_CONFIG_PATH", tmp_path / "repo")
 
     with pytest.raises(ConfigError, match="Config file not found"):

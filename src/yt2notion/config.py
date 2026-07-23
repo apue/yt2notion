@@ -14,26 +14,23 @@ class ConfigError(Exception):
     """Raised when configuration is invalid or missing."""
 
 
-VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "codex_cli", "openai_api"}
-VALID_STORAGE_BACKENDS = {"notion", "obsidian", "markdown"}
+VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "codex_cli"}
+VALID_STORAGE_BACKENDS = {"obsidian"}
 VALID_ASR_BACKENDS: set[str] = {"remote", "groq"}
 VALID_MEDIA_SOURCE_BACKENDS = {"yt_dlp"}
 
 DEFAULTS: dict = {
     "model": {
         "backend": "claude_code",
-        "summarize_model": "sonnet",
         "translate_model": "opus",
         "review_model": "haiku",
         "reasoning_effort": "low",
     },
     "storage": {
-        "backend": "notion",
-        "notion": {"token": "", "database_id": "", "directory_rules": []},
+        "backend": "obsidian",
         "obsidian": {
             "vault_path": "",
             "summaries_dir": "yt2notion/summaries",
-            "transcripts_dir": "yt2notion/transcripts",
         },
     },
     "extract": {
@@ -137,17 +134,6 @@ def load_config(path: str) -> AppConfig:
         raise ConfigError(
             "output.mode must be 'summary' because source/A/B bundle is the only output"
         )
-    merged.get("output", {}).pop("note_mode", None)
-
-    # Validate obsidian vault_path when backend is obsidian
-    if storage_backend == "obsidian":
-        vault_path = merged.get("storage", {}).get("obsidian", {}).get("vault_path", "")
-        if not vault_path:
-            raise ConfigError("storage.obsidian.vault_path is required when backend is 'obsidian'")
-        vault = Path(vault_path)
-        if not vault.is_dir():
-            raise ConfigError(f"Obsidian vault path does not exist: {vault_path}")
-
     media_source_cfg = merged.get("extract", {}).get("media_source", {})
     if not isinstance(media_source_cfg, dict):
         raise ConfigError("extract.media_source must be a mapping")

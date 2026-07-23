@@ -1,43 +1,24 @@
-"""Storage backend factory."""
+"""Storage backend composition."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yt2notion.storage.base import Storage
 
 
-def create_storage(config: dict) -> Any:
-    """Create a Storage instance based on config.
-
-    Returns an object conforming to the Storage Protocol.
-    """
+def create_storage(config: dict) -> Storage:
+    """Create the configured Obsidian bundle storage adapter."""
     storage_config = config.get("storage", {})
-    backend = storage_config.get("backend", "notion")
-    credit_config = config.get("credit", {})
-
-    if backend == "notion":
-        from yt2notion.storage.notion import NotionStorage
-
-        notion_cfg = storage_config.get("notion", {})
-        token = notion_cfg.get("token", "")
-        database_id = notion_cfg.get("database_id", "")
-        parent_page_id = notion_cfg.get("parent_page_id", "")
-        directory_rules = notion_cfg.get("directory_rules", [])
-        credit_format = credit_config.get("format", "来源：{channel} 「{title}」\n链接：{url}")
-        return NotionStorage(
-            token=token,
-            database_id=database_id,
-            parent_page_id=parent_page_id,
-            directory_rules=directory_rules,
-            credit_format=credit_format,
-        )
-    elif backend == "obsidian":
-        from yt2notion.storage.obsidian import ObsidianStorage
-
-        obsidian_cfg = storage_config.get("obsidian", {})
-        return ObsidianStorage(
-            vault_path=obsidian_cfg.get("vault_path", ""),
-            summaries_dir=obsidian_cfg.get("summaries_dir", "yt2notion/summaries"),
-            transcripts_dir=obsidian_cfg.get("transcripts_dir", "yt2notion/transcripts"),
-        )
-    else:
+    backend = storage_config.get("backend", "obsidian")
+    if backend != "obsidian":
         raise ValueError(f"Unknown storage backend: {backend!r}")
+
+    from yt2notion.storage.obsidian import ObsidianStorage
+
+    obsidian_config = storage_config.get("obsidian", {})
+    return ObsidianStorage(
+        vault_path=obsidian_config.get("vault_path", ""),
+        summaries_dir=obsidian_config.get("summaries_dir", "yt2notion/summaries"),
+    )

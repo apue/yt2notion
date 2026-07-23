@@ -5,39 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from yt2notion.models.base import ChineseContent, EntityResult, NoteBundle, VideoMeta
+    from yt2notion.models.base import NoteBundle, VideoMeta
 
 
 class Storage(Protocol):
-    """Protocol for storage backends that persist processed content."""
+    """Persist a source/A/B note bundle."""
 
-    def save(
-        self,
-        content: ChineseContent,
-        metadata: VideoMeta,
-        *,
-        transcript_segments: list[dict] | None = None,
-        entities: EntityResult | None = None,
-    ) -> str:
-        """Save content and return a URL or path to the created resource."""
-        ...
-
-    def add_transcript_subpage(
-        self,
-        summary_ref: str,
-        transcript_segments: list[dict],
-        metadata: VideoMeta,
-    ) -> None:
-        """Add transcript as child of summary. summary_ref is the value returned by save()."""
-        ...
-
-    def save_note_bundle(
-        self,
-        bundle: NoteBundle,
-        metadata: VideoMeta,
-        *,
-        transcript_segments: list[dict] | None = None,
-        entities: EntityResult | None = None,
-    ) -> str:
-        """Save a source/A/B note bundle and return the source note path."""
+    def save_note_bundle(self, bundle: NoteBundle, metadata: VideoMeta) -> str:
+        """Save a note bundle and return the source note path."""
         ...

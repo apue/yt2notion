@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from yt2notion.models._parsers import (
@@ -11,13 +9,11 @@ from yt2notion.models._parsers import (
     parse_note_document_json,
     parse_note_metadata_json,
 )
-from yt2notion.models.anthropic_api import AnthropicAPIModel
 from yt2notion.models.base import (
     NoteDocument,
     NoteMetadata,
     VideoMeta,
 )
-from yt2notion.models.codex_cli import CodexCLIModel
 from yt2notion.note_bundle import (
     build_note_bundle,
     build_source_note,
@@ -370,150 +366,3 @@ def test_parse_note_metadata_json_rejects_empty_strings_and_empty_lists() -> Non
     """
     with pytest.raises(ParseError, match="source_topics"):
         parse_note_metadata_json(empty_topics)
-
-
-@pytest.mark.parametrize(
-    ("backend", "call_attr"),
-    [
-        (CodexCLIModel(), "_translate_caller"),
-        ("anthropic", "_call_api"),
-    ],
-)
-def test_compose_note_backend_smoke(
-    backend: CodexCLIModel | AnthropicAPIModel | str,
-    call_attr: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    guide_raw = """
-    {
-      "title": "Ferrari 导读",
-      "markdown": "# Ferrari 导读",
-      "tags": ["法拉利", "导读版"],
-      "variant": "a_guide"
-    }
-    """
-    longform_raw = """
-    {
-      "title": "Ferrari 扩展",
-      "markdown": "# Ferrari 扩展",
-      "tags": ["法拉利", "扩展版"],
-      "variant": "b_longform"
-    }
-    """
-    metadata_raw = """
-    {
-      "source_title": "Ferrari",
-      "stable_tags": ["法拉利", "赛车"],
-      "guide_tags": ["导读版"],
-      "longform_tags": ["扩展版"],
-      "source_summary": "一段关于 Ferrari 的源材料摘要",
-      "source_topics": ["赛车文化", "品牌叙事"]
-    }
-    """
-
-    if backend == "anthropic":
-        import yt2notion.models.anthropic_api as anthropic_module
-
-        monkeypatch.setattr(
-            anthropic_module,
-            "_anthropic",
-            SimpleNamespace(Anthropic=lambda api_key: SimpleNamespace(api_key=api_key)),
-        )
-        backend = AnthropicAPIModel(api_key="test-key")
-
-    assert not isinstance(backend, str)
-
-    captured: list[tuple[str, str]] = []
-    seen_max_tokens: list[int] = []
-
-    if call_attr == "_translate_caller":
-        monkeypatch.setattr(
-            backend,
-            "_translate_caller",
-            SimpleNamespace(
-                call=lambda system_prompt, user_prompt, max_tokens=4000: (
-                    captured.append((system_prompt, user_prompt)) or guide_raw
-                )
-            ),
-        )
-    elif call_attr == "_call_api":
-        def _fake_call(
-            system_prompt: str,
-            user_prompt: str,
-            model: str,
-            *,
-            max_tokens: int = 4096,
-        ) -> str:
-            captured.append((system_prompt, user_prompt))
-            seen_max_tokens.append(max_tokens)
-            del model
-            return next(responses)
-
-        responses = iter([guide_raw, longform_raw, metadata_raw])
-        monkeypatch.setattr(backend, call_attr, _fake_call)
-    else:
-        responses = iter([guide_raw, longform_raw, metadata_raw])
-
-        def _fake_call(system_prompt: str, user_prompt: str, model: str) -> str:
-            captured.append((system_prompt, user_prompt))
-            del model
-            return next(responses)
-
-        monkeypatch.setattr(backend, call_attr, _fake_call)
-
-    guide_note = backend.compose_guide_note(
-        "source transcript",
-        _sample_metadata(),
-        target_chars=1200,
-    )
-    assert guide_note.variant == "a_guide"
-    assert '"source"' in captured[0][1]
-    assert '"target_chars": 1200' in captured[0][1]
-    assert '"transcript"' in captured[0][1]
-
-    if call_attr == "_translate_caller":
-        monkeypatch.setattr(
-            backend,
-            "_translate_caller",
-            SimpleNamespace(
-                call=lambda system_prompt, user_prompt, max_tokens=4000: (
-                    captured.append((system_prompt, user_prompt)) or longform_raw
-                )
-            ),
-        )
-    longform_note = backend.compose_longform_note(
-        "source transcript",
-        guide_note,
-        _sample_metadata(),
-        target_chars=2400,
-    )
-    assert longform_note.variant == "b_longform"
-    assert '"guide_note"' in captured[1][1]
-    assert '"target_chars": 2400' in captured[1][1]
-    assert '"source"' in captured[1][1]
-    assert '"transcript"' in captured[1][1]
-
-    if call_attr == "_translate_caller":
-        monkeypatch.setattr(
-            backend,
-            "_translate_caller",
-            SimpleNamespace(
-                call=lambda system_prompt, user_prompt, max_tokens=4000: (
-                    captured.append((system_prompt, user_prompt)) or metadata_raw
-                )
-            ),
-        )
-    note_metadata = backend.compose_note_metadata(
-        guide_note,
-        longform_note,
-        _sample_metadata(),
-    )
-    assert note_metadata.source_title == "Ferrari"
-    assert '"source"' in captured[2][1]
-    assert '"guide_note"' in captured[2][1]
-    assert '"longform_note"' in captured[2][1]
-
-    if call_attr == "_call_api":
-        assert seen_max_tokens[0] == 8192
-        assert seen_max_tokens[1] == 8192
-        assert seen_max_tokens[2] == 4096

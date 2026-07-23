@@ -9,11 +9,11 @@ from yt2notion.config import AppConfig, ConfigError, load_config
 
 def test_load_valid_config(tmp_path):
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("model:\n  backend: claude_code\nstorage:\n  backend: notion\n")
+    cfg_file.write_text("model:\n  backend: claude_code\nstorage:\n  backend: obsidian\n")
     config = load_config(str(cfg_file))
     assert isinstance(config, AppConfig)
     assert config.model["backend"] == "claude_code"
-    assert config.storage["backend"] == "notion"
+    assert config.storage["backend"] == "obsidian"
 
 
 def test_missing_config_raises():
@@ -26,13 +26,12 @@ def test_default_values(tmp_path):
     cfg_file.write_text("{}")  # empty config
     config = load_config(str(cfg_file))
     assert config.model["backend"] == "claude_code"
-    assert config.model["summarize_model"] == "sonnet"
+    assert "summarize_model" not in config.model
     assert config.model["translate_model"] == "opus"
     assert config.model["reasoning_effort"] == "low"
-    assert config.storage["backend"] == "notion"
+    assert config.storage["backend"] == "obsidian"
     assert config.extract["subtitle_priority"] == ["zh-Hans", "zh-Hant", "en"]
     assert config.output["mode"] == "summary"
-    assert "note_mode" not in config.output
     assert config.output["chunk_duration_seconds"] == 120
     assert config.credit["always_include"] is True
 
@@ -58,34 +57,28 @@ def test_invalid_output_mode(tmp_path):
         load_config(str(cfg_file))
 
 
-def test_legacy_note_mode_is_ignored(tmp_path):
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("output:\n  note_mode: source_ab_bundle\n")
-    config = load_config(str(cfg_file))
-    assert "note_mode" not in config.output
-
-
 def test_deep_merge_preserves_nested(tmp_path):
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("storage:\n  backend: notion\n  notion:\n    token: my_token\n")
+    cfg_file.write_text(
+        "storage:\n  backend: obsidian\n  obsidian:\n    summaries_dir: custom/notes\n"
+    )
     config = load_config(str(cfg_file))
-    assert config.storage["notion"]["token"] == "my_token"
-    # Default database_id should still be present
-    assert config.storage["notion"]["database_id"] == ""
+    assert config.storage["obsidian"]["summaries_dir"] == "custom/notes"
+    assert config.storage["obsidian"]["vault_path"] == ""
 
 
 def test_codex_cli_model_backend_is_valid(tmp_path):
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("model:\n  backend: codex_cli\nstorage:\n  backend: notion\n")
+    cfg_file.write_text("model:\n  backend: codex_cli\nstorage:\n  backend: obsidian\n")
     config = load_config(str(cfg_file))
     assert config.model["backend"] == "codex_cli"
 
 
-def test_openai_alias_model_backend_is_valid(tmp_path):
+def test_openai_alias_model_backend_is_rejected(tmp_path):
     cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("model:\n  backend: openai_api\nstorage:\n  backend: notion\n")
-    config = load_config(str(cfg_file))
-    assert config.model["backend"] == "openai_api"
+    cfg_file.write_text("model:\n  backend: openai_api\n")
+    with pytest.raises(ConfigError, match="Invalid model backend"):
+        load_config(str(cfg_file))
 
 
 def test_asr_restart_defaults_present(tmp_path):
@@ -108,7 +101,7 @@ def _write_yaml(path, data: dict) -> None:
 def _base_config(**overrides) -> dict:
     base = {
         "model": {"backend": "claude_code"},
-        "storage": {"backend": "notion", "notion": {"token": "t", "database_id": "d"}},
+        "storage": {"backend": "obsidian", "obsidian": {"vault_path": ""}},
         "extract": {"asr": {"backend": "remote", "endpoint": "http://asr"}},
         "output": {"mode": "summary"},
     }
@@ -117,7 +110,7 @@ def _base_config(**overrides) -> dict:
     return base
 
 
-def test_legacy_remote_only_config_loads(tmp_path):
+def test_remote_only_config_loads(tmp_path):
     cfg_file = tmp_path / "c.yaml"
     _write_yaml(cfg_file, _base_config())
     config = load_config(str(cfg_file))
