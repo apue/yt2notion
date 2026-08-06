@@ -7,6 +7,8 @@ Status: accepted
 - `transcribe.Transcriber`: retain provider seam.
 - `transcribe.TranscriptionEngine`: retain deep ASR module.
 - `models.llm.LLMCaller`: extend to all LLM providers.
+- `model_policy.resolve_model_config`: single source for provider-specific model
+  names and execution defaults.
 - `workspace.Workspace`: retain artifact/checkpoint contract.
 - `models.NoteBundle`: retain sole publish model.
 - `extract.extract_metadata`: extend its result to carry available subtitle

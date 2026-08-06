@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`codex_default_review_pending`
+- 状态：`codex_default_final_validation`
 - 当前 owner：Codex
 - 分支：`codex/fast-subtitle-pipeline`
 - PR：https://github.com/apue/yt2notion/pull/29（Draft）
@@ -42,6 +42,7 @@
   - 删除无生产调用者的 `extract_subtitles()` 兼容包装
   - 删除 `_download_audio()` 的冗余 config 参数
   - 删除 Codex 对 Claude 模型别名的兼容映射
+  - 模型默认值收敛到 `model_policy.py`，按 backend 解析模型名
   - 成功 `prepare` 后清除旧 `failed.json`
 - 验证结果：
   - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 225 passed, 6 warnings
@@ -52,6 +53,8 @@
   - 完整 prepare 因 Claude CLI `ConnectionRefused` 无法形成成功基准
   - Codex summarize 首次在第二笔调用触发旧 `120s` 上限：234.55s，安全停止
   - Codex summarize 使用 `240s × 1` 后成功：135.65s，生成完整 20,123-byte bundle
+  - 全新 workspace 完整 prepare 成功：156.63s，无 audio/video/ASR/publish
+  - 对比 User 报告的 14+ 分钟：至少 5.36×，耗时至少下降 81.4%
 - 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
-- review 结论：无标准硬违规、无 scope creep；发现 Anthropic API 未继承执行策略与一个兼容包装层，均已修复
-- 下一步：提交已验证改动，完成双轴 review 并更新 Draft PR；是否合并由 User 决定
+- review 结论：无标准硬违规、无 scope creep；最新 review 的默认值重复与非同口径实测均已修复
+- 下一步：最终全量复测、提交 review 修复并更新 Draft PR；是否合并由 User 决定

@@ -66,7 +66,7 @@ Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 
 | Field | Consumer |
 |---|---|
-| `model.backend` | `models.llm.create_llm_caller`; default `codex_cli` |
+| `model.backend` | `model_policy.resolve_model_config` → `models.llm.create_llm_caller`; default `codex_cli` |
 | `model.translate_model` | guide/longform/metadata composition |
 | `model.review_model` | transcript cleanup and topic segmentation |
 | `model.reasoning_effort` | Codex CLI adapter |

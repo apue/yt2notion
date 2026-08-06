@@ -7,6 +7,7 @@ import os
 import subprocess
 from typing import Protocol
 
+from yt2notion.model_policy import MODEL_BACKEND_DEFAULTS, resolve_model_config
 from yt2notion.retry import retry
 
 
@@ -97,16 +98,13 @@ class ClaudeCodeCaller:
 
 def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCaller:
     """Create an LLM provider adapter for the requested model role."""
-    model_config = config.get("model", {})
-    backend = model_config.get("backend", "codex_cli")
-    default_model = (
-        "gpt-5.4"
-        if backend == "codex_cli"
-        else ("haiku" if model_key == "review_model" else "opus")
-    )
-    model = model_config.get(model_key) or default_model
-    timeout_seconds = model_config.get("timeout_seconds", 240)
-    max_attempts = model_config.get("max_attempts", 1)
+    model_config = resolve_model_config(config)
+    backend = model_config["backend"]
+    if backend not in MODEL_BACKEND_DEFAULTS:
+        raise LLMConfigError(f"Unknown LLM backend: {backend!r}")
+    model = model_config[model_key]
+    timeout_seconds = model_config["timeout_seconds"]
+    max_attempts = model_config["max_attempts"]
 
     if backend == "claude_code":
         return ClaudeCodeCaller(
@@ -138,4 +136,4 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
             timeout_seconds=timeout_seconds,
             max_attempts=max_attempts,
         )
-    raise LLMConfigError(f"Unknown LLM backend: {backend!r}")
+    raise AssertionError(f"Unhandled LLM backend: {backend!r}")

@@ -13,6 +13,8 @@ def test_load_valid_config(tmp_path):
     config = load_config(str(cfg_file))
     assert isinstance(config, AppConfig)
     assert config.model["backend"] == "claude_code"
+    assert config.model["review_model"] == "haiku"
+    assert config.model["translate_model"] == "opus"
     assert config.storage["backend"] == "obsidian"
 
 

@@ -83,3 +83,18 @@ connection failure (`180.91s`) while changing the result from failure to a full
 bundle. Combining independently measured transcript (`5.494s`) and resumed
 summary (`135.65s`) stages gives an indicative `141.14s` processing time, not a
 single-command end-to-end benchmark.
+
+A subsequent clean-workspace validation removed that limitation:
+
+- command: `yt2notion prepare ... --workspace-dir workspace/codex-e2e-20260806 --verbose`;
+- exit code: `0`;
+- wall time: `156.63s`;
+- full path: metadata → manual subtitles → 8 author chapters → 343 subtitle
+  entries → three Codex calls → complete source/A/B bundle;
+- downloaded audio/video: none;
+- ASR: not invoked;
+- Obsidian publication: not invoked;
+- stale `failed.json`: absent after success.
+
+Against the user's reported `14+ minute` earlier workflow, this clean full run
+is at least `5.36x` faster and reduces elapsed time by at least `81.4%`.
