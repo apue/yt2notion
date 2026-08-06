@@ -13,6 +13,7 @@ from yt2notion.process import seconds_to_display
 from yt2notion.translation_experiment.models import (
     CandidateCheckpoint,
     CandidateIdentity,
+    ExperimentArtifactResult,
     TranslationItem,
 )
 from yt2notion.translation_experiment.quality import evaluate_final_text
@@ -122,7 +123,7 @@ def write_experiment_artifacts(
     timings_seconds: dict[str, float],
     generation_timings_seconds: dict[str, float],
     reused_checkpoints: dict[str, bool],
-) -> tuple[Path, Path, Path, Path, bool]:
+) -> ExperimentArtifactResult:
     """Write source, candidates, diagnostics, blind review, and answer key."""
     output_dir.mkdir(parents=True, exist_ok=True)
     chapter_whole = {item.source_id: item.translation for item in whole}
@@ -162,7 +163,7 @@ def write_experiment_artifacts(
                 "target_language": "zh-CN",
                 "calls_per_strategy": 1,
                 "notation_normalization": "required for explicit source evidence",
-                "formula_reconstruction": "allowed only when uniquely supported by speech",
+                "formula_reconstruction": "disabled",
             },
             "counts": {
                 "chapters": len(chapters),
@@ -224,12 +225,12 @@ def write_experiment_artifacts(
         ),
         encoding="utf-8",
     )
-    return (
-        blind_review_path,
-        answer_key_path,
-        manifest_path,
-        evaluation_path,
-        objective_gates_passed,
+    return ExperimentArtifactResult(
+        blind_review_path=blind_review_path,
+        answer_key_path=answer_key_path,
+        manifest_path=manifest_path,
+        evaluation_path=evaluation_path,
+        objective_gates_passed=objective_gates_passed,
     )
 
 
@@ -290,7 +291,7 @@ def _render_blind_review(
         "- 说明：A/B 标签已按章节做平衡盲化；请在完成评价前不要打开 `answer_key.json`。",
         "- 优先判断整体胜负或平局；维度分数可选。1=很差，5=很好。",
         "- 维度：忠实度、中文自然度、术语一致性、学习价值。",
-        "- 数学记号准确性单独评价；不要把流畅度抵消符号或公式错误。",
+        "- 数学记号准确性单独评价；不要让流畅度掩盖符号错误。",
         "",
     ]
     candidates = {

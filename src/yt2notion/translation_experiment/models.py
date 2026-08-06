@@ -66,6 +66,17 @@ class CandidateIdentity:
 
 
 @dataclass(frozen=True)
+class ExperimentArtifactResult:
+    """Named result of rendering the complete experiment package."""
+
+    blind_review_path: Path
+    answer_key_path: Path
+    manifest_path: Path
+    evaluation_path: Path
+    objective_gates_passed: bool
+
+
+@dataclass(frozen=True)
 class TranslationExperimentResult:
     """Paths and timings produced by a completed experiment."""
 

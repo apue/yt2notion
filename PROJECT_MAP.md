@@ -70,8 +70,9 @@ Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `manifest.json` diagnostics, `evaluation.json`, `blind_review.md`, and a separate
 `answer_key.json`.
 The response contract requires exact ordered chapter/block IDs. Translation
-length ratios are diagnostic only, and formula enrichment is disabled so it does
-not confound the strategy comparison.
+length ratios are diagnostic only. Explicitly named mathematical symbols are
+normalized faithfully, while formula reconstruction and LaTeX enrichment remain
+disabled so they do not confound the strategy comparison.
 Each candidate is checkpointed immediately and is reused only when schema,
 source fingerprint, strategy, model identity, prompt fingerprint, and ordered
 IDs all match. Codex model identity includes reasoning effort. Final Chinese text

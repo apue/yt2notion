@@ -13,9 +13,9 @@ normalized prose, so IDs do not appear in the translated text being judged.
 ## Faithful notation is part of translation
 
 Recovering a symbol explicitly named by the speaker is not speculative formula
-enrichment. `big omega` and `little omega` must become `Ω` and `ω`. A formula may
-be normalized only when the spoken evidence uniquely determines it; ambiguous
-notation remains verbal rather than being guessed.
+enrichment. `big omega` and `little omega` must become `Ω` and `ω`. Formula
+reconstruction and LaTeX enrichment remain outside this experiment; spoken
+relationships stay verbal rather than being guessed or reformatted.
 
 ## Final text is the primary evaluation target
 

@@ -36,7 +36,8 @@ _GREEK_SYMBOLS: dict[str, tuple[str, str]] = {
     "omega": ("Ω", "ω"),
 }
 _CASE_CUE = re.compile(
-    rf"\b(big|capital|uppercase|little|small|lowercase)\s+({'|'.join(_GREEK_SYMBOLS)})\b",
+    rf"\b(big|capital|upper(?:[ -]?case)|little|small|lower(?:[ -]?case))\s+"
+    rf"({'|'.join(_GREEK_SYMBOLS)})\b",
     re.IGNORECASE,
 )
 _INTERNAL_ID = re.compile(r"\bc\d{3}(?:-b\d{3})?\b")
@@ -108,7 +109,7 @@ def _collect_notation_expectations(
     seen: set[tuple[str, str]] = set()
     for chapter in chapters:
         for match in _CASE_CUE.finditer(chapter.source_text):
-            case_cue = match.group(1).lower()
+            case_cue = re.sub(r"[ -]", "", match.group(1).lower())
             name = match.group(2).lower()
             uppercase, lowercase = _GREEK_SYMBOLS[name]
             symbol = uppercase if case_cue in {"big", "capital", "uppercase"} else lowercase

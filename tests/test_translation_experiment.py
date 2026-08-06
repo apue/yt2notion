@@ -101,6 +101,25 @@ def test_final_text_gate_requires_explicit_big_and_little_omega_symbols():
     assert passed.missing_notation == ()
 
 
+def test_final_text_gate_accepts_spaced_and_hyphenated_case_cues():
+    chapters = build_source_chapters(
+        [
+            {
+                "title": "ASR notation",
+                "start_seconds": 0,
+                "end_seconds": 20,
+                "text": "Use upper case omega for the space and lower-case omega for an outcome.",
+                "source": "automatic_caption",
+            }
+        ]
+    )
+
+    result = evaluate_final_text(chapters, {"c001": "用 Ω 表示空间，用 ω 表示结果。"})
+
+    assert result.passed is True
+    assert [item.symbol for item in result.expected_notation] == ["Ω", "ω"]
+
+
 def test_generator_rejects_missing_or_reordered_ids():
     chapters = build_source_chapters(_transcripts())
     caller = FakeCaller(
@@ -205,7 +224,7 @@ def test_runner_writes_balanced_blind_artifacts_with_two_calls(tmp_path):
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["controlled_variables"]["calls_per_strategy"] == 1
     assert manifest["controlled_variables"]["notation_normalization"].startswith("required")
-    assert manifest["controlled_variables"]["formula_reconstruction"].startswith("allowed")
+    assert manifest["controlled_variables"]["formula_reconstruction"] == "disabled"
     assert "translation_source_ratio" in manifest["diagnostics"]["whole_chapter"][0]
     assert manifest["generation_timings_seconds"]["whole_chapter"] >= 0
     evaluation = json.loads(result.evaluation_path.read_text(encoding="utf-8"))
