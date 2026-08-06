@@ -21,11 +21,11 @@ VALID_MEDIA_SOURCE_BACKENDS = {"yt_dlp"}
 
 DEFAULTS: dict = {
     "model": {
-        "backend": "claude_code",
-        "translate_model": "opus",
-        "review_model": "haiku",
+        "backend": "codex_cli",
+        "translate_model": "gpt-5.4",
+        "review_model": "gpt-5.4",
         "reasoning_effort": "low",
-        "timeout_seconds": 120,
+        "timeout_seconds": 240,
         "max_attempts": 1,
     },
     "storage": {

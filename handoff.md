@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`ready_for_user_review`
+- 状态：`codex_default_review_pending`
 - 当前 owner：Codex
 - 分支：`codex/fast-subtitle-pipeline`
 - PR：https://github.com/apue/yt2notion/pull/29（Draft）
@@ -16,6 +16,7 @@
   - 删除 content/transcript 冗余结果类型与实现分支
   - 限制 LLM timeout/retry 的最坏耗时
   - 用播放列表下一课做真实性能验证
+  - 默认优先使用 Codex quota，并完成真实 summary 验证
 - 约束：
   - 不保留后向兼容层
   - 不新增 CLI 产品面
@@ -35,17 +36,22 @@
   - playlist watch URL 强制单视频
   - metadata 驱动一次字幕选择；删除冗余 `subtitles_available` 存储字段
   - `--no-video` 无字幕时直接下载音频
-  - 所有 LLM backend 默认 `120s × 1`，保留 CLI provider 错误详情
+  - 默认 LLM backend 改为 `codex_cli`，模型为 `gpt-5.4`
+  - 默认执行边界调整为 `240s × 1`，保留 CLI provider 错误详情
   - standalone transcript JSON 输出 acquire/segment/transcribe/total 耗时
   - 删除无生产调用者的 `extract_subtitles()` 兼容包装
   - 删除 `_download_audio()` 的冗余 config 参数
+  - 删除 Codex 对 Claude 模型别名的兼容映射
+  - 成功 `prepare` 后清除旧 `failed.json`
 - 验证结果：
-  - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 224 passed, 6 warnings
+  - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 225 passed, 6 warnings
   - `uv run --extra dev ruff check src/yt2notion tests` → pass
   - `uv run --extra dev ruff format --check src/yt2notion tests` → pass
   - 下一课 transcript：5.494s，343 条人工字幕，8 段，无 audio/video/ASR
   - 对比旧媒体/转写失败路径约 178s：32.4×，耗时下降 96.9%
   - 完整 prepare 因 Claude CLI `ConnectionRefused` 无法形成成功基准
+  - Codex summarize 首次在第二笔调用触发旧 `120s` 上限：234.55s，安全停止
+  - Codex summarize 使用 `240s × 1` 后成功：135.65s，生成完整 20,123-byte bundle
 - 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
 - review 结论：无标准硬违规、无 scope creep；发现 Anthropic API 未继承执行策略与一个兼容包装层，均已修复
-- 下一步：User 审阅 Draft PR；是否转为 Ready 或合并由 User 决定
+- 下一步：提交已验证改动，完成双轴 review 并更新 Draft PR；是否合并由 User 决定

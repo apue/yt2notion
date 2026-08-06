@@ -4,7 +4,7 @@ model:
   translate_model: gpt-5.4
   review_model: gpt-5.4
   reasoning_effort: low
-  timeout_seconds: 120
+  timeout_seconds: 240
   max_attempts: 1
   # api_key: ""  # Anthropic only; prefer ANTHROPIC_API_KEY
 

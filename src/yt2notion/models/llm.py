@@ -98,9 +98,14 @@ class ClaudeCodeCaller:
 def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCaller:
     """Create an LLM provider adapter for the requested model role."""
     model_config = config.get("model", {})
-    backend = model_config.get("backend", "claude_code")
-    model = model_config.get(model_key) or ("haiku" if model_key == "review_model" else "opus")
-    timeout_seconds = model_config.get("timeout_seconds", 120)
+    backend = model_config.get("backend", "codex_cli")
+    default_model = (
+        "gpt-5.4"
+        if backend == "codex_cli"
+        else ("haiku" if model_key == "review_model" else "opus")
+    )
+    model = model_config.get(model_key) or default_model
+    timeout_seconds = model_config.get("timeout_seconds", 240)
     max_attempts = model_config.get("max_attempts", 1)
 
     if backend == "claude_code":

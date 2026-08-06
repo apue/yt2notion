@@ -13,15 +13,10 @@ class CodexCLIError(Exception):
     """Raised when codex CLI invocation fails."""
 
 
-_CLAUDE_ALIASES = {"sonnet", "opus", "haiku"}
-
-
 def _normalize_codex_model(model: str, *, fallback: str = "gpt-5.4") -> str:
-    """Map legacy Claude aliases to Codex defaults for smoother backend switching."""
+    """Use the configured Codex model or the current project default."""
     raw = (model or "").strip()
-    if not raw or raw in _CLAUDE_ALIASES:
-        return fallback
-    return raw
+    return raw or fallback
 
 
 def _normalize_reasoning_effort(reasoning_effort: str, *, fallback: str = "low") -> str:

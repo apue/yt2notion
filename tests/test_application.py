@@ -96,6 +96,12 @@ def test_application_prepare_uses_media_source_and_transcription_engine(
 ) -> None:
     cfg = AppConfig()
     cfg.workspace = {"base_dir": str(tmp_path)}
+    Workspace(tmp_path, "video-1").save_failure(
+        "https://example.com/video",
+        "summarize",
+        "old failure",
+        retries_exhausted=True,
+    )
     media_source = FakeMediaSource(tmp_path)
     engine = FakeEngine()
     prepared = Yt2Notion(
@@ -109,6 +115,7 @@ def test_application_prepare_uses_media_source_and_transcription_engine(
     assert engine.workspace_calls == 1
     assert prepared.note_bundle.source.variant == "source"
     assert prepared.workspace.load_transcripts() == _transcript("manual_subtitle")
+    assert prepared.workspace.load_failure() is None
 
 
 def test_application_transcribe_stops_after_transcript_artifacts(tmp_path: Path) -> None:

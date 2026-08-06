@@ -108,3 +108,11 @@ def test_factory_configures_codex_reasoning_effort() -> None:
 
     assert isinstance(caller, CodexCLICaller)
     assert caller.reasoning_effort == "medium"
+
+
+def test_factory_defaults_to_codex_cli() -> None:
+    caller = create_llm_caller({})
+
+    assert isinstance(caller, CodexCLICaller)
+    assert caller.model == "gpt-5.4"
+    assert caller.timeout_seconds == 240

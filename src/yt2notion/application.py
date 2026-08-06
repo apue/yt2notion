@@ -218,6 +218,7 @@ class Yt2Notion:
                 typer.echo("Summarizing source/A/B note bundle...")
             note_bundle = self.content_preparation.summarize(reviewed, metadata, self.raw_config)
             ws.save_note_bundle(note_bundle)
+            ws.clear_failure()
             emit_progress(progress_callback, "summarize", "completed")
 
             return PreparedContent(
