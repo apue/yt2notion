@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
-from yt2notion.translation_experiment.models import SourceBlock, SourceChapter
+from yt2notion.translation_experiment.models import (
+    CanonicalTranscript,
+    SourceBlock,
+    SourceChapter,
+)
 
 DEFAULT_BLOCK_TARGET_CHARS = 700
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])\s+")
@@ -15,7 +20,9 @@ class SourceContractError(ValueError):
 
 
 def build_source_chapters(
-    transcripts: list[dict], *, block_target_chars: int = DEFAULT_BLOCK_TARGET_CHARS
+    transcripts: Sequence[CanonicalTranscript],
+    *,
+    block_target_chars: int = DEFAULT_BLOCK_TARGET_CHARS,
 ) -> tuple[SourceChapter, ...]:
     """Build stable chapter/block IDs from the canonical transcript artifact."""
     if block_target_chars < 20:
@@ -51,14 +58,14 @@ def build_source_chapters(
     return tuple(chapters)
 
 
-def _required_text(transcript: dict, field: str, chapter_index: int) -> str:
+def _required_text(transcript: CanonicalTranscript, field: str, chapter_index: int) -> str:
     value = transcript.get(field)
     if not isinstance(value, str) or not value.strip():
         raise SourceContractError(f"chapter {chapter_index} has invalid {field!r}")
     return " ".join(value.split())
 
 
-def _required_seconds(transcript: dict, field: str, chapter_index: int) -> int:
+def _required_seconds(transcript: CanonicalTranscript, field: str, chapter_index: int) -> int:
     value = transcript.get(field)
     if not isinstance(value, int | float):
         raise SourceContractError(f"chapter {chapter_index} has invalid {field!r}")

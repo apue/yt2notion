@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
 from yt2notion.models.base import VideoMeta
+from yt2notion.translation_experiment.artifacts import (
+    load_candidate_checkpoint,
+    save_candidate_checkpoint,
+)
 from yt2notion.translation_experiment.generator import (
     TranslationGenerator,
     TranslationResponseError,
 )
+from yt2notion.translation_experiment.models import CandidateIdentity, TranslationItem
 from yt2notion.translation_experiment.service import TranslationExperimentRunner
 from yt2notion.translation_experiment.source import (
     SourceContractError,
@@ -71,6 +77,41 @@ def test_generator_rejects_missing_or_reordered_ids():
 
     with pytest.raises(TranslationResponseError, match="exactly match source order"):
         TranslationGenerator(caller).translate_whole_chapters(chapters)
+
+
+def test_checkpoint_identity_includes_model_and_prompt(tmp_path):
+    path = tmp_path / "candidate.json"
+    identity = CandidateIdentity(
+        source_sha256="source-hash",
+        strategy="whole_chapter",
+        model_label="codex_cli:model-a",
+        prompt_sha256="prompt-hash-a",
+    )
+    items = (TranslationItem(source_id="c001", translation="译文"),)
+    save_candidate_checkpoint(
+        path,
+        identity=identity,
+        items=items,
+        generation_seconds=1.0,
+    )
+
+    assert load_candidate_checkpoint(path, identity=identity, expected_ids=["c001"]) is not None
+    assert (
+        load_candidate_checkpoint(
+            path,
+            identity=replace(identity, model_label="codex_cli:model-b"),
+            expected_ids=["c001"],
+        )
+        is None
+    )
+    assert (
+        load_candidate_checkpoint(
+            path,
+            identity=replace(identity, prompt_sha256="prompt-hash-b"),
+            expected_ids=["c001"],
+        )
+        is None
+    )
 
 
 def test_runner_writes_balanced_blind_artifacts_with_two_calls(tmp_path):

@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
+
+TranslationStrategy = Literal["whole_chapter", "semantic_blocks"]
+
+
+class CanonicalTranscript(TypedDict):
+    """Fields consumed from one canonical transcripts.json segment."""
+
+    title: str
+    start_seconds: int | float
+    end_seconds: int | float
+    text: str
+    source: NotRequired[str]
 
 
 @dataclass(frozen=True)
@@ -41,6 +53,16 @@ class CandidateCheckpoint:
 
     items: tuple[TranslationItem, ...]
     generation_seconds: float
+
+
+@dataclass(frozen=True)
+class CandidateIdentity:
+    """All inputs that must match before a candidate may be reused."""
+
+    source_sha256: str
+    strategy: TranslationStrategy
+    model_label: str
+    prompt_sha256: str
 
 
 @dataclass(frozen=True)

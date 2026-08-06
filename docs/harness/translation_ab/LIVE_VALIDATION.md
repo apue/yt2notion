@@ -39,10 +39,10 @@ less wall time. This is a directional comparison because the outputs differ.
 
 ## Checkpoint rerun
 
-After adding source-fingerprinted candidate checkpoints, the same command
-completed in 5.88 seconds with both candidates reused and zero model calls.
-The manifest keeps original generation timings separately from the current
-checkpoint-hit timings.
+After adding checkpoints bound to source, strategy, model, prompt, and ordered
+IDs, the same command completed in 6.99 seconds with both candidates reused and
+zero model calls. The manifest keeps original generation timings separately from
+the current checkpoint-hit timings.
 
 ## Human gate
 

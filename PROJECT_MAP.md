@@ -71,8 +71,9 @@ Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 The response contract requires exact ordered chapter/block IDs. Translation
 length ratios are diagnostic only, and formula enrichment is disabled so it does
 not confound the strategy comparison.
-Each candidate is checkpointed immediately with the source fingerprint and is
-reused only when schema, strategy, fingerprint, and ordered IDs all match.
+Each candidate is checkpointed immediately and is reused only when schema,
+source fingerprint, strategy, model identity, prompt fingerprint, and ordered
+IDs all match.
 
 ## Configuration bindings
 
@@ -113,6 +114,9 @@ elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 
 `NoteComposer` is provider-independent and owns prompt payloads and parsing.
 `TranscriptionEngine` is provider-independent and owns ASR lifecycle.
+`TranslationExperimentRunner` depends on `LLMCaller`, typed canonical transcripts,
+and experiment artifact functions; `application.Yt2Notion` is its only CLI-facing
+orchestrator. It has no dependency on `Storage`.
 
 To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a

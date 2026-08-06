@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from time import perf_counter
 from typing import TYPE_CHECKING
 
@@ -14,10 +15,19 @@ from yt2notion.translation_experiment.artifacts import (
     write_source_artifact,
 )
 from yt2notion.translation_experiment.generator import TranslationGenerator
-from yt2notion.translation_experiment.models import TranslationExperimentResult
+from yt2notion.translation_experiment.models import (
+    CandidateIdentity,
+    CanonicalTranscript,
+    TranslationExperimentResult,
+    TranslationItem,
+    TranslationStrategy,
+)
 from yt2notion.translation_experiment.source import build_source_chapters
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
+    from yt2notion.config import AppConfig
     from yt2notion.models.base import VideoMeta
     from yt2notion.models.llm import LLMCaller
     from yt2notion.workspace import Workspace
@@ -31,7 +41,10 @@ class TranslationExperimentRunner:
         self.model_label = model_label
 
     def run(
-        self, metadata: VideoMeta, transcripts: list[dict], workspace: Workspace
+        self,
+        metadata: VideoMeta,
+        transcripts: Sequence[CanonicalTranscript],
+        workspace: Workspace,
     ) -> TranslationExperimentResult:
         """Execute the controlled experiment against canonical transcripts."""
         started = perf_counter()
@@ -42,54 +55,25 @@ class TranslationExperimentRunner:
 
         whole_path = experiment_dir / "candidate_whole_chapter.json"
         whole_ids = [chapter.chapter_id for chapter in chapters]
-        whole_checkpoint = load_candidate_checkpoint(
-            whole_path,
-            strategy="whole_chapter",
-            fingerprint=fingerprint,
-            expected_ids=whole_ids,
-        )
-        reused_whole = whole_checkpoint is not None
-
-        whole_started = perf_counter()
-        if whole_checkpoint is None:
-            whole = self.generator.translate_whole_chapters(chapters)
-            whole_generation_seconds = perf_counter() - whole_started
-            save_candidate_checkpoint(
-                whole_path,
-                strategy="whole_chapter",
-                fingerprint=fingerprint,
-                items=whole,
-                generation_seconds=whole_generation_seconds,
+        whole, reused_whole, whole_seconds, whole_generation_seconds = (
+            self._load_or_generate_candidate(
+                path=whole_path,
+                identity=self._identity(fingerprint, "whole_chapter"),
+                expected_ids=whole_ids,
+                generate=lambda: self.generator.translate_whole_chapters(chapters),
             )
-        else:
-            whole = whole_checkpoint.items
-            whole_generation_seconds = whole_checkpoint.generation_seconds
-        whole_seconds = perf_counter() - whole_started
+        )
 
         blocks_path = experiment_dir / "candidate_semantic_blocks.json"
         block_ids = [block.block_id for chapter in chapters for block in chapter.blocks]
-        blocks_checkpoint = load_candidate_checkpoint(
-            blocks_path,
-            strategy="semantic_blocks",
-            fingerprint=fingerprint,
-            expected_ids=block_ids,
-        )
-        reused_blocks = blocks_checkpoint is not None
-        blocks_started = perf_counter()
-        if blocks_checkpoint is None:
-            blocks = self.generator.translate_semantic_blocks(chapters)
-            blocks_generation_seconds = perf_counter() - blocks_started
-            save_candidate_checkpoint(
-                blocks_path,
-                strategy="semantic_blocks",
-                fingerprint=fingerprint,
-                items=blocks,
-                generation_seconds=blocks_generation_seconds,
+        blocks, reused_blocks, blocks_seconds, blocks_generation_seconds = (
+            self._load_or_generate_candidate(
+                path=blocks_path,
+                identity=self._identity(fingerprint, "semantic_blocks"),
+                expected_ids=block_ids,
+                generate=lambda: self.generator.translate_semantic_blocks(chapters),
             )
-        else:
-            blocks = blocks_checkpoint.items
-            blocks_generation_seconds = blocks_checkpoint.generation_seconds
-        blocks_seconds = perf_counter() - blocks_started
+        )
 
         timings = {
             "whole_chapter": round(whole_seconds, 3),
@@ -122,10 +106,52 @@ class TranslationExperimentRunner:
             timings_seconds=timings,
         )
 
+    def _identity(self, fingerprint: str, strategy: TranslationStrategy) -> CandidateIdentity:
+        return CandidateIdentity(
+            source_sha256=fingerprint,
+            strategy=strategy,
+            model_label=self.model_label,
+            prompt_sha256=self.generator.prompt_fingerprint(strategy),
+        )
 
-def create_translation_experiment_runner(config: dict) -> TranslationExperimentRunner:
+    def _load_or_generate_candidate(
+        self,
+        *,
+        path: Path,
+        identity: CandidateIdentity,
+        expected_ids: list[str],
+        generate: Callable[[], tuple[TranslationItem, ...]],
+    ) -> tuple[tuple[TranslationItem, ...], bool, float, float]:
+        started = perf_counter()
+        checkpoint = load_candidate_checkpoint(
+            path,
+            identity=identity,
+            expected_ids=expected_ids,
+        )
+        if checkpoint is not None:
+            return checkpoint.items, True, perf_counter() - started, checkpoint.generation_seconds
+
+        items = generate()
+        generation_seconds = perf_counter() - started
+        save_candidate_checkpoint(
+            path,
+            identity=identity,
+            items=items,
+            generation_seconds=generation_seconds,
+        )
+        return items, False, generation_seconds, generation_seconds
+
+
+def create_translation_experiment_runner(config: AppConfig) -> TranslationExperimentRunner:
     """Create the experiment runner from the standard translation-model role."""
-    model_config = config["model"]
-    caller = create_llm_caller(config, model_key="translate_model")
+    model_config = config.model
+    raw_config = {
+        "extract": config.extract,
+        "model": config.model,
+        "storage": config.storage,
+        "credit": config.credit,
+        "output": config.output,
+    }
+    caller = create_llm_caller(raw_config, model_key="translate_model")
     model_label = f"{model_config['backend']}:{model_config['translate_model']}"
     return TranslationExperimentRunner(caller, model_label=model_label)

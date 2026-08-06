@@ -30,5 +30,6 @@ publishing anything.
    assignment and does not disclose strategy labels.
 5. Length ratios are reported as diagnostics, not used as a quality threshold.
 6. Unit tests use a fake LLM; a live fourth-lesson run is recorded separately.
-7. A successful strategy is checkpointed against the source fingerprint, so a
-   retry only regenerates a missing or invalid candidate.
+7. A successful strategy is checkpointed against the source, strategy, model,
+   prompt fingerprint, and ordered IDs, so a retry only regenerates a missing
+   or genuinely stale candidate.

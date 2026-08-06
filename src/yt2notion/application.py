@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 
 import typer
 
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         TranslationExperimentResult,
         TranslationExperimentRunner,
     )
+    from yt2notion.translation_experiment.models import CanonicalTranscript
 
 ProgressEvent: TypeAlias = Literal[
     "started",
@@ -377,10 +378,14 @@ class Yt2Notion:
         if self.translation_experiment_runner is None:
             from yt2notion.translation_experiment import create_translation_experiment_runner
 
-            runner = create_translation_experiment_runner(self.raw_config)
+            runner = create_translation_experiment_runner(self.config)
         else:
             runner = self.translation_experiment_runner
-        return runner.run(transcription.metadata, transcripts, transcription.workspace)
+        return runner.run(
+            transcription.metadata,
+            cast("list[CanonicalTranscript]", transcripts),
+            transcription.workspace,
+        )
 
     def _workspace_base(self, workspace_dir: str | None) -> Path:
         workspace_base = workspace_dir or self.config.workspace.get("base_dir", "./workspace")

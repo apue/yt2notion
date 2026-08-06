@@ -7,7 +7,7 @@
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
 - PR：未创建
-- review 状态：待创建 PR 后执行双轴 review
+- review 状态：双轴 review 完成；共同 high finding 已修复，待本地复核
 - 目标：
   - 对比整章翻译与带稳定 ID 的语义块翻译
   - 固定源字幕、模型、翻译规范和调用次数
@@ -40,7 +40,12 @@
   - ruff format check：pass
   - 第四课 fresh run：189.11s wall；两候选生成 89.529s / 92.724s
   - 第四课结构：10 chapters、32 blocks，覆盖/顺序全部通过，A/B 位置 5:5
-  - checkpoint rerun：5.88s wall，0 次模型调用
+  - checkpoint rerun（最终 identity 契约）：6.99s wall，0 次模型调用
   - 对比 14 分钟基准：双候选实验至少快 4.44x，wall time 至少下降 77.5%
 - 当前证据：`docs/harness/translation_ab/LIVE_VALIDATION.md`
-- 下一步：提交、创建 PR、执行双轴 review，只做本地修复与复测。
+- review 修复：
+  - checkpoint identity 增加 model label 与 prompt SHA-256，避免混合实验条件
+  - canonical transcript 与 factory config 改为明确类型契约
+  - 抽取共享 load/generate/checkpoint 流程，删除重复逻辑
+  - 在 `PROJECT_MAP.md` 补充 experiment dependency direction
+- 下一步：完成本地复测并更新提交；GitHub push 当前受网络挂起阻塞。

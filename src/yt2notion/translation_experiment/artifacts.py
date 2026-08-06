@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from yt2notion.process import seconds_to_display
-from yt2notion.translation_experiment.models import CandidateCheckpoint, TranslationItem
+from yt2notion.translation_experiment.models import (
+    CandidateCheckpoint,
+    CandidateIdentity,
+    TranslationItem,
+)
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
@@ -49,8 +53,7 @@ def write_source_artifact(
 def save_candidate_checkpoint(
     path: Path,
     *,
-    strategy: str,
-    fingerprint: str,
+    identity: CandidateIdentity,
     items: tuple[TranslationItem, ...],
     generation_seconds: float,
 ) -> None:
@@ -59,8 +62,7 @@ def save_candidate_checkpoint(
         path,
         {
             "schema_version": ARTIFACT_SCHEMA_VERSION,
-            "source_sha256": fingerprint,
-            "strategy": strategy,
+            "identity": asdict(identity),
             "generation_seconds": round(generation_seconds, 3),
             "items": [asdict(item) for item in items],
         },
@@ -70,8 +72,7 @@ def save_candidate_checkpoint(
 def load_candidate_checkpoint(
     path: Path,
     *,
-    strategy: str,
-    fingerprint: str,
+    identity: CandidateIdentity,
     expected_ids: list[str],
 ) -> CandidateCheckpoint | None:
     """Load only a complete checkpoint for the exact source and strategy."""
@@ -83,11 +84,9 @@ def load_candidate_checkpoint(
         return None
     if not isinstance(payload, dict):
         return None
-    if (
-        payload.get("schema_version") != ARTIFACT_SCHEMA_VERSION
-        or payload.get("source_sha256") != fingerprint
-        or payload.get("strategy") != strategy
-    ):
+    if payload.get("schema_version") != ARTIFACT_SCHEMA_VERSION or payload.get(
+        "identity"
+    ) != asdict(identity):
         return None
     records = payload.get("items")
     generation_seconds = payload.get("generation_seconds")

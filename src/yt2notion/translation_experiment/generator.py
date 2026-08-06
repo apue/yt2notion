@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,7 @@ from yt2notion.prompts import load_prompt, render_prompt
 from yt2notion.translation_experiment.models import (
     SourceChapter,
     TranslationItem,
+    TranslationStrategy,
 )
 
 if TYPE_CHECKING:
@@ -75,6 +77,15 @@ class TranslationGenerator:
             expected_ids=[block.block_id for chapter in chapters for block in chapter.blocks],
             id_field="block_id",
         )
+
+    def prompt_fingerprint(self, strategy: TranslationStrategy) -> str:
+        """Fingerprint the exact shared and strategy prompt templates."""
+        prompt_name = {
+            "whole_chapter": "translation_experiment_whole",
+            "semantic_blocks": "translation_experiment_blocks",
+        }[strategy]
+        payload = f"{self.system_prompt}\n---\n{load_prompt(prompt_name)}"
+        return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _parse_translations(
