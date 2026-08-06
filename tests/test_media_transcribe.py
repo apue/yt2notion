@@ -56,7 +56,6 @@ def test_transcribe_media_writes_workspace_artifacts(monkeypatch, tmp_path: Path
         channel="TestChannel",
         url="https://example.com/video",
         duration_seconds=60,
-        subtitles_available=False,
     )
 
     def fake_extract_video(url: str, output_dir: Path, **kwargs) -> Path:
@@ -120,24 +119,15 @@ def test_transcribe_media_no_video_clears_stale_video_and_markdown(
         channel="TestChannel",
         url="https://example.com/video",
         duration_seconds=60,
-        subtitles_available=False,
     )
 
-    def fake_extract_video(url: str, output_dir: Path, **kwargs) -> Path:
-        path = output_dir / "abc123.mp4"
-        path.write_bytes(b"new video")
+    def fake_extract_audio(url: str, output_dir: Path, **kwargs) -> Path:
+        path = output_dir / "abc123.mp3"
+        path.write_bytes(b"audio")
         return path
 
-    def fake_extract_audio_from_video(video_path: Path, output_path: Path) -> Path:
-        output_path.write_bytes(b"audio")
-        return output_path
-
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_metadata", lambda url: metadata)
-    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_video", fake_extract_video)
-    monkeypatch.setattr(
-        "yt2notion.media_source.ytdlp.extract_audio_from_video",
-        fake_extract_audio_from_video,
-    )
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_audio", fake_extract_audio)
     monkeypatch.setattr(
         "yt2notion.transcribe.engine.TranscriptionEngine.transcribe_audio",
         lambda self, *args, **kwargs: [
@@ -159,7 +149,7 @@ def test_transcribe_media_no_video_clears_stale_video_and_markdown(
     assert "old transcript" not in (workspace_dir / "transcript.md").read_text(encoding="utf-8")
 
 
-def test_render_media_transcript_markdown_includes_source() -> None:
+def test_render_media_transcript_markdown_includes_transcript_source() -> None:
     metadata = VideoMeta(
         video_id="abc123",
         title="Test Video",
@@ -178,12 +168,12 @@ def test_render_media_transcript_markdown_includes_source() -> None:
                 "source": "asr",
             }
         ],
-        "groq",
+        "manual_subtitle",
     )
 
     assert "# Transcript: Test Video" in output
     assert "- Channel: TestChannel" in output
     assert "- URL: https://example.com/video" in output
-    assert "- ASR backend: groq" in output
+    assert "- Transcript source: manual_subtitle" in output
     assert "## [1:05] Intro" in output
     assert "hello world" in output

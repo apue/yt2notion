@@ -55,7 +55,7 @@ def test_call_forwards_profile_and_workdir(run) -> None:
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
 @patch("yt2notion.retry.time.sleep", return_value=None)
-def test_call_retries_empty_output(_sleep, run) -> None:
+def test_call_retries_empty_output_when_configured(_sleep, run) -> None:
     attempts = iter(["", "ok"])
 
     def _side_effect(cmd, **kwargs):
@@ -64,7 +64,7 @@ def test_call_retries_empty_output(_sleep, run) -> None:
 
     run.side_effect = _side_effect
 
-    assert CodexCLICaller().call("system", "user") == "ok"
+    assert CodexCLICaller(max_attempts=2).call("system", "user") == "ok"
     assert run.call_count == 2
 
 
@@ -87,11 +87,11 @@ def test_call_reports_invalid_workdir(run) -> None:
 
 @patch("yt2notion.models.codex_cli.subprocess.run")
 @patch("yt2notion.retry.time.sleep", return_value=None)
-def test_call_raises_after_retry_exhaustion(_sleep, run) -> None:
+def test_call_raises_after_configured_retry_exhaustion(_sleep, run) -> None:
     run.side_effect = subprocess.CalledProcessError(1, "codex")
 
     with pytest.raises(RetryExhaustedError):
-        CodexCLICaller().call("system", "user")
+        CodexCLICaller(max_attempts=3).call("system", "user")
     assert run.call_count == 3
 
 
@@ -108,3 +108,11 @@ def test_factory_configures_codex_reasoning_effort() -> None:
 
     assert isinstance(caller, CodexCLICaller)
     assert caller.reasoning_effort == "medium"
+
+
+def test_factory_defaults_to_codex_cli() -> None:
+    caller = create_llm_caller({})
+
+    assert isinstance(caller, CodexCLICaller)
+    assert caller.model == "gpt-5.4"
+    assert caller.timeout_seconds == 240

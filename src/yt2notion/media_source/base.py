@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
     from yt2notion.workspace import Workspace
-
-AcquisitionProfile = Literal["content", "transcript"]
 
 
 @dataclass(frozen=True)
@@ -19,32 +17,19 @@ class MediaAcquireRequest:
 
     url: str
     workspace_base_dir: Path
-    profile: AcquisitionProfile
-    keep_video: bool = True
+    keep_video: bool = False
 
 
 @dataclass(frozen=True)
-class ContentMediaAcquireResult:
-    """Artifacts produced for the content-preparation use case."""
+class MediaAcquireResult:
+    """Metadata and local artifacts produced by subtitle-first acquisition."""
 
     metadata: VideoMeta
     workspace: Workspace
     audio_path: Path | None = None
     subtitle_path: Path | None = None
     subtitle_source: str | None = None
-
-
-@dataclass(frozen=True)
-class TranscriptMediaAcquireResult:
-    """Artifacts produced for the transcript-only use case."""
-
-    metadata: VideoMeta
-    workspace: Workspace
-    audio_path: Path
     video_path: Path | None = None
-
-
-MediaAcquireResult: TypeAlias = ContentMediaAcquireResult | TranscriptMediaAcquireResult
 
 
 class MediaAcquisitionError(RuntimeError):

@@ -67,7 +67,7 @@ def sample_meta():
         upload_date="20260319",
         video_id="abc123",
         duration_seconds=300,
-        subtitles_available=True,
+        manual_subtitle_languages=["en"],
     )
 
 

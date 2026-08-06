@@ -9,23 +9,24 @@ from pathlib import Path
 
 import yaml
 
+from yt2notion.model_policy import (
+    MODEL_BACKEND_DEFAULTS,
+    default_model_config,
+    resolve_model_config,
+)
+
 
 class ConfigError(Exception):
     """Raised when configuration is invalid or missing."""
 
 
-VALID_MODEL_BACKENDS = {"claude_code", "anthropic_api", "codex_cli"}
+VALID_MODEL_BACKENDS = set(MODEL_BACKEND_DEFAULTS)
 VALID_STORAGE_BACKENDS = {"obsidian"}
 VALID_ASR_BACKENDS: set[str] = {"remote", "groq"}
 VALID_MEDIA_SOURCE_BACKENDS = {"yt_dlp"}
 
 DEFAULTS: dict = {
-    "model": {
-        "backend": "claude_code",
-        "translate_model": "opus",
-        "review_model": "haiku",
-        "reasoning_effort": "low",
-    },
+    "model": default_model_config(),
     "storage": {
         "backend": "obsidian",
         "obsidian": {
@@ -81,7 +82,7 @@ DEFAULTS: dict = {
 class AppConfig:
     """Strongly-typed application configuration."""
 
-    model: dict = field(default_factory=lambda: deepcopy(DEFAULTS["model"]))
+    model: dict = field(default_factory=default_model_config)
     storage: dict = field(default_factory=lambda: deepcopy(DEFAULTS["storage"]))
     extract: dict = field(default_factory=lambda: deepcopy(DEFAULTS["extract"]))
     credit: dict = field(default_factory=lambda: deepcopy(DEFAULTS["credit"]))
@@ -113,6 +114,7 @@ def load_config(path: str) -> AppConfig:
         raw = yaml.safe_load(f) or {}
 
     merged = _deep_merge(DEFAULTS, raw)
+    merged["model"] = resolve_model_config({"model": raw.get("model", {})})
 
     # Validate backends
     model_backend = merged.get("model", {}).get("backend", "")

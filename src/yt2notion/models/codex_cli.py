@@ -13,15 +13,10 @@ class CodexCLIError(Exception):
     """Raised when codex CLI invocation fails."""
 
 
-_CLAUDE_ALIASES = {"sonnet", "opus", "haiku"}
-
-
 def _normalize_codex_model(model: str, *, fallback: str = "gpt-5.4") -> str:
-    """Map legacy Claude aliases to Codex defaults for smoother backend switching."""
+    """Use the configured Codex model or the current project default."""
     raw = (model or "").strip()
-    if not raw or raw in _CLAUDE_ALIASES:
-        return fallback
-    return raw
+    return raw or fallback
 
 
 def _normalize_reasoning_effort(reasoning_effort: str, *, fallback: str = "low") -> str:
@@ -113,12 +108,14 @@ class CodexCLICaller:
         model: str = "gpt-5.4",
         *,
         timeout_seconds: int = 300,
+        max_attempts: int = 1,
         reasoning_effort: str = "low",
         profile: str | None = None,
         workdir: str | None = None,
     ) -> None:
         self.model = _normalize_codex_model(model)
         self.timeout_seconds = timeout_seconds
+        self.max_attempts = max_attempts
         self.reasoning_effort = _normalize_reasoning_effort(reasoning_effort)
         self.profile = _normalize_profile(profile)
         self.workdir = workdir
@@ -141,7 +138,7 @@ class CodexCLICaller:
         try:
             return retry(
                 _run,
-                max_retries=3,
+                max_retries=self.max_attempts,
                 base_delay=5.0,
                 retryable=(
                     subprocess.CalledProcessError,

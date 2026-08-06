@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from yt2notion.media_source.base import (
-    ContentMediaAcquireResult,
     MediaAcquireRequest,
     MediaAcquireResult,
     MediaAcquisitionError,
     MediaSource,
-    TranscriptMediaAcquireResult,
 )
 from yt2notion.media_source.ytdlp import YtDlpMediaSource
 
@@ -29,7 +27,5 @@ __all__ = [
     "MediaAcquireResult",
     "MediaAcquisitionError",
     "MediaSource",
-    "ContentMediaAcquireResult",
-    "TranscriptMediaAcquireResult",
     "create_media_source",
 ]

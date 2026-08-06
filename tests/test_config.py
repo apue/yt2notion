@@ -13,6 +13,8 @@ def test_load_valid_config(tmp_path):
     config = load_config(str(cfg_file))
     assert isinstance(config, AppConfig)
     assert config.model["backend"] == "claude_code"
+    assert config.model["review_model"] == "haiku"
+    assert config.model["translate_model"] == "opus"
     assert config.storage["backend"] == "obsidian"
 
 
@@ -25,9 +27,11 @@ def test_default_values(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("{}")  # empty config
     config = load_config(str(cfg_file))
-    assert config.model["backend"] == "claude_code"
+    assert config.model["backend"] == "codex_cli"
     assert "summarize_model" not in config.model
-    assert config.model["translate_model"] == "opus"
+    assert config.model["translate_model"] == "gpt-5.4"
+    assert config.model["review_model"] == "gpt-5.4"
+    assert config.model["timeout_seconds"] == 240
     assert config.model["reasoning_effort"] == "low"
     assert config.storage["backend"] == "obsidian"
     assert config.extract["subtitle_priority"] == ["zh-Hans", "zh-Hant", "en"]

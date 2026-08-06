@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import html
 import json
 import re
@@ -30,7 +29,7 @@ _HTTP_HEADERS = {
 
 def _run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
     """Run yt-dlp with the given arguments."""
-    cmd = ["yt-dlp", *args]
+    cmd = ["yt-dlp", "--no-playlist", *args]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, check=True)
     except FileNotFoundError as e:
@@ -57,8 +56,8 @@ def extract_metadata(url: str) -> VideoMeta:
         for ch in data.get("chapters") or []
     ]
 
-    # Check subtitle availability from metadata (avoids wasted yt-dlp calls)
-    subtitles_available = bool(data.get("subtitles")) or bool(data.get("automatic_captions"))
+    manual_subtitle_languages = list((data.get("subtitles") or {}).keys())
+    automatic_caption_languages = list((data.get("automatic_captions") or {}).keys())
 
     # Channel fallback chain: channel → uploader → series (Apple Podcasts)
     channel = data.get("channel") or data.get("uploader") or data.get("series", "")
@@ -73,7 +72,8 @@ def extract_metadata(url: str) -> VideoMeta:
         chapters=chapters,
         description=data.get("description", ""),
         language=data.get("language", ""),
-        subtitles_available=subtitles_available,
+        manual_subtitle_languages=manual_subtitle_languages,
+        automatic_caption_languages=automatic_caption_languages,
         series=data.get("series", ""),
     )
 
@@ -106,19 +106,34 @@ def _build_subtitle_args(
     return args
 
 
-def extract_subtitles(url: str, config: dict, output_dir: Path, *, video_id: str = "") -> Path:
-    """Download the best available subtitle file.
-
-    Priority: manual subs by priority list, then auto-generated fallback.
-    Returns the path to the downloaded subtitle file.
-    Pass video_id to avoid a redundant yt-dlp --dump-json call.
-    """
-    path, _source = extract_subtitles_with_source(url, config, output_dir, video_id=video_id)
-    return path
+def _download_subtitle_track(
+    url: str,
+    output_dir: Path,
+    lang: str,
+    *,
+    auto: bool,
+    cookies_from: str | None,
+) -> None:
+    """Download a public track first, retrying with browser cookies only if needed."""
+    args = _build_subtitle_args(url, output_dir, lang, auto=auto)
+    try:
+        _run_ytdlp(args)
+    except ExtractionError:
+        if not cookies_from:
+            raise
+        _run_ytdlp(
+            _build_subtitle_args(
+                url,
+                output_dir,
+                lang,
+                auto=auto,
+                cookies_from=cookies_from,
+            )
+        )
 
 
 def extract_subtitles_with_source(
-    url: str, config: dict, output_dir: Path, *, video_id: str = ""
+    url: str, config: dict, output_dir: Path, *, metadata: VideoMeta
 ) -> tuple[Path, str]:
     """Download subtitles and return both file path and transcript source marker.
 
@@ -131,30 +146,31 @@ def extract_subtitles_with_source(
     auto_lang = extract_cfg.get("auto_subtitle_lang", "en")
     cookies_from = extract_cfg.get("cookies_from")
 
-    if not video_id:
-        meta_result = _run_ytdlp(["--dump-json", "--no-download", url])
-        video_id = json.loads(meta_result.stdout).get("id", "")
-
-    # Try manual subtitles in priority order
-    for lang in priority:
-        args = _build_subtitle_args(url, output_dir, lang, cookies_from=cookies_from)
-        try:
-            _run_ytdlp(args)
-        except ExtractionError:
-            continue
-        # Check if file was created
-        found = _find_subtitle_file(output_dir, video_id)
+    manual_lang = next(
+        (lang for lang in priority if lang in metadata.manual_subtitle_languages),
+        None,
+    )
+    if manual_lang:
+        _download_subtitle_track(
+            url,
+            output_dir,
+            manual_lang,
+            auto=False,
+            cookies_from=cookies_from,
+        )
+        found = _find_subtitle_file(output_dir, metadata.video_id)
         if found:
             return found, "manual_subtitle"
 
-    # Try auto-generated subtitles
-    if auto_fallback:
-        args = _build_subtitle_args(
-            url, output_dir, auto_lang, auto=True, cookies_from=cookies_from
+    if auto_fallback and auto_lang in metadata.automatic_caption_languages:
+        _download_subtitle_track(
+            url,
+            output_dir,
+            auto_lang,
+            auto=True,
+            cookies_from=cookies_from,
         )
-        with contextlib.suppress(ExtractionError):
-            _run_ytdlp(args)
-        found = _find_subtitle_file(output_dir, video_id)
+        found = _find_subtitle_file(output_dir, metadata.video_id)
         if found:
             return found, "auto_caption"
 

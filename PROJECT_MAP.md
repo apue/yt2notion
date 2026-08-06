@@ -9,14 +9,16 @@ artifacts, configuration bindings, and extension seams.
 |---|---|
 | `yt2notion process URL` | prepare and publish an Obsidian bundle |
 | `yt2notion prepare URL` | prepare a bundle and emit JSON without publishing |
-| `yt2notion transcribe URL` | download, extract audio, transcribe, and stop |
+| `yt2notion transcribe URL` | acquire preferred subtitles or media, transcribe, and stop |
 
 All commands enter through `application.Yt2Notion`. There is no compatibility
 pipeline or local queue runtime.
 
 ## Canonical pipeline
 
-1. `DOWNLOAD`: `MediaSource.acquire()` writes metadata and subtitle/audio media.
+1. `DOWNLOAD`: `MediaSource.acquire()` probes once, selects the preferred
+   available subtitle, and downloads media only when no transcript source is
+   available. `keep_video=false` downloads audio directly on media fallback.
 2. `SEGMENT`: author chapters, description timestamps, or no pre-segmentation.
 3. `TRANSCRIBE`: subtitles are assigned locally; audio uses
    `TranscriptionEngine`.
@@ -46,7 +48,7 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 
 | Artifact | Contract |
 |---|---|
-| `metadata.json` | serialized `VideoMeta` |
+| `metadata.json` | serialized `VideoMeta`, including manual/automatic subtitle languages |
 | `segments.json` | `list[{title,start_seconds,end_seconds,?parent_title}]` |
 | `transcribe_plan.json` | chunk identity, time range, audio path, preferred backend |
 | `transcribe_state.json` | job status, retry/fallback state, per-chunk status |
@@ -57,17 +59,19 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 | `failed.json` | failed step, error type/message, retry exhaustion, timestamp |
 | `transcript.md` | readable output of standalone `transcribe` |
 
-Side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
+Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
 
 ## Configuration bindings
 
 | Field | Consumer |
 |---|---|
-| `model.backend` | `models.llm.create_llm_caller` |
+| `model.backend` | `model_policy.resolve_model_config` → `models.llm.create_llm_caller`; default `codex_cli` |
 | `model.translate_model` | guide/longform/metadata composition |
 | `model.review_model` | transcript cleanup and topic segmentation |
 | `model.reasoning_effort` | Codex CLI adapter |
+| `model.timeout_seconds` | LLM provider request/subprocess timeout |
+| `model.max_attempts` | bounded LLM provider attempt count |
 | `storage.backend` | only `obsidian` is valid |
 | `storage.obsidian.vault_path` | `ObsidianStorage` |
 | `storage.obsidian.summaries_dir` | bundle destination |
@@ -83,6 +87,8 @@ Side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 
 Standalone `transcribe` resolves explicit config, then
 `~/.yt2notion/config.yaml`, then local `config.yaml`.
+Its JSON result includes per-stage `acquire`, `segment`, `transcribe`, and total
+elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 
 ## Interfaces and adapters
 

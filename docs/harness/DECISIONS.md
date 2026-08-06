@@ -21,3 +21,13 @@ notification semantics are outside this project's supported use cases.
 
 Provider variation lives at the `LLMCaller` seam. Prompt payload construction
 and parsing live once in `NoteComposer`.
+
+## 2026-08-06: One subtitle-first acquisition pipeline
+
+All supported commands share one acquisition result and one subtitle/audio
+dispatch point. `keep_video` controls whether a video artifact is retained when
+media fallback is necessary; it does not select a separate product path.
+
+Playlist-bearing watch URLs are single-video inputs. Captions are selected from
+the metadata probe before downloading, and ASR is only initialized when no
+usable transcript source exists.

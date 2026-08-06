@@ -81,7 +81,8 @@ class Workspace:
             chapters=chapters,
             description=d.get("description", ""),
             language=d.get("language", ""),
-            subtitles_available=d.get("subtitles_available", False),
+            manual_subtitle_languages=d.get("manual_subtitle_languages", []),
+            automatic_caption_languages=d.get("automatic_caption_languages", []),
             series=d.get("series", ""),
         )
 
@@ -105,6 +106,23 @@ class Workspace:
         """Remove saved video artifacts from this workspace."""
         for ext in (".mp4", ".mkv", ".webm", ".mov", ".m4v"):
             path = self.dir / f"video{ext}"
+            if path.exists():
+                path.unlink()
+
+    def discard_acquisition_artifacts(self) -> None:
+        """Remove stale subtitle, audio, and video inputs before a fresh acquire."""
+        self.discard_video_artifacts()
+        for filename in (
+            "audio.mp3",
+            "audio.m4a",
+            "audio.wav",
+            "audio.opus",
+            "audio.ogg",
+            "subtitles.srt",
+            "subtitles.vtt",
+            "subtitle_source.json",
+        ):
+            path = self.dir / filename
             if path.exists():
                 path.unlink()
 

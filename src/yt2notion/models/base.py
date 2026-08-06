@@ -34,8 +34,14 @@ class VideoMeta:
     chapters: list[Chapter] = field(default_factory=list)
     description: str = ""
     language: str = ""
-    subtitles_available: bool = False
+    manual_subtitle_languages: list[str] = field(default_factory=list)
+    automatic_caption_languages: list[str] = field(default_factory=list)
     series: str = ""
+
+    @property
+    def subtitles_available(self) -> bool:
+        """Whether the metadata probe exposed any subtitle track."""
+        return bool(self.manual_subtitle_languages or self.automatic_caption_languages)
 
 
 @dataclass
