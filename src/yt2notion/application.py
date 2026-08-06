@@ -18,14 +18,15 @@ from yt2notion.media_source import (
     MediaAcquireRequest,
     MediaAcquisitionError,
     MediaSource,
-    TranscriptMediaAcquireResult,
     create_media_source,
 )
 from yt2notion.storage import create_storage
+from yt2notion.timing import StageTimer
 from yt2notion.transcribe import create_transcription_engine
 from yt2notion.transcript_artifacts import (
     MediaTranscribeResult,
     render_media_transcript_markdown,
+    resolve_transcript_source,
 )
 from yt2notion.workspace import STEPS, Workspace
 
@@ -127,7 +128,6 @@ class Yt2Notion:
                         MediaAcquireRequest(
                             url=url,
                             workspace_base_dir=self._workspace_base(workspace_dir),
-                            profile="content",
                         )
                     )
                 except MediaAcquisitionError as failure:
@@ -281,47 +281,51 @@ class Yt2Notion:
         keep_video: bool = True,
         verbose: bool = False,
     ) -> MediaTranscribeResult:
-        """Download media, transcribe it, and stop before review/summarize/publish."""
+        """Acquire captions or media and stop after local transcript artifacts."""
         source = self._media_source(verbose=verbose)
+        timer = StageTimer()
         ws: Workspace | None = None
         current_step = "download"
         try:
-            try:
-                acquired = source.acquire(
-                    MediaAcquireRequest(
-                        url=url,
-                        workspace_base_dir=self._workspace_base(workspace_dir),
-                        profile="transcript",
-                        keep_video=keep_video,
+            with timer.measure("acquire"):
+                try:
+                    acquired = source.acquire(
+                        MediaAcquireRequest(
+                            url=url,
+                            workspace_base_dir=self._workspace_base(workspace_dir),
+                            keep_video=keep_video,
+                        )
                     )
-                )
-            except MediaAcquisitionError as failure:
-                ws = failure.workspace
-                raise failure.cause from failure
+                except MediaAcquisitionError as failure:
+                    ws = failure.workspace
+                    raise failure.cause from failure
             ws = acquired.workspace
-            if not isinstance(acquired, TranscriptMediaAcquireResult):
-                raise TypeError("Transcript acquisition returned content-profile artifacts")
             metadata = acquired.metadata
+            if not keep_video:
+                ws.discard_video_artifacts()
+            ws.discard_transcribe_artifacts(audio_path=acquired.audio_path)
+            ws.clear_asr_fallback_used()
 
             current_step = "segment"
-            segments = self.content_preparation.segment(metadata, self.raw_config, verbose)
-            ws.save_segments(segments)
+            with timer.measure("segment"):
+                segments = self.content_preparation.segment(metadata, self.raw_config, verbose)
+                ws.save_segments(segments)
 
             current_step = "transcribe"
-            audio_path = acquired.audio_path
-            transcripts = self.transcription_engine.transcribe_audio(
-                audio_path,
-                segments,
-                metadata,
-                ws,
-                verbose=verbose,
-            )
-            ws.save_transcripts(transcripts)
+            with timer.measure("transcribe"):
+                transcripts = self.transcription_engine.transcribe_workspace(
+                    ws,
+                    metadata,
+                    segments,
+                    verbose=verbose,
+                )
+                ws.save_transcripts(transcripts)
 
             backend = self.transcription_engine.backend_outcome(ws)
+            transcript_source = resolve_transcript_source(transcripts, backend)
             markdown_path = ws.dir / "transcript.md"
             markdown_path.write_text(
-                render_media_transcript_markdown(metadata, transcripts, backend),
+                render_media_transcript_markdown(metadata, transcripts, transcript_source),
                 encoding="utf-8",
             )
             ws.clear_failure()
@@ -329,9 +333,10 @@ class Yt2Notion:
                 metadata=metadata,
                 workspace=ws,
                 video_path=acquired.video_path,
-                audio_path=audio_path,
+                audio_path=acquired.audio_path,
                 transcripts_path=ws.dir / "transcripts.json",
                 transcript_markdown_path=markdown_path,
+                timings_seconds=timer.finish(),
             )
         except Exception as exc:
             if ws is not None:

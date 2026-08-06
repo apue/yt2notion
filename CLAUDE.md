@@ -35,7 +35,7 @@
 uv sync                        # 安装依赖
 uv sync --extra anthropic      # 安装 API 可选依赖
 uv run yt2notion process "URL" # 生成并显式发布
-uv run yt2notion transcribe "URL" # 只下载、提取音频和转写
+uv run yt2notion transcribe "URL" # 字幕优先；无字幕时下载媒体并转写
 uv run pytest tests/ -v        # 测试
 uv run ruff check src/         # lint
 uv run ruff format src/        # format
@@ -77,6 +77,7 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 
 - `claude -p --max-turns 1` 调用 CC 时禁止 agentic 行为，只做文本处理
 - 字幕优先级：zh-Hans > zh-Hant > en (manual) > en (auto)
+- 单视频 URL 即使带 playlist 参数也只处理目标视频；字幕存在时不启动 ASR
 - `translate_model` 负责 guide / longform / metadata composition
 - 时间戳在预处理阶段绑定到 chunk，不依赖 LLM 猜测
 - Podcast ASR 通过配置选择 Groq 或 remote adapter

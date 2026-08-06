@@ -6,7 +6,7 @@ note bundle, and optionally publish the bundle to Obsidian.
 ## Supported commands
 
 ```bash
-# Download media, extract audio, transcribe, and stop
+# Prefer source captions; download media and run ASR only when needed
 uv run yt2notion transcribe "URL"
 
 # Build the source/A/B bundle without publishing
@@ -22,8 +22,11 @@ uv run yt2notion process "URL"
 2. `~/.yt2notion/config.yaml`;
 3. local `config.yaml`.
 
-It writes `metadata.json`, downloaded media, `audio.mp3`,
-`transcripts.json`, and readable `transcript.md` under the workspace.
+It writes `metadata.json`, `transcripts.json`, and readable `transcript.md`
+under the workspace. When preferred captions are available, it skips video,
+audio, and ASR entirely. Otherwise it downloads audio directly with
+`--no-video`, or retains video when requested. JSON output includes per-stage
+elapsed seconds.
 
 ## Installation
 
@@ -58,6 +61,7 @@ parsing are provider-independent.
 - Groq daily quota errors can switch the failed and remaining chunks to the
   configured fallback adapter.
 - Completed chunks are reused when resuming from `transcribe`.
+- Watch URLs carrying playlist parameters are always treated as one video.
 - Request errors such as `400/401/403` fail directly.
 
 See [PROJECT_MAP.md](PROJECT_MAP.md) for pipeline and artifact contracts, and

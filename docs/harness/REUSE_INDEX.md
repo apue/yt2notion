@@ -9,6 +9,11 @@ Status: accepted
 - `models.llm.LLMCaller`: extend to all LLM providers.
 - `workspace.Workspace`: retain artifact/checkpoint contract.
 - `models.NoteBundle`: retain sole publish model.
+- `extract.extract_metadata`: extend its result to carry available subtitle
+  language information from the existing yt-dlp probe.
+- `TranscriptionEngine.transcribe_workspace`: reuse as the only subtitle/audio
+  dispatch point for all application entry points.
+- `Workspace`: reuse video-id workspaces and transcript artifact persistence.
 
 Avoid introducing compatibility wrappers or a second queue/orchestration
 product.

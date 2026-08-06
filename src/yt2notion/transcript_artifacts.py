@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,9 +20,10 @@ class MediaTranscribeResult:
     metadata: VideoMeta
     workspace: Workspace
     video_path: Path | None
-    audio_path: Path
+    audio_path: Path | None
     transcripts_path: Path
     transcript_markdown_path: Path
+    timings_seconds: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Return a JSON-serializable CLI summary."""
@@ -33,16 +34,17 @@ class MediaTranscribeResult:
             "url": self.metadata.url,
             "workspace_dir": str(self.workspace.dir),
             "video_path": str(self.video_path) if self.video_path else None,
-            "audio_path": str(self.audio_path),
+            "audio_path": str(self.audio_path) if self.audio_path else None,
             "transcripts_path": str(self.transcripts_path),
             "transcript_markdown_path": str(self.transcript_markdown_path),
+            "timings_seconds": self.timings_seconds,
         }
 
 
 def render_media_transcript_markdown(
     metadata: VideoMeta,
     transcript_segments: list[dict],
-    asr_backend: str,
+    transcript_source: str,
 ) -> str:
     """Render a readable Markdown transcript with source metadata."""
     lines = [
@@ -50,7 +52,7 @@ def render_media_transcript_markdown(
         "",
         f"- Channel: {metadata.channel}",
         f"- URL: {metadata.url}",
-        f"- ASR backend: {asr_backend}",
+        f"- Transcript source: {transcript_source}",
         "",
     ]
     for segment in transcript_segments:
@@ -66,3 +68,16 @@ def render_media_transcript_markdown(
             ]
         )
     return "\n".join(lines).strip() + "\n"
+
+
+def resolve_transcript_source(transcript_segments: list[dict], asr_backend: str) -> str:
+    """Describe subtitle origins directly and expand generic ASR attribution."""
+    sources = list(
+        dict.fromkeys(
+            str(segment.get("source", "")).strip()
+            for segment in transcript_segments
+            if str(segment.get("source", "")).strip()
+        )
+    )
+    resolved = [asr_backend if source == "asr" else source for source in sources]
+    return ", ".join(resolved) or asr_backend

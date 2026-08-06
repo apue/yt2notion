@@ -19,11 +19,9 @@ from yt2notion.extract import (
     write_transcript_srt,
 )
 from yt2notion.media_source.base import (
-    ContentMediaAcquireResult,
     MediaAcquireRequest,
     MediaAcquireResult,
     MediaAcquisitionError,
-    TranscriptMediaAcquireResult,
 )
 from yt2notion.process import seconds_to_display
 from yt2notion.workspace import Workspace
@@ -37,14 +35,7 @@ class YtDlpMediaSource:
         self.verbose = verbose
 
     def acquire(self, request: MediaAcquireRequest) -> MediaAcquireResult:
-        """Acquire media according to the requested use-case profile."""
-        if request.profile == "content":
-            return self._acquire_content(request)
-        if request.profile == "transcript":
-            return self._acquire_transcript(request)
-        raise ValueError(f"Unknown media acquisition profile: {request.profile!r}")
-
-    def _acquire_content(self, request: MediaAcquireRequest) -> MediaAcquireResult:
+        """Acquire metadata, preferring subtitles over media download and ASR."""
         if self.verbose:
             typer.echo("Extracting metadata...")
         metadata = extract_metadata(request.url)
@@ -60,13 +51,16 @@ class YtDlpMediaSource:
             typer.echo(f"  Chapters: {len(metadata.chapters)} found")
             typer.echo(f"  Subtitles available: {metadata.subtitles_available}")
 
-        ws = Workspace(request.workspace_base_dir, metadata.video_id)
+        workspace_id = metadata.video_id or _stable_workspace_id(metadata.url or request.url)
+        ws = Workspace(request.workspace_base_dir, workspace_id)
         try:
+            ws.discard_acquisition_artifacts()
             ws.save_metadata(metadata)
 
             subtitle_path: Path | None = None
             subtitle_source: str | None = None
             audio_path: Path | None = None
+            video_path: Path | None = None
             if metadata.subtitles_available:
                 if self.verbose:
                     typer.echo("Downloading subtitles...")
@@ -76,7 +70,7 @@ class YtDlpMediaSource:
                             request.url,
                             self.config,
                             Path(tmp_dir),
-                            video_id=metadata.video_id,
+                            metadata=metadata,
                         )
                         subtitle_path = ws.save_subtitles(sub_path)
                         ws.save_subtitle_source(subtitle_source)
@@ -84,69 +78,53 @@ class YtDlpMediaSource:
                             typer.echo(f"  Saved: subtitles{sub_path.suffix}")
                 except ExtractionError:
                     if self.verbose:
-                        typer.echo("  Subtitle download failed, downloading audio instead...")
-                    audio_path = self._acquire_webpage_or_audio(request, metadata, ws)
+                        typer.echo("  Subtitle download failed, downloading media instead...")
+                    audio_path, video_path = self._acquire_fallback_media(request, metadata, ws)
             else:
-                audio_path = self._acquire_webpage_or_audio(request, metadata, ws)
+                audio_path, video_path = self._acquire_fallback_media(request, metadata, ws)
 
-            return ContentMediaAcquireResult(
+            return MediaAcquireResult(
                 metadata=metadata,
                 workspace=ws,
                 audio_path=audio_path or ws.audio_path,
                 subtitle_path=subtitle_path or ws.subtitle_path,
                 subtitle_source=subtitle_source or ws.load_subtitle_source(),
+                video_path=video_path,
             )
         except Exception as exc:
             raise MediaAcquisitionError(ws, exc) from exc
 
-    def _acquire_transcript(self, request: MediaAcquireRequest) -> MediaAcquireResult:
-        metadata = extract_metadata(request.url)
-        workspace_id = metadata.video_id or _stable_workspace_id(metadata.url or request.url)
-        ws = Workspace(request.workspace_base_dir, workspace_id)
-        try:
-            ws.save_metadata(metadata)
-            ws.discard_transcribe_artifacts(audio_path=ws.audio_path)
-            ws.discard_video_artifacts()
-            ws.clear_asr_fallback_used()
-            markdown_path = ws.dir / "transcript.md"
-            if markdown_path.exists():
-                markdown_path.unlink()
-
-            cookies_from = self.config.get("extract", {}).get("cookies_from")
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                tmp_path = Path(tmp_dir)
-                downloaded_video = extract_video(
-                    request.url,
-                    tmp_path,
-                    video_id=metadata.video_id,
-                    cookies_from=cookies_from,
-                )
-                saved_video = ws.save_video(downloaded_video) if request.keep_video else None
-                source_video = saved_video or downloaded_video
-                audio_path = extract_audio_from_video(source_video, ws.dir / "audio.mp3")
-
-            if metadata.duration_seconds == 0:
-                metadata.duration_seconds = int(get_duration(audio_path))
-                ws.save_metadata(metadata)
-
-            return TranscriptMediaAcquireResult(
-                metadata=metadata,
-                workspace=ws,
-                audio_path=audio_path,
-                video_path=saved_video,
-            )
-        except Exception as exc:
-            raise MediaAcquisitionError(ws, exc) from exc
-
-    def _acquire_webpage_or_audio(
+    def _acquire_fallback_media(
         self,
         request: MediaAcquireRequest,
         metadata,
         ws: Workspace,
-    ) -> Path | None:
+    ) -> tuple[Path | None, Path | None]:
         if self._download_webpage_transcript(request.url, metadata, ws):
-            return None
-        return self._download_audio(request.url, metadata, self.config, ws)
+            return None, None
+        if request.keep_video:
+            return self._download_video_and_audio(request.url, metadata, ws)
+        return self._download_audio(request.url, metadata, self.config, ws), None
+
+    def _download_video_and_audio(
+        self,
+        url: str,
+        metadata,
+        ws: Workspace,
+    ) -> tuple[Path, Path]:
+        if self.verbose:
+            typer.echo("Downloading video...")
+        cookies_from = self.config.get("extract", {}).get("cookies_from")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            downloaded_video = extract_video(
+                url,
+                Path(tmp_dir),
+                video_id=metadata.video_id,
+                cookies_from=cookies_from,
+            )
+            video_path = ws.save_video(downloaded_video)
+        audio_path = extract_audio_from_video(video_path, ws.dir / "audio.mp3")
+        return audio_path, video_path
 
     def _download_audio(self, url: str, metadata, config: dict, ws: Workspace) -> Path:
         if self.verbose:

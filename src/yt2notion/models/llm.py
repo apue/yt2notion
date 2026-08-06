@@ -27,8 +27,16 @@ class LLMConfigError(ValueError):
 class ClaudeCodeCaller:
     """One-shot LLM caller using `claude -p`."""
 
-    def __init__(self, model: str = "haiku") -> None:
+    def __init__(
+        self,
+        model: str = "haiku",
+        *,
+        timeout_seconds: float = 120,
+        max_attempts: int = 1,
+    ) -> None:
         self.model = model
+        self.timeout_seconds = timeout_seconds
+        self.max_attempts = max_attempts
 
     def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:
         del max_tokens
@@ -55,10 +63,18 @@ class ClaudeCodeCaller:
                     capture_output=True,
                     text=True,
                     check=True,
-                    timeout=120,
+                    timeout=self.timeout_seconds,
                 )
             except FileNotFoundError as exc:
                 raise ClaudeCodeError("'claude' CLI not found on PATH") from exc
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stdout or exc.stderr or str(exc)).strip()
+                try:
+                    payload = json.loads(detail)
+                    detail = payload.get("result", detail)
+                except json.JSONDecodeError:
+                    pass
+                raise ClaudeCodeError(f"claude CLI failed: {detail}") from exc
             if not result.stdout.strip():
                 raise _EmptyOutputError("claude returned empty output")
             try:
@@ -69,10 +85,9 @@ class ClaudeCodeCaller:
 
         return retry(
             _run,
-            max_retries=3,
+            max_retries=self.max_attempts,
             base_delay=5.0,
             retryable=(
-                subprocess.CalledProcessError,
                 subprocess.TimeoutExpired,
                 _EmptyOutputError,
             ),
@@ -85,14 +100,22 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
     model_config = config.get("model", {})
     backend = model_config.get("backend", "claude_code")
     model = model_config.get(model_key) or ("haiku" if model_key == "review_model" else "opus")
+    timeout_seconds = model_config.get("timeout_seconds", 120)
+    max_attempts = model_config.get("max_attempts", 1)
 
     if backend == "claude_code":
-        return ClaudeCodeCaller(model=model)
+        return ClaudeCodeCaller(
+            model=model,
+            timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts,
+        )
     if backend == "codex_cli":
         from yt2notion.models.codex_cli import CodexCLICaller
 
         return CodexCLICaller(
             model=model,
+            timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts,
             reasoning_effort=model_config.get("reasoning_effort", "low"),
         )
     if backend == "anthropic_api":

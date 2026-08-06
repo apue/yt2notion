@@ -25,6 +25,8 @@ DEFAULTS: dict = {
         "translate_model": "opus",
         "review_model": "haiku",
         "reasoning_effort": "low",
+        "timeout_seconds": 120,
+        "max_attempts": 1,
     },
     "storage": {
         "backend": "obsidian",

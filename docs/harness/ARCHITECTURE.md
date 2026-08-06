@@ -6,17 +6,26 @@ Status: accepted
 CLI: process | prepare | transcribe
                   |
              Yt2Notion
-        /         |          \
- MediaSource  TranscriptionEngine  ContentPreparation
-   adapter        |                 |          |
-              Transcriber       NoteComposer  Storage
-                adapters         LLMCaller    Obsidian
-                                 adapters
+                  |
+       MediaSource.acquire(request)
+                  |
+       metadata -> preferred subtitle
+                  | no subtitle
+        keep_video? video->audio : direct audio
+                  |
+      TranscriptionEngine.transcribe_workspace
+                  |
+       transcript artifacts -> optional composition/publish
 ```
 
-`Yt2Notion` is the sole application interface. `TranscriptionEngine` owns the
-stateful ASR lifecycle. `NoteComposer` owns provider-independent prompt
-assembly and parsing. Provider adapters stop at true external seams.
+`MediaAcquireRequest.keep_video` is the only acquisition-mode choice. The
+former content/transcript profile split is deleted. `MediaAcquireResult` owns
+optional subtitle, audio, and video paths; application use cases decide where
+to stop after the shared acquisition/transcription stages.
 
-Compatibility pass-through modules and the separate file-queue product are
-removed instead of layered with more tests.
+Subtitle selection uses the language maps returned by the existing metadata
+probe. It does not launch one `yt-dlp` process per preferred language.
+
+External ASR and LLM calls remain provider adapters. Retry policy is bounded at
+the adapter boundary and phase durations are observable at the application
+boundary.

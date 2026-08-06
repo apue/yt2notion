@@ -42,7 +42,7 @@ def transcribe_media(
     keep_video: bool = True,
     verbose: bool = False,
 ) -> MediaTranscribeResult:
-    """Download media, extract audio, transcribe via configured ASR, and save artifacts."""
+    """Prefer captions, otherwise transcribe media, and save local artifacts."""
     from yt2notion.application import create_yt2notion
 
     return create_yt2notion(config, verbose=verbose).transcribe(

@@ -112,7 +112,7 @@ def transcribe(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON result summary"),
 ) -> None:
-    """Download media, extract audio, transcribe, and write local artifacts."""
+    """Prefer captions, otherwise download media and transcribe, then write artifacts."""
     from yt2notion.audio import AudioError
     from yt2notion.media_transcribe import (
         resolve_media_transcribe_config_path,

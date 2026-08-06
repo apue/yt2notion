@@ -28,6 +28,8 @@ SAMPLE_YTDLP_JSON = {
     "upload_date": "20260319",
     "webpage_url": "https://www.youtube.com/watch?v=abc123",
     "duration": 600,
+    "subtitles": {"en": [{"ext": "vtt"}]},
+    "automatic_captions": {"en": [{"ext": "vtt"}], "zh-Hans-en": [{"ext": "vtt"}]},
 }
 
 
@@ -42,6 +44,40 @@ def test_extract_metadata_parsing(mock_run):
     assert meta.channel == "TestChannel"
     assert meta.duration_seconds == 600
     assert meta.upload_date == "20260319"
+    assert "--no-playlist" in mock_run.call_args.args[0]
+    assert meta.manual_subtitle_languages == ["en"]
+    assert meta.automatic_caption_languages == ["en", "zh-Hans-en"]
+
+
+@patch("yt2notion.extract.subprocess.run")
+def test_subtitle_selection_downloads_one_available_manual_track(mock_run, tmp_path):
+    metadata = VideoMeta(
+        video_id="abc123",
+        title="Test",
+        channel="Channel",
+        manual_subtitle_languages=["en"],
+        automatic_caption_languages=["en"],
+    )
+
+    def side_effect(cmd, **kwargs):
+        (tmp_path / "abc123.en.srt").write_text(
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = side_effect
+    path, source = extract_subtitles_with_source(
+        "https://www.youtube.com/watch?v=abc123",
+        {"extract": {"subtitle_priority": ["zh-Hans", "en"]}},
+        tmp_path,
+        metadata=metadata,
+    )
+
+    assert path.name == "abc123.en.srt"
+    assert source == "manual_subtitle"
+    assert mock_run.call_count == 1
+    assert "en" in mock_run.call_args.args[0]
 
 
 @patch("yt2notion.extract.subprocess.run")
@@ -56,44 +92,10 @@ def test_extract_metadata_uses_uploader_fallback(mock_run):
 
 
 @patch("yt2notion.extract.subprocess.run")
-def test_subtitle_priority(mock_run, tmp_path):
-    """When zh-Hans subtitle exists, it should be picked first."""
-    call_count = 0
-
-    def side_effect(cmd, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        # First call: dump-json for video ID
-        if "--dump-json" in cmd:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=json.dumps(SAMPLE_YTDLP_JSON), stderr=""
-            )
-        # Second call: download zh-Hans sub — simulate success by creating file
-        if "zh-Hans" in cmd:
-            srt_file = tmp_path / "abc123.zh-Hans.srt"
-            srt_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello\n")
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
-
-    mock_run.side_effect = side_effect
-    config = {"extract": {"subtitle_priority": ["zh-Hans", "en"], "cookies_from": None}}
-    path, source = extract_subtitles_with_source(
-        "https://www.youtube.com/watch?v=abc123", config, tmp_path
-    )
-    assert "zh-Hans" in path.name
-    assert source == "manual_subtitle"
-
-
-@patch("yt2notion.extract.subprocess.run")
 def test_subtitle_fallback_to_auto(mock_run, tmp_path):
     """When no manual subs exist, fall back to auto-generated."""
 
     def side_effect(cmd, **kwargs):
-        if "--dump-json" in cmd:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=json.dumps(SAMPLE_YTDLP_JSON), stderr=""
-            )
-        # Auto sub download succeeds
         if "--write-auto-sub" in cmd:
             srt_file = tmp_path / "abc123.en.srt"
             srt_file.write_text("1\n00:00:01,000 --> 00:00:02,000\nAuto sub\n")
@@ -111,7 +113,15 @@ def test_subtitle_fallback_to_auto(mock_run, tmp_path):
         }
     }
     path, source = extract_subtitles_with_source(
-        "https://www.youtube.com/watch?v=abc123", config, tmp_path
+        "https://www.youtube.com/watch?v=abc123",
+        config,
+        tmp_path,
+        metadata=VideoMeta(
+            video_id="abc123",
+            title="Test",
+            channel="Channel",
+            automatic_caption_languages=["en"],
+        ),
     )
     assert path.exists()
     assert source == "auto_caption"
@@ -138,10 +148,6 @@ def test_cookies_flag(mock_run, tmp_path):
 
     def side_effect(cmd, **kwargs):
         calls.append(cmd)
-        if "--dump-json" in cmd:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout=json.dumps(SAMPLE_YTDLP_JSON), stderr=""
-            )
         raise subprocess.CalledProcessError(1, "yt-dlp", stderr="no subs")
 
     mock_run.side_effect = side_effect
@@ -153,11 +159,20 @@ def test_cookies_flag(mock_run, tmp_path):
         }
     }
     with pytest.raises(ExtractionError):
-        extract_subtitles("https://www.youtube.com/watch?v=abc123", config, tmp_path)
-    # Check that cookies flag was passed in the subtitle download call
-    sub_calls = [c for c in calls if "--cookies-from-browser" in c]
-    assert len(sub_calls) > 0
-    assert "chrome" in sub_calls[0]
+        extract_subtitles(
+            "https://www.youtube.com/watch?v=abc123",
+            config,
+            tmp_path,
+            metadata=VideoMeta(
+                video_id="abc123",
+                title="Test",
+                channel="Channel",
+                manual_subtitle_languages=["en"],
+            ),
+        )
+    assert len(calls) == 2
+    assert "--cookies-from-browser" not in calls[0]
+    assert calls[1][calls[1].index("--cookies-from-browser") + 1] == "chrome"
 
 
 @patch("yt2notion.extract.subprocess.run")

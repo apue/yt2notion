@@ -10,11 +10,9 @@ from yt2notion.application import Yt2Notion
 from yt2notion.config import AppConfig, ConfigError, load_config
 from yt2notion.content_preparation import ContentPreparation
 from yt2notion.media_source import (
-    ContentMediaAcquireResult,
     MediaAcquireRequest,
     MediaAcquireResult,
     MediaAcquisitionError,
-    TranscriptMediaAcquireResult,
     create_media_source,
 )
 from yt2notion.models.base import NoteDocument, NoteMetadata, VideoMeta
@@ -36,20 +34,17 @@ class FakeMediaSource:
             channel="Channel",
             url=request.url,
             duration_seconds=60,
-            subtitles_available=False,
         )
         ws = Workspace(request.workspace_base_dir, metadata.video_id)
         ws.save_metadata(metadata)
-        if request.profile == "transcript":
-            audio_path = ws.dir / "audio.mp3"
-            audio_path.write_bytes(b"audio")
-            return TranscriptMediaAcquireResult(
-                metadata=metadata,
-                workspace=ws,
-                audio_path=audio_path,
-                video_path=self.video_path,
-            )
-        return ContentMediaAcquireResult(metadata=metadata, workspace=ws)
+        audio_path = ws.dir / "audio.mp3"
+        audio_path.write_bytes(b"audio")
+        return MediaAcquireResult(
+            metadata=metadata,
+            workspace=ws,
+            audio_path=audio_path,
+            video_path=self.video_path,
+        )
 
 
 class FakeEngine:
@@ -110,7 +105,7 @@ def test_application_prepare_uses_media_source_and_transcription_engine(
         content_preparation=ContentPreparation(summarizer_factory=lambda config: FakeSummarizer()),
     ).prepare("https://example.com/video")
 
-    assert media_source.requests[0].profile == "content"
+    assert media_source.requests[0].keep_video is False
     assert engine.workspace_calls == 1
     assert prepared.note_bundle.source.variant == "source"
     assert prepared.workspace.load_transcripts() == _transcript("manual_subtitle")
@@ -127,12 +122,61 @@ def test_application_transcribe_stops_after_transcript_artifacts(tmp_path: Path)
         keep_video=False,
     )
 
-    assert media_source.requests[0].profile == "transcript"
-    assert engine.audio_calls == 1
+    assert media_source.requests[0].keep_video is False
+    assert engine.workspace_calls == 1
+    assert engine.audio_calls == 0
     assert result.transcripts_path.exists()
     markdown = result.transcript_markdown_path.read_text(encoding="utf-8")
-    assert "- ASR backend: mixed: groq, remote" in markdown
+    assert "- Transcript source: manual_subtitle" in markdown
     assert not (result.workspace.dir / "note_bundle.json").exists()
+
+
+def test_application_transcribe_uses_shared_workspace_transcription(tmp_path: Path) -> None:
+    cfg = AppConfig()
+    cfg.workspace = {"base_dir": str(tmp_path)}
+
+    class SubtitleMediaSource:
+        def acquire(self, request: MediaAcquireRequest) -> MediaAcquireResult:
+            metadata = VideoMeta(
+                video_id="captioned-video",
+                title="Captioned",
+                channel="Channel",
+                url=request.url,
+                duration_seconds=60,
+                manual_subtitle_languages=["en"],
+            )
+            ws = Workspace(request.workspace_base_dir, metadata.video_id)
+            ws.save_metadata(metadata)
+            subtitle_path = ws.dir / "subtitles.srt"
+            subtitle_path.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nHello\n",
+                encoding="utf-8",
+            )
+            ws.save_subtitle_source("manual_subtitle")
+            return MediaAcquireResult(
+                metadata=metadata,
+                workspace=ws,
+                subtitle_path=subtitle_path,
+                subtitle_source="manual_subtitle",
+            )
+
+    engine = FakeEngine()
+    result = Yt2Notion(
+        cfg,
+        media_source=SubtitleMediaSource(),
+        transcription_engine=engine,
+    ).transcribe("https://example.com/captioned", keep_video=False)
+
+    assert engine.workspace_calls == 1
+    assert engine.audio_calls == 0
+    assert result.audio_path is None
+    assert result.workspace.load_transcripts() == _transcript("manual_subtitle")
+    assert set(result.to_dict()["timings_seconds"]) == {
+        "acquire",
+        "segment",
+        "transcribe",
+        "total",
+    }
 
 
 def test_application_transcribe_returns_media_source_video_path(tmp_path: Path) -> None:
@@ -174,7 +218,7 @@ def test_application_records_transcription_failure(tmp_path: Path) -> None:
     cfg.workspace = {"base_dir": str(tmp_path)}
 
     class FailingEngine(FakeEngine):
-        def transcribe_audio(self, *args, **kwargs) -> list[dict]:
+        def transcribe_workspace(self, *args, **kwargs) -> list[dict]:
             raise RuntimeError("ASR unavailable")
 
     with pytest.raises(RuntimeError, match="ASR unavailable"):

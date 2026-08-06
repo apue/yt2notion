@@ -22,7 +22,7 @@ def test_metadata_roundtrip(tmp_path):
         video_id="test123",
         title="Test",
         channel="Chan",
-        subtitles_available=True,
+        manual_subtitle_languages=["en"],
         series="MySeries",
     )
     ws.save_metadata(meta)

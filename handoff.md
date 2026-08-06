@@ -2,34 +2,47 @@
 
 ## 当前任务卡
 
-- 任务：删除兼容层、旧产品面和重复测试，收敛到当前支持的 CLI
-- 状态：`ready_to_merge`
+- 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
+- 状态：`ready_for_pr`
 - 当前 owner：Codex
-- 分支：`cleanup/remove-redundant-surfaces`
-- PR：[#28](https://github.com/apue/yt2notion/pull/28)
-- review 状态：Spec / Standards 双轴复审均无剩余 findings
+- 分支：`codex/fast-subtitle-pipeline`
+- PR：待创建
+- review 状态：本地 merge-base 自审待执行
 - 目标：
-  - 保留 `process`、`prepare`、`transcribe`
-  - 保留 Obsidian bundle、MediaSource、Transcriber、LLMCaller adapter
-  - 删除 pipeline facade、legacy extract、文件队列 Agent、旧 Notion 单笔记路径
-  - 统一 LLM note composition
-- 非目标：
-  - 不改变 ASR 状态机、artifact 契约或 prompt 模板
-  - 不调用远程 ASR、LLM、Notion 或 Obsidian
-- 验收标准：见 [docs/harness/ACCEPTANCE.md](./docs/harness/ACCEPTANCE.md)
-- 验证：见 [docs/harness/VALIDATION_PLAN.md](./docs/harness/VALIDATION_PLAN.md)
+  - 播放列表 watch URL 只处理目标视频
+  - `process`、`prepare`、`transcribe` 共用字幕优先 acquisition
+  - 有字幕时不下载媒体、不启动 ASR
+  - `--no-video` 无字幕时直接下载音频
+  - 删除 content/transcript 冗余结果类型与实现分支
+  - 限制 LLM timeout/retry 的最坏耗时
+  - 用播放列表下一课做真实性能验证
+- 约束：
+  - 不保留后向兼容层
+  - 不新增 CLI 产品面
+  - 自动测试不调用远程服务
+  - 不发布到 Obsidian
+- 受影响文件：
+  - `src/yt2notion/media_source/`
+  - `src/yt2notion/extract.py`
+  - `src/yt2notion/application.py`
+  - `src/yt2notion/transcript_artifacts.py`
+  - `src/yt2notion/models/llm.py`
+  - 配置、测试和 pipeline 文档
+- 验证模式：strict-tdd + contract-test + trace-review + live smoke-test
 - 已完成：
-  - 删除 pipeline facade、legacy extract、文件队列 Agent、Notion 单笔记路径
-  - 将 LLM note composition 收拢到 `NoteComposer`
-  - 将存储接口收窄为 Obsidian `save_note_bundle`
-  - 将 ASR 回归测试迁到 `TranscriptionEngine` 接口
-  - 测试从 341 个降至 216 个，并保留 ASR quota/checkpoint/upload-budget 回归保护
-  - Spec 审查发现 ASR 测试删减过度后，以 7 个接口级用例补回关键行为
-  - 隔离 `ANTHROPIC_API_KEY`，避免 factory 测试受本机环境污染
+  - 删除 acquisition profile、两种结果类型和 transcript-only 强制视频路径
+  - 三个 CLI 入口共用字幕优先 acquisition 与 `transcribe_workspace`
+  - playlist watch URL 强制单视频
+  - metadata 驱动一次字幕选择；删除冗余 `subtitles_available` 存储字段
+  - `--no-video` 无字幕时直接下载音频
+  - CLI LLM 默认 `120s × 1`，保留 provider 错误详情
+  - standalone transcript JSON 输出 acquire/segment/transcribe/total 耗时
 - 验证结果：
-  - `uv run pytest tests/ -q` → 216 passed，6 个第三方 `pysrt` deprecation warnings
-  - `uv run ruff check src tests` → pass
-  - `uv run ruff format --check src tests` → 63 files already formatted
-  - `git diff --check` → pass
-  - `uv run yt2notion --help` → 仅 `process/prepare/transcribe`
-- 下一步：提交并推送 review 修复，合入 PR 后同步本地 `main`
+  - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 222 passed
+  - `uv run --extra dev ruff check src/yt2notion tests` → pass
+  - `uv run --extra dev ruff format --check src/yt2notion tests` → pass
+  - 下一课 transcript：5.494s，343 条人工字幕，8 段，无 audio/video/ASR
+  - 对比旧媒体/转写失败路径约 178s：32.4×，耗时下降 96.9%
+  - 完整 prepare 因 Claude CLI `ConnectionRefused` 无法形成成功基准
+- 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
+- 下一步：merge-base 自审、提交、推送、创建 PR、执行 `/review`
