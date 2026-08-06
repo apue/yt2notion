@@ -132,17 +132,6 @@ def _download_subtitle_track(
         )
 
 
-def extract_subtitles(url: str, config: dict, output_dir: Path, *, metadata: VideoMeta) -> Path:
-    """Download the best available subtitle file.
-
-    Priority: manual subs by priority list, then auto-generated fallback.
-    Returns the path to the downloaded subtitle file.
-    Metadata from the acquisition probe selects one available language.
-    """
-    path, _source = extract_subtitles_with_source(url, config, output_dir, metadata=metadata)
-    return path
-
-
 def extract_subtitles_with_source(
     url: str, config: dict, output_dir: Path, *, metadata: VideoMeta
 ) -> tuple[Path, str]:

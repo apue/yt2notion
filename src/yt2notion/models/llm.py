@@ -127,5 +127,10 @@ def create_llm_caller(config: dict, *, model_key: str = "review_model") -> LLMCa
                 "Anthropic API key required. "
                 "Set model.api_key in config or ANTHROPIC_API_KEY env var."
             )
-        return AnthropicAPICaller(api_key=api_key, model=model)
+        return AnthropicAPICaller(
+            api_key=api_key,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            max_attempts=max_attempts,
+        )
     raise LLMConfigError(f"Unknown LLM backend: {backend!r}")

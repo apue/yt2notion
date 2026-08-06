@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from yt2notion.models.anthropic_api import AnthropicAPICaller
 from yt2notion.models.llm import ClaudeCodeCaller, ClaudeCodeError, create_llm_caller
 from yt2notion.retry import RetryExhaustedError
 
@@ -37,6 +38,28 @@ def test_factory_applies_cli_execution_policy() -> None:
     assert isinstance(caller, ClaudeCodeCaller)
     assert caller.timeout_seconds == 240
     assert caller.max_attempts == 2
+
+
+@patch("yt2notion.models.anthropic_api._anthropic")
+def test_factory_applies_api_execution_policy(anthropic) -> None:
+    caller = create_llm_caller(
+        {
+            "model": {
+                "backend": "anthropic_api",
+                "api_key": "test-key",
+                "review_model": "sonnet",
+                "timeout_seconds": 240,
+                "max_attempts": 3,
+            }
+        }
+    )
+
+    assert isinstance(caller, AnthropicAPICaller)
+    anthropic.Anthropic.assert_called_once_with(
+        api_key="test-key",
+        timeout=240,
+        max_retries=2,
+    )
 
 
 @patch("yt2notion.models.llm.subprocess.run")

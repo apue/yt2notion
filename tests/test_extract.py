@@ -11,7 +11,6 @@ import pytest
 from yt2notion.extract import (
     ExtractionError,
     extract_metadata,
-    extract_subtitles,
     extract_subtitles_with_source,
     extract_video,
     extract_webpage_transcript,
@@ -159,7 +158,7 @@ def test_cookies_flag(mock_run, tmp_path):
         }
     }
     with pytest.raises(ExtractionError):
-        extract_subtitles(
+        extract_subtitles_with_source(
             "https://www.youtube.com/watch?v=abc123",
             config,
             tmp_path,

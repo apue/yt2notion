@@ -104,7 +104,7 @@ class YtDlpMediaSource:
             return None, None
         if request.keep_video:
             return self._download_video_and_audio(request.url, metadata, ws)
-        return self._download_audio(request.url, metadata, self.config, ws), None
+        return self._download_audio(request.url, metadata, ws), None
 
     def _download_video_and_audio(
         self,
@@ -126,10 +126,10 @@ class YtDlpMediaSource:
         audio_path = extract_audio_from_video(video_path, ws.dir / "audio.mp3")
         return audio_path, video_path
 
-    def _download_audio(self, url: str, metadata, config: dict, ws: Workspace) -> Path:
+    def _download_audio(self, url: str, metadata, ws: Workspace) -> Path:
         if self.verbose:
             typer.echo("Downloading audio...")
-        cookies_from = config.get("extract", {}).get("cookies_from")
+        cookies_from = self.config.get("extract", {}).get("cookies_from")
         with tempfile.TemporaryDirectory() as tmp_dir:
             audio_path = extract_audio(
                 url,

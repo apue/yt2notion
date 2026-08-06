@@ -3,11 +3,11 @@
 ## 当前任务卡
 
 - 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`ready_for_pr`
+- 状态：`draft_pr_updated`
 - 当前 owner：Codex
 - 分支：`codex/fast-subtitle-pipeline`
-- PR：待创建
-- review 状态：本地 merge-base 自审待执行
+- PR：https://github.com/apue/yt2notion/pull/29（Draft）
+- review 状态：双轴 review 完成；两项发现已修复
 - 目标：
   - 播放列表 watch URL 只处理目标视频
   - `process`、`prepare`、`transcribe` 共用字幕优先 acquisition
@@ -35,14 +35,17 @@
   - playlist watch URL 强制单视频
   - metadata 驱动一次字幕选择；删除冗余 `subtitles_available` 存储字段
   - `--no-video` 无字幕时直接下载音频
-  - CLI LLM 默认 `120s × 1`，保留 provider 错误详情
+  - 所有 LLM backend 默认 `120s × 1`，保留 CLI provider 错误详情
   - standalone transcript JSON 输出 acquire/segment/transcribe/total 耗时
+  - 删除无生产调用者的 `extract_subtitles()` 兼容包装
+  - 删除 `_download_audio()` 的冗余 config 参数
 - 验证结果：
-  - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 222 passed
+  - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 224 passed, 6 warnings
   - `uv run --extra dev ruff check src/yt2notion tests` → pass
   - `uv run --extra dev ruff format --check src/yt2notion tests` → pass
   - 下一课 transcript：5.494s，343 条人工字幕，8 段，无 audio/video/ASR
   - 对比旧媒体/转写失败路径约 178s：32.4×，耗时下降 96.9%
   - 完整 prepare 因 Claude CLI `ConnectionRefused` 无法形成成功基准
 - 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
-- 下一步：merge-base 自审、提交、推送、创建 PR、执行 `/review`
+- review 结论：无标准硬违规、无 scope creep；发现 Anthropic API 未继承执行策略与一个兼容包装层，均已修复
+- 下一步：提交 review 修复并更新 Draft PR；是否合并由 User 决定

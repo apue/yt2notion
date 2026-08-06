@@ -22,12 +22,23 @@ MODEL_MAP = {
 class AnthropicAPICaller:
     """One-shot LLM caller using the Anthropic Python SDK."""
 
-    def __init__(self, api_key: str, model: str = "opus") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "opus",
+        *,
+        timeout_seconds: float = 120,
+        max_attempts: int = 1,
+    ) -> None:
         if _anthropic is None:
             raise AnthropicAPIError(
                 "anthropic package not installed. Run: uv sync --extra anthropic"
             )
-        self.client = _anthropic.Anthropic(api_key=api_key)
+        self.client = _anthropic.Anthropic(
+            api_key=api_key,
+            timeout=timeout_seconds,
+            max_retries=max(0, max_attempts - 1),
+        )
         self.model = MODEL_MAP.get(model, model)
 
     def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:

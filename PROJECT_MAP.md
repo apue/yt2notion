@@ -70,8 +70,8 @@ Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 | `model.translate_model` | guide/longform/metadata composition |
 | `model.review_model` | transcript cleanup and topic segmentation |
 | `model.reasoning_effort` | Codex CLI adapter |
-| `model.timeout_seconds` | Claude/Codex CLI subprocess timeout |
-| `model.max_attempts` | bounded Claude/Codex CLI attempt count |
+| `model.timeout_seconds` | LLM provider request/subprocess timeout |
+| `model.max_attempts` | bounded LLM provider attempt count |
 | `storage.backend` | only `obsidian` is valid |
 | `storage.obsidian.vault_path` | `ObsidianStorage` |
 | `storage.obsidian.summaries_dir` | bundle destination |

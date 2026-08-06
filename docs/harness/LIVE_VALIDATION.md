@@ -52,7 +52,8 @@ Claude CLI returned `API Error: Unable to connect to API (ConnectionRefused)`.
 A minimal `Return exactly: ok` call reproduced the same provider failure after
 about `175s`, proving it is not caused by transcript length.
 
-The repair now defaults CLI LLM execution to one `120s` attempt and preserves
-the provider error detail. Unit tests verify this bound. The remote provider was
+The repair now defaults every supported LLM backend to one `120s` attempt and
+preserves CLI provider error detail. Unit tests verify the execution policy for
+Claude CLI, Codex CLI, and Anthropic API construction. The remote provider was
 not available for a successful end-to-end summary benchmark, so no summary
 latency improvement is claimed.
