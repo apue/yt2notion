@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`draft_pr_updated`
+- 状态：`ready_for_user_review`
 - 当前 owner：Codex
 - 分支：`codex/fast-subtitle-pipeline`
 - PR：https://github.com/apue/yt2notion/pull/29（Draft）
@@ -48,4 +48,4 @@
   - 完整 prepare 因 Claude CLI `ConnectionRefused` 无法形成成功基准
 - 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
 - review 结论：无标准硬违规、无 scope creep；发现 Anthropic API 未继承执行策略与一个兼容包装层，均已修复
-- 下一步：提交 review 修复并更新 Draft PR；是否合并由 User 决定
+- 下一步：User 审阅 Draft PR；是否转为 Ready 或合并由 User 决定
