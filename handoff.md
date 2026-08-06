@@ -3,11 +3,11 @@
 ## 当前任务卡
 
 - 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`codex_default_final_validation`
+- 状态：`ready_for_user_review`
 - 当前 owner：Codex
 - 分支：`codex/fast-subtitle-pipeline`
 - PR：https://github.com/apue/yt2notion/pull/29（Draft）
-- review 状态：双轴 review 完成；两项发现已修复
+- review 状态：双轴 review 与修复复核完成；无残留问题
 - 目标：
   - 播放列表 watch URL 只处理目标视频
   - `process`、`prepare`、`transcribe` 共用字幕优先 acquisition
@@ -57,4 +57,4 @@
   - 对比 User 报告的 14+ 分钟：至少 5.36×，耗时至少下降 81.4%
 - 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
 - review 结论：无标准硬违规、无 scope creep；最新 review 的默认值重复与非同口径实测均已修复
-- 下一步：最终全量复测、提交 review 修复并更新 Draft PR；是否合并由 User 决定
+- 下一步：User 审阅更新后的 Draft PR；是否转为 Ready 或合并由 User 决定

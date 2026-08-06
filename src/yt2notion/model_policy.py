@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
+from typing import NotRequired, TypedDict, cast
+
+
+class ModelConfig(TypedDict):
+    """Normalized configuration shared by every LLM adapter."""
+
+    backend: str
+    translate_model: str
+    review_model: str
+    reasoning_effort: str
+    timeout_seconds: float
+    max_attempts: int
+    api_key: NotRequired[str]
+
 
 DEFAULT_MODEL_BACKEND = "codex_cli"
 MODEL_BACKEND_DEFAULTS: dict[str, dict[str, object]] = {
@@ -21,19 +34,24 @@ MODEL_BACKEND_DEFAULTS: dict[str, dict[str, object]] = {
 }
 
 
-def default_model_config(backend: str = DEFAULT_MODEL_BACKEND) -> dict:
+def default_model_config(backend: str = DEFAULT_MODEL_BACKEND) -> ModelConfig:
     """Return an independent model configuration for one backend."""
-    return {
-        "backend": backend,
-        **deepcopy(MODEL_BACKEND_DEFAULTS.get(backend, {})),
-        "reasoning_effort": "low",
-        "timeout_seconds": 240,
-        "max_attempts": 1,
-    }
+    return cast(
+        "ModelConfig",
+        {
+            "backend": backend,
+            **MODEL_BACKEND_DEFAULTS.get(backend, {}),
+            "reasoning_effort": "low",
+            "timeout_seconds": 240,
+            "max_attempts": 1,
+        },
+    )
 
 
-def resolve_model_config(config: dict) -> dict:
+def resolve_model_config(config: dict[str, object]) -> ModelConfig:
     """Overlay caller-supplied model settings on backend-specific defaults."""
     overrides = config.get("model", {}) or {}
+    if not isinstance(overrides, dict):
+        overrides = {}
     backend = overrides.get("backend", DEFAULT_MODEL_BACKEND)
-    return {**default_model_config(backend), **overrides}
+    return cast("ModelConfig", {**default_model_config(str(backend)), **overrides})
