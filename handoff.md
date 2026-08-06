@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：实现翻译策略 A/B 实验，并用 Probability Bootcamp 第四课验证
-- 状态：`repairing_evaluation_and_recollecting_lesson_4`
+- 状态：`recollected_ready_for_human_review`
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
 - PR：未创建
@@ -55,4 +55,13 @@
   - 最终中文文本改为主评价目标；中间 artifacts 只做确定性诊断
   - prompt 区分忠实符号规范化和无证据公式猜测
   - 新增 `evaluation.json` 与数学记号独立人工评分维度
-- 下一步：本地全量验证和 review 后重新调用 5.4 采集第四课数据。
+- 新实验结果：
+  - fresh run 194.34s；whole 90.422s，blocks 93.890s
+  - whole: `Ω` 27、`ω` 2、裸 `omega` 0
+  - blocks: `Ω` 27、`ω` 2；2 个 `omega` 仅为首次括注
+  - 两候选 final-text objective gates 全部通过
+  - 10 chapters、32 blocks、blind A/B 5:5、无策略泄漏
+  - checkpoint rerun 5.62s，0 次模型调用
+  - 无 audio/video，未发布 Obsidian
+- 最新验证：234 passed；ruff check/format pass；双轴 review 无残留 finding
+- 下一步：User 在新 `blind_review.md` 完成人工最终文本盲评；GitHub push 仍待网络恢复。
