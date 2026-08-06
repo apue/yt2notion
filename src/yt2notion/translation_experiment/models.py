@@ -74,6 +74,8 @@ class TranslationExperimentResult:
     blind_review_path: Path
     answer_key_path: Path
     manifest_path: Path
+    evaluation_path: Path
+    objective_gates_passed: bool
     timings_seconds: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,6 +87,7 @@ class TranslationExperimentResult:
             "blind_review_path",
             "answer_key_path",
             "manifest_path",
+            "evaluation_path",
         ):
             payload[key] = str(payload[key])
         return payload

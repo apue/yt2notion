@@ -67,13 +67,18 @@ Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
 
 `translation_experiment/` contains `source.json`, the two strategy candidates,
-`manifest.json` diagnostics, `blind_review.md`, and a separate `answer_key.json`.
+`manifest.json` diagnostics, `evaluation.json`, `blind_review.md`, and a separate
+`answer_key.json`.
 The response contract requires exact ordered chapter/block IDs. Translation
 length ratios are diagnostic only, and formula enrichment is disabled so it does
 not confound the strategy comparison.
 Each candidate is checkpointed immediately and is reused only when schema,
 source fingerprint, strategy, model identity, prompt fingerprint, and ordered
-IDs all match. Codex model identity includes reasoning effort.
+IDs all match. Codex model identity includes reasoning effort. Final Chinese text
+is the primary evaluation target: `evaluation.json` records deterministic
+coverage, internal-ID leakage, and notation expectations supported by explicit
+source cues. Intermediate artifacts are diagnostic and receive no subjective
+aggregate score; the blinded human comparison decides the winner.
 
 ## Configuration bindings
 

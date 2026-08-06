@@ -18,5 +18,7 @@
 - No legacy translation format or compatibility adapter.
 - No second acquisition, ASR, storage, or summary path.
 - No character-count quality gate.
-- No formula reconstruction in the strategy experiment.
+- No subjective scoring of every intermediate step.
+- No unsupported formula or symbol invention; explicit notation normalization
+  remains part of faithful translation.
 - No one-function implementation combining source parsing, model calls, validation, and rendering.

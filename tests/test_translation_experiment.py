@@ -17,6 +17,7 @@ from yt2notion.translation_experiment.generator import (
     TranslationResponseError,
 )
 from yt2notion.translation_experiment.models import CandidateIdentity, TranslationItem
+from yt2notion.translation_experiment.quality import evaluate_final_text
 from yt2notion.translation_experiment.service import (
     TranslationExperimentRunner,
     create_translation_experiment_runner,
@@ -70,6 +71,34 @@ def test_build_source_chapters_creates_stable_semantic_block_ids():
 def test_build_source_chapters_rejects_empty_transcript():
     with pytest.raises(SourceContractError, match="at least one"):
         build_source_chapters([])
+
+
+def test_final_text_gate_requires_explicit_big_and_little_omega_symbols():
+    chapters = build_source_chapters(
+        [
+            {
+                "title": "Notation",
+                "start_seconds": 0,
+                "end_seconds": 30,
+                "text": (
+                    "The sample space is big omega. "
+                    "A specific element is little omega in big omega."
+                ),
+                "source": "manual_subtitle",
+            }
+        ]
+    )
+
+    failed = evaluate_final_text(chapters, {"c001": "样本空间是 omega，其中一个元素是 omega。"})
+    passed = evaluate_final_text(chapters, {"c001": "样本空间是 Ω，其中一个元素 ω 属于 Ω。"})
+
+    assert failed.passed is False
+    assert [(item.symbol, item.chapter_id) for item in failed.missing_notation] == [
+        ("Ω", "c001"),
+        ("ω", "c001"),
+    ]
+    assert passed.passed is True
+    assert passed.missing_notation == ()
 
 
 def test_generator_rejects_missing_or_reordered_ids():
@@ -162,6 +191,8 @@ def test_runner_writes_balanced_blind_artifacts_with_two_calls(tmp_path):
     assert len(caller.calls) == 2
     assert caller.calls[0][0] == caller.calls[1][0]
     assert result.blind_review_path.exists()
+    assert result.evaluation_path.exists()
+    assert result.objective_gates_passed is True
     review = result.blind_review_path.read_text(encoding="utf-8")
     assert "whole_chapter" not in review
     assert "semantic_blocks" not in review
@@ -173,9 +204,14 @@ def test_runner_writes_balanced_blind_artifacts_with_two_calls(tmp_path):
 
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["controlled_variables"]["calls_per_strategy"] == 1
-    assert manifest["controlled_variables"]["formula_enrichment"] == "disabled"
+    assert manifest["controlled_variables"]["notation_normalization"].startswith("required")
+    assert manifest["controlled_variables"]["formula_reconstruction"].startswith("allowed")
     assert "translation_source_ratio" in manifest["diagnostics"]["whole_chapter"][0]
     assert manifest["generation_timings_seconds"]["whole_chapter"] >= 0
+    evaluation = json.loads(result.evaluation_path.read_text(encoding="utf-8"))
+    assert evaluation["primary_target"] == "final_chinese_text"
+    assert evaluation["objective_gates"]["all_candidates_passed"] is True
+    assert evaluation["human_evaluation"]["status"] == "pending"
 
     resumed_caller = FakeCaller([])
     resumed = TranslationExperimentRunner(resumed_caller, model_label="fake:test").run(

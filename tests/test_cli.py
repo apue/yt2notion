@@ -207,6 +207,8 @@ def test_cli_translation_experiment_outputs_json(
         blind_review_path=experiment_dir / "blind_review.md",
         answer_key_path=experiment_dir / "answer_key.json",
         manifest_path=experiment_dir / "manifest.json",
+        evaluation_path=experiment_dir / "evaluation.json",
+        objective_gates_passed=True,
         timings_seconds={"experiment_total": 1.25},
     )
     app_instance = MagicMock()
@@ -226,6 +228,8 @@ def test_cli_translation_experiment_outputs_json(
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["blind_review_path"] == str(experiment_dir / "blind_review.md")
+    assert payload["evaluation_path"] == str(experiment_dir / "evaluation.json")
+    assert payload["objective_gates_passed"] is True
     app_instance.run_translation_experiment.assert_called_once_with(
         "https://example.com/video",
         workspace_dir=None,

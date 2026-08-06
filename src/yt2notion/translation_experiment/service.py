@@ -80,22 +80,24 @@ class TranslationExperimentRunner:
             "semantic_blocks": round(blocks_seconds, 3),
             "experiment_total": round(perf_counter() - started, 3),
         }
-        blind_review, answer_key, manifest = write_experiment_artifacts(
-            output_dir=experiment_dir,
-            metadata=metadata,
-            chapters=chapters,
-            whole=whole,
-            blocks=blocks,
-            model_label=self.model_label,
-            timings_seconds=timings,
-            generation_timings_seconds={
-                "whole_chapter": round(whole_generation_seconds, 3),
-                "semantic_blocks": round(blocks_generation_seconds, 3),
-            },
-            reused_checkpoints={
-                "whole_chapter": reused_whole,
-                "semantic_blocks": reused_blocks,
-            },
+        blind_review, answer_key, manifest, evaluation, objective_gates_passed = (
+            write_experiment_artifacts(
+                output_dir=experiment_dir,
+                metadata=metadata,
+                chapters=chapters,
+                whole=whole,
+                blocks=blocks,
+                model_label=self.model_label,
+                timings_seconds=timings,
+                generation_timings_seconds={
+                    "whole_chapter": round(whole_generation_seconds, 3),
+                    "semantic_blocks": round(blocks_generation_seconds, 3),
+                },
+                reused_checkpoints={
+                    "whole_chapter": reused_whole,
+                    "semantic_blocks": reused_blocks,
+                },
+            )
         )
         return TranslationExperimentResult(
             workspace_dir=workspace.dir,
@@ -103,6 +105,8 @@ class TranslationExperimentRunner:
             blind_review_path=blind_review,
             answer_key_path=answer_key,
             manifest_path=manifest,
+            evaluation_path=evaluation,
+            objective_gates_passed=objective_gates_passed,
             timings_seconds=timings,
         )
 

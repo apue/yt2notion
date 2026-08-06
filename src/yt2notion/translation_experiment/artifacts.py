@@ -15,13 +15,14 @@ from yt2notion.translation_experiment.models import (
     CandidateIdentity,
     TranslationItem,
 )
+from yt2notion.translation_experiment.quality import evaluate_final_text
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
     from yt2notion.translation_experiment.models import SourceChapter
 
 _WHITESPACE = re.compile(r"\s+")
-ARTIFACT_SCHEMA_VERSION = 1
+ARTIFACT_SCHEMA_VERSION = 2
 
 
 def source_fingerprint(chapters: tuple[SourceChapter, ...]) -> str:
@@ -121,7 +122,7 @@ def write_experiment_artifacts(
     timings_seconds: dict[str, float],
     generation_timings_seconds: dict[str, float],
     reused_checkpoints: dict[str, bool],
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path, bool]:
     """Write source, candidates, diagnostics, blind review, and answer key."""
     output_dir.mkdir(parents=True, exist_ok=True)
     chapter_whole = {item.source_id: item.translation for item in whole}
@@ -131,6 +132,9 @@ def write_experiment_artifacts(
         for chapter in chapters
     }
     assignments = _balanced_assignments(metadata.video_id, chapters)
+    whole_quality = evaluate_final_text(chapters, chapter_whole)
+    blocks_quality = evaluate_final_text(chapters, chapter_blocks)
+    objective_gates_passed = whole_quality.passed and blocks_quality.passed
 
     answer_key_path = output_dir / "answer_key.json"
     _write_json(
@@ -157,7 +161,8 @@ def write_experiment_artifacts(
                 "source": "identical canonical transcripts.json",
                 "target_language": "zh-CN",
                 "calls_per_strategy": 1,
-                "formula_enrichment": "disabled",
+                "notation_normalization": "required for explicit source evidence",
+                "formula_reconstruction": "allowed only when uniquely supported by speech",
             },
             "counts": {
                 "chapters": len(chapters),
@@ -173,6 +178,41 @@ def write_experiment_artifacts(
         },
     )
 
+    evaluation_path = output_dir / "evaluation.json"
+    _write_json(
+        evaluation_path,
+        {
+            "schema_version": ARTIFACT_SCHEMA_VERSION,
+            "primary_target": "final_chinese_text",
+            "comparison_status": (
+                "ready_for_human_review" if objective_gates_passed else "blocked_by_objective_gate"
+            ),
+            "decision_policy": {
+                "winner": "human pairwise judgment of final text",
+                "intermediate_results": "deterministic diagnostics only; not scored",
+                "length_ratio": "diagnostic only; never a pass threshold",
+            },
+            "objective_gates": {
+                "whole_chapter": whole_quality.to_dict(),
+                "semantic_blocks": blocks_quality.to_dict(),
+                "all_candidates_passed": objective_gates_passed,
+            },
+            "human_evaluation": {
+                "status": "pending",
+                "artifact": "blind_review.md",
+                "rubric": [
+                    "fidelity",
+                    "completeness",
+                    "mathematical_notation",
+                    "terminology_consistency",
+                    "chinese_naturalness",
+                    "learning_value",
+                ],
+                "tie_allowed": True,
+            },
+        },
+    )
+
     blind_review_path = output_dir / "blind_review.md"
     blind_review_path.write_text(
         _render_blind_review(
@@ -184,7 +224,13 @@ def write_experiment_artifacts(
         ),
         encoding="utf-8",
     )
-    return blind_review_path, answer_key_path, manifest_path
+    return (
+        blind_review_path,
+        answer_key_path,
+        manifest_path,
+        evaluation_path,
+        objective_gates_passed,
+    )
 
 
 def _balanced_assignments(
@@ -244,6 +290,7 @@ def _render_blind_review(
         "- 说明：A/B 标签已按章节做平衡盲化；请在完成评价前不要打开 `answer_key.json`。",
         "- 优先判断整体胜负或平局；维度分数可选。1=很差，5=很好。",
         "- 维度：忠实度、中文自然度、术语一致性、学习价值。",
+        "- 数学记号准确性单独评价；不要把流畅度抵消符号或公式错误。",
         "",
     ]
     candidates = {
@@ -274,6 +321,8 @@ def _render_blind_review(
                 "",
                 "- 整体：A / B / 平局",
                 "- 忠实度：A __/5；B __/5",
+                "- 完整性：A __/5；B __/5",
+                "- 数学记号准确性：A __/5；B __/5",
                 "- 中文自然度：A __/5；B __/5",
                 "- 术语一致性：A __/5；B __/5",
                 "- 学习价值：A __/5；B __/5",

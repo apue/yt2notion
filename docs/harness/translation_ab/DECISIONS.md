@@ -10,11 +10,19 @@ reduces latency, and prevents call-count variance from contaminating the result.
 IDs exist only in structured prompts and artifacts. The blind review displays
 normalized prose, so IDs do not appear in the translated text being judged.
 
-## Formula enrichment is disabled
+## Faithful notation is part of translation
 
-Spoken-formula reconstruction changes the task and could hide the effect of
-semantic blocking. It should be evaluated later as an independent factor with
-evidence and confidence fields.
+Recovering a symbol explicitly named by the speaker is not speculative formula
+enrichment. `big omega` and `little omega` must become `Ω` and `ω`. A formula may
+be normalized only when the spoken evidence uniquely determines it; ambiguous
+notation remains verbal rather than being guessed.
+
+## Final text is the primary evaluation target
+
+The human winner decision compares final Chinese prose. Intermediate artifacts
+receive only deterministic coverage, ordering, traceability, and explicit
+notation-evidence checks. Their metrics are diagnostic and are not added to the
+human final-text score.
 
 ## Human judgment is pairwise
 

@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：实现翻译策略 A/B 实验，并用 Probability Bootcamp 第四课验证
-- 状态：`implemented_and_locally_validated`
+- 状态：`repairing_evaluation_and_recollecting_lesson_4`
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
 - PR：未创建
@@ -15,7 +15,7 @@
   - 用第四课 `b_ev4Hdzh-U` 执行真实 Codex 实验
 - 约束：
   - 不发布到 Obsidian
-  - 不把公式增强混入本次 A/B
+  - 不引入无明确口述证据的公式或符号
   - 不使用中文字符数下限作为质量门槛
   - 自动测试不调用远程服务
   - 不保留旧式临时实验格式的兼容逻辑
@@ -49,4 +49,10 @@
   - canonical transcript 与 factory config 改为明确类型契约
   - 抽取共享 load/generate/checkpoint 流程，删除重复逻辑
   - 在 `PROJECT_MAP.md` 补充 experiment dependency direction
-- 下一步：GitHub push 当前持续网络挂起；网络恢复后 push 分支并创建 Draft PR。
+- 当前修复：
+  - User 发现第四课两候选均保留 `omega`，第二课则忠实恢复 `Ω`
+  - 旧候选在新门禁下均稳定失败：显式 `big/little omega` 缺失 `Ω/ω`
+  - 最终中文文本改为主评价目标；中间 artifacts 只做确定性诊断
+  - prompt 区分忠实符号规范化和无证据公式猜测
+  - 新增 `evaluation.json` 与数学记号独立人工评分维度
+- 下一步：本地全量验证和 review 后重新调用 5.4 采集第四课数据。
