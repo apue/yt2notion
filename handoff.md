@@ -7,7 +7,7 @@
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
 - PR：未创建
-- review 状态：双轴 review 完成；共同 high finding 已修复，待本地复核
+- review 状态：双轴 review 与两轮修复复核完成；无残留 finding
 - 目标：
   - 对比整章翻译与带稳定 ID 的语义块翻译
   - 固定源字幕、模型、翻译规范和调用次数
@@ -49,4 +49,4 @@
   - canonical transcript 与 factory config 改为明确类型契约
   - 抽取共享 load/generate/checkpoint 流程，删除重复逻辑
   - 在 `PROJECT_MAP.md` 补充 experiment dependency direction
-- 下一步：完成本地复测并更新提交；GitHub push 当前受网络挂起阻塞。
+- 下一步：GitHub push 当前持续网络挂起；网络恢复后 push 分支并创建 Draft PR。
