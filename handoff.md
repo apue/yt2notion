@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`ready_for_user_review`
+- 状态：`published_and_merge_authorized`
 - 当前 owner：Codex
 - 分支：`codex/fast-subtitle-pipeline`
 - PR：https://github.com/apue/yt2notion/pull/29（Draft）
@@ -55,6 +55,8 @@
   - Codex summarize 使用 `240s × 1` 后成功：135.65s，生成完整 20,123-byte bundle
   - 全新 workspace 完整 prepare 成功：156.63s，无 audio/video/ASR/publish
   - 对比 User 报告的 14+ 分钟：至少 5.36×，耗时至少下降 81.4%
+  - 第 3 课已发布到 Obsidian `Probability Bootcamp/`：英文字幕、完整中文翻译、中文总结
+  - 发布校验：8 个章节时间戳齐全；字幕与 workspace SHA-256 一致
 - 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
 - review 结论：无标准硬违规、无 scope creep；最新 review 的默认值重复与非同口径实测均已修复
-- 下一步：User 审阅更新后的 Draft PR；是否转为 Ready 或合并由 User 决定
+- 下一步：按 User 明确授权将 PR #29 转为 Ready 并合入 `main`
