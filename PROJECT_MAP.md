@@ -10,6 +10,7 @@ artifacts, configuration bindings, and extension seams.
 | `yt2notion process URL` | prepare and publish an Obsidian bundle |
 | `yt2notion prepare URL` | prepare a bundle and emit JSON without publishing |
 | `yt2notion transcribe URL` | acquire preferred subtitles or media, transcribe, and stop |
+| `yt2notion translation-experiment URL` | create a local blind whole-chapter vs semantic-block translation experiment |
 
 All commands enter through `application.Yt2Notion`. There is no compatibility
 pipeline or local queue runtime.
@@ -31,6 +32,9 @@ pipeline or local queue runtime.
    `ObsidianStorage`.
 
 `transcribe` stops after step 3. `prepare` stops after step 6.
+`translation-experiment` reuses `transcribe`, then makes one batched translation
+call per strategy and writes only local experiment artifacts. It never reaches
+storage or `PUBLISH`.
 
 ## Transcription state
 
@@ -61,6 +65,14 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 
 Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
+
+`translation_experiment/` contains `source.json`, the two strategy candidates,
+`manifest.json` diagnostics, `blind_review.md`, and a separate `answer_key.json`.
+The response contract requires exact ordered chapter/block IDs. Translation
+length ratios are diagnostic only, and formula enrichment is disabled so it does
+not confound the strategy comparison.
+Each candidate is checkpointed immediately with the source fingerprint and is
+reused only when schema, strategy, fingerprint, and ordered IDs all match.
 
 ## Configuration bindings
 
@@ -115,6 +127,9 @@ registry or expose provider details through `Yt2Notion`.
 | `compose_guide.md` | `NoteComposer.compose_guide_note` |
 | `compose_longform.md` | `NoteComposer.compose_longform_note` |
 | `compose_note_metadata.md` | `NoteComposer.compose_note_metadata` |
+| `translation_experiment_system.md` | shared translation A/B rules |
+| `translation_experiment_whole.md` | whole-chapter experiment strategy |
+| `translation_experiment_blocks.md` | semantic-block experiment strategy |
 
 Prompt templates are structural inputs and must not be reformatted as ordinary
 documentation.

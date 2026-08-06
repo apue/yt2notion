@@ -153,3 +153,45 @@ def transcribe(
     typer.echo(f"Audio: {result.audio_path}")
     typer.echo(f"Transcript JSON: {result.transcripts_path}")
     typer.echo(f"Transcript Markdown: {result.transcript_markdown_path}")
+
+
+@app.command("translation-experiment")
+def translation_experiment(
+    url: str = typer.Argument(help="Media URL"),
+    config_path: str | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Config file path; defaults to ~/.yt2notion/config.yaml, then ./config.yaml",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    workspace_dir: str | None = typer.Option(None, "--workspace-dir", help="Workspace base dir"),
+    keep_video: bool = typer.Option(
+        False,
+        "--keep-video/--no-video",
+        help="Keep downloaded video when no subtitle track is available",
+    ),
+) -> None:
+    """Create whole-chapter vs semantic-block blind translation candidates."""
+    from yt2notion.media_transcribe import resolve_media_transcribe_config_path
+
+    try:
+        resolved_config_path = resolve_media_transcribe_config_path(config_path)
+        config = load_config(str(resolved_config_path))
+        result = create_yt2notion(config, verbose=verbose).run_translation_experiment(
+            url,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
+        )
+    except ConfigError as exc:
+        typer.echo(f"Configuration error: {exc}", err=True)
+        raise typer.Exit(1) from None
+    except ExtractionError as exc:
+        typer.echo(f"Extraction error: {exc}", err=True)
+        raise typer.Exit(1) from None
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
+
+    typer.echo(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))

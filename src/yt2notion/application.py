@@ -35,6 +35,10 @@ if TYPE_CHECKING:
     from yt2notion.models.base import NoteBundle, VideoMeta
     from yt2notion.storage.base import Storage
     from yt2notion.transcribe.engine import TranscriptionEngine
+    from yt2notion.translation_experiment import (
+        TranslationExperimentResult,
+        TranslationExperimentRunner,
+    )
 
 ProgressEvent: TypeAlias = Literal[
     "started",
@@ -81,6 +85,7 @@ class Yt2Notion:
         transcription_engine: TranscriptionEngine | None = None,
         content_preparation: ContentPreparation | None = None,
         storage_factory: Callable[[dict], Storage] = create_storage,
+        translation_experiment_runner: TranslationExperimentRunner | None = None,
     ) -> None:
         self.config = config
         self.raw_config = {
@@ -96,6 +101,7 @@ class Yt2Notion:
         )
         self.content_preparation = content_preparation or ContentPreparation()
         self.storage_factory = storage_factory
+        self.translation_experiment_runner = translation_experiment_runner
 
     def prepare(
         self,
@@ -348,6 +354,33 @@ class Yt2Notion:
                     retries_exhausted=is_retries_exhausted(exc),
                 )
             raise
+
+    def run_translation_experiment(
+        self,
+        url: str,
+        *,
+        workspace_dir: str | None = None,
+        keep_video: bool = False,
+        verbose: bool = False,
+    ) -> TranslationExperimentResult:
+        """Acquire a transcript and generate a local blind translation experiment."""
+        transcription = self.transcribe(
+            url,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
+        )
+        transcripts = transcription.workspace.load_transcripts()
+        if transcripts is None:
+            raise ValueError("translation experiment requires transcripts.json")
+
+        if self.translation_experiment_runner is None:
+            from yt2notion.translation_experiment import create_translation_experiment_runner
+
+            runner = create_translation_experiment_runner(self.raw_config)
+        else:
+            runner = self.translation_experiment_runner
+        return runner.run(transcription.metadata, transcripts, transcription.workspace)
 
     def _workspace_base(self, workspace_dir: str | None) -> Path:
         workspace_base = workspace_dir or self.config.workspace.get("base_dir", "./workspace")

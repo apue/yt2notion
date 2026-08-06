@@ -183,3 +183,52 @@ def test_cli_transcribe_outputs_json(
     call_kwargs = mock_transcribe_media.call_args.kwargs
     assert call_kwargs["workspace_dir"] == str(tmp_path / "workspace")
     assert call_kwargs["keep_video"] is False
+
+
+@patch("yt2notion.media_transcribe.resolve_media_transcribe_config_path")
+@patch("yt2notion.cli.load_config")
+@patch("yt2notion.cli.create_yt2notion")
+def test_cli_translation_experiment_outputs_json(
+    mock_create_app,
+    mock_load_config,
+    mock_resolve_config,
+    tmp_path,
+):
+    from yt2notion.config import AppConfig
+    from yt2notion.translation_experiment.models import TranslationExperimentResult
+
+    config_path = tmp_path / "config.yaml"
+    mock_resolve_config.return_value = config_path
+    mock_load_config.return_value = AppConfig()
+    experiment_dir = tmp_path / "workspace" / "video" / "translation_experiment"
+    expected = TranslationExperimentResult(
+        workspace_dir=experiment_dir.parent,
+        experiment_dir=experiment_dir,
+        blind_review_path=experiment_dir / "blind_review.md",
+        answer_key_path=experiment_dir / "answer_key.json",
+        manifest_path=experiment_dir / "manifest.json",
+        timings_seconds={"experiment_total": 1.25},
+    )
+    app_instance = MagicMock()
+    app_instance.run_translation_experiment.return_value = expected
+    mock_create_app.return_value = app_instance
+
+    result = runner.invoke(
+        app,
+        [
+            "translation-experiment",
+            "https://example.com/video",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["blind_review_path"] == str(experiment_dir / "blind_review.md")
+    app_instance.run_translation_experiment.assert_called_once_with(
+        "https://example.com/video",
+        workspace_dir=None,
+        keep_video=False,
+        verbose=False,
+    )
