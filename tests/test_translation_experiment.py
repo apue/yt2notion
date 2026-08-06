@@ -17,7 +17,10 @@ from yt2notion.translation_experiment.generator import (
     TranslationResponseError,
 )
 from yt2notion.translation_experiment.models import CandidateIdentity, TranslationItem
-from yt2notion.translation_experiment.service import TranslationExperimentRunner
+from yt2notion.translation_experiment.service import (
+    TranslationExperimentRunner,
+    create_translation_experiment_runner,
+)
 from yt2notion.translation_experiment.source import (
     SourceContractError,
     build_source_chapters,
@@ -112,6 +115,25 @@ def test_checkpoint_identity_includes_model_and_prompt(tmp_path):
         )
         is None
     )
+
+
+def test_runner_model_identity_includes_reasoning_effort():
+    from yt2notion.config import AppConfig
+
+    config = AppConfig(
+        model={
+            "backend": "codex_cli",
+            "translate_model": "gpt-test",
+            "review_model": "gpt-test",
+            "reasoning_effort": "high",
+            "timeout_seconds": 10,
+            "max_attempts": 1,
+        }
+    )
+
+    runner = create_translation_experiment_runner(config)
+
+    assert runner.model_label == "codex_cli:gpt-test:reasoning=high"
 
 
 def test_runner_writes_balanced_blind_artifacts_with_two_calls(tmp_path):

@@ -73,7 +73,7 @@ length ratios are diagnostic only, and formula enrichment is disabled so it does
 not confound the strategy comparison.
 Each candidate is checkpointed immediately and is reused only when schema,
 source fingerprint, strategy, model identity, prompt fingerprint, and ordered
-IDs all match.
+IDs all match. Codex model identity includes reasoning effort.
 
 ## Configuration bindings
 

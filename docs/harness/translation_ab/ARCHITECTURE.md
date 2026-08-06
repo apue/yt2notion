@@ -13,5 +13,6 @@ The experiment package has four seams:
 The existing `LLMCaller` Protocol and `model.translate_model` factory binding are
 reused. The command has no storage dependency and therefore cannot publish.
 Each successful strategy is persisted immediately with its source SHA-256,
-strategy, model identity, prompt SHA-256, and exact ordered IDs. A later run
-reuses it only when every identity field and the output contract match.
+strategy, model identity (backend, model, and reasoning effort), prompt SHA-256,
+and exact ordered IDs. A later run reuses it only when every identity field and
+the output contract match.

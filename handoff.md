@@ -45,6 +45,7 @@
 - 当前证据：`docs/harness/translation_ab/LIVE_VALIDATION.md`
 - review 修复：
   - checkpoint identity 增加 model label 与 prompt SHA-256，避免混合实验条件
+  - model identity 纳入 Codex reasoning effort，关闭复核发现的剩余公平性缺口
   - canonical transcript 与 factory config 改为明确类型契约
   - 抽取共享 load/generate/checkpoint 流程，删除重复逻辑
   - 在 `PROJECT_MAP.md` 补充 experiment dependency direction

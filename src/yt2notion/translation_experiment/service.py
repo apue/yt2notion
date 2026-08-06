@@ -153,5 +153,8 @@ def create_translation_experiment_runner(config: AppConfig) -> TranslationExperi
         "output": config.output,
     }
     caller = create_llm_caller(raw_config, model_key="translate_model")
-    model_label = f"{model_config['backend']}:{model_config['translate_model']}"
+    model_label = (
+        f"{model_config['backend']}:{model_config['translate_model']}:"
+        f"reasoning={model_config.get('reasoning_effort', 'low')}"
+    )
     return TranslationExperimentRunner(caller, model_label=model_label)

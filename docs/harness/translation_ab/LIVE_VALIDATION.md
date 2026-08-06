@@ -6,7 +6,7 @@
 - Lesson 4: Set Theory in Probability: Sample Spaces and Events
 - Video ID: `b_ev4Hdzh-U`
 - Duration: 24:12
-- Backend/model: `codex_cli:gpt-5.4`
+- Backend/model: `codex_cli:gpt-5.4:reasoning=low`
 
 ## Fresh run
 
