@@ -83,3 +83,31 @@ The fresh two-candidate run was 5.23 seconds slower than the earlier 189.11-seco
 run (2.8% wall-time overhead), while the two model generations increased only
 2.06 seconds in total (1.1%). A final checkpoint rerun completed in 5.62 seconds
 with zero model calls and retained the original generation timings.
+
+## Human-style feedback repair
+
+The next repair converted the human review reasons into one shared editorial
+policy and an advisory style evaluator. Replaying the evaluator against the
+previous candidates found 9 whole-chapter issues and 11 semantic-block issues.
+Together they reproduced all reported categories: redundant emphasis filler,
+symbol-pronunciation parentheticals, Chinese technical numerals, spoken ordinal
+repetition, untranslated H/T coin outcomes, and missing bilingual first-use
+terminology.
+
+Fresh recollection with the same source and `codex_cli:gpt-5.4:reasoning=low`:
+
+- wall time: 198.43 seconds;
+- whole-chapter generation: 93.569 seconds;
+- semantic-block generation: 93.021 seconds;
+- 10 chapters and 32 blocks with both blocking correctness gates passing;
+- whole-chapter text: 5,698 characters and 3 advisory findings;
+- semantic-block text: 5,874 characters and 2 advisory findings;
+- all remaining findings are Chinese `两个` technical-count typography;
+- H/T localization, direct Ω/ω presentation, oral repetition cleanup,
+  redundant `真的` cleanup, and `测度论（measure theory）` first use all pass;
+- combined advisory findings fell from 20 to 5, a 75% reduction;
+- no audio/video artifacts and no Obsidian publication.
+
+The new wall time is 4.09 seconds higher than the prior 194.34-second run, a
+2.1% increase. A checkpoint rerun took 8.50 seconds wall time with zero model
+calls and retained the original generation timings.

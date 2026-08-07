@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：实现翻译策略 A/B 实验，并用 Probability Bootcamp 第四课验证
-- 状态：`recollected_ready_for_human_review`
+- 状态：`style_repair_live_validated`
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
 - PR：未创建
@@ -64,4 +64,26 @@
   - checkpoint rerun 5.62s，0 次模型调用
   - 无 audio/video，未发布 Obsidian
 - 最新验证：234 passed；ruff check/format pass；双轴 review 无残留 finding
-- 下一步：User 在新 `blind_review.md` 完成人工最终文本盲评；GitHub push 仍待网络恢复。
+- 新任务：将 User 的盲评理由固化为中文数学课程翻译规范，并重跑第四课。
+- 新验收标准：
+  - 保留实质教学强调，删除无信息的英文口语填充与转写重复
+  - 标准数学符号直接呈现，不附“大写/ASCII 读法”括注
+  - 数学数量、次数与计数使用阿拉伯数字
+  - 保留集合等数学结构，但将硬币结果 H/T 按上下文本地化为正/反
+  - 重要专业概念首次使用“中文（English）”，后续只用中文
+  - 硬性正确性门槛与非阻塞风格诊断分层记录
+- 实现边界：共享 prompt、独立 style evaluator、回归测试、experiment artifacts 和相关事实文档；不改模型、切分策略或发布流程。
+- 验证计划：先跑 style evaluator 与 artifact 针对性测试，再跑全量 pytest/ruff，最后用第四课真实 Codex 调用对比新旧风格诊断和耗时。
+- 实现结果：
+  - 共享 prompt 已加入书面化、数字排版、符号直接呈现、H/T 上下文本地化和专业术语首现规则
+  - 新增独立 `style.py`，风格问题仅作 advisory diagnostics，不自动改写也不覆盖正确性门槛
+  - artifact schema 升级为 3，旧 checkpoint 不再兼容
+- 最新本地验证：`237 passed, 6 warnings`；`ruff check` pass；`ruff format` 完成
+- 第四课真实验证：
+  - fresh wall 198.43s；whole 93.569s；blocks 93.021s
+  - 正确性硬门槛两候选均通过；10 chapters / 32 blocks
+  - style findings：whole 9 → 3，blocks 11 → 2，合计 20 → 5，下降 75%
+  - 剩余 5 条均为“两个”数字排版；H/T、Ω/ω 括注、口语重复、冗余“真的”、measure theory 首现均已修复
+  - 相比前一轮 194.34s，wall 增加 4.09s / 2.1%
+  - checkpoint rerun 8.50s，0 次模型调用；无 audio/video；未发布 Obsidian
+- 下一步：静态 review、再次本地验证、commit；GitHub push/PR 视网络状态。

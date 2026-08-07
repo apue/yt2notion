@@ -17,13 +17,14 @@ from yt2notion.translation_experiment.models import (
     TranslationItem,
 )
 from yt2notion.translation_experiment.quality import evaluate_final_text
+from yt2notion.translation_experiment.style import evaluate_translation_style
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
     from yt2notion.translation_experiment.models import SourceChapter
 
 _WHITESPACE = re.compile(r"\s+")
-ARTIFACT_SCHEMA_VERSION = 2
+ARTIFACT_SCHEMA_VERSION = 3
 
 
 def source_fingerprint(chapters: tuple[SourceChapter, ...]) -> str:
@@ -135,6 +136,8 @@ def write_experiment_artifacts(
     assignments = _balanced_assignments(metadata.video_id, chapters)
     whole_quality = evaluate_final_text(chapters, chapter_whole)
     blocks_quality = evaluate_final_text(chapters, chapter_blocks)
+    whole_style = evaluate_translation_style(chapters, chapter_whole)
+    blocks_style = evaluate_translation_style(chapters, chapter_blocks)
     objective_gates_passed = whole_quality.passed and blocks_quality.passed
 
     answer_key_path = output_dir / "answer_key.json"
@@ -163,6 +166,7 @@ def write_experiment_artifacts(
                 "target_language": "zh-CN",
                 "calls_per_strategy": 1,
                 "notation_normalization": "required for explicit source evidence",
+                "editorial_style": "shared written-Chinese math-course policy",
                 "formula_reconstruction": "disabled",
             },
             "counts": {
@@ -198,6 +202,11 @@ def write_experiment_artifacts(
                 "semantic_blocks": blocks_quality.to_dict(),
                 "all_candidates_passed": objective_gates_passed,
             },
+            "style_diagnostics": {
+                "policy": "advisory; reported separately from objective correctness gates",
+                "whole_chapter": whole_style.to_dict(),
+                "semantic_blocks": blocks_style.to_dict(),
+            },
             "human_evaluation": {
                 "status": "pending",
                 "artifact": "blind_review.md",
@@ -207,6 +216,7 @@ def write_experiment_artifacts(
                     "mathematical_notation",
                     "terminology_consistency",
                     "chinese_naturalness",
+                    "editorial_style",
                     "learning_value",
                 ],
                 "tie_allowed": True,
@@ -291,6 +301,7 @@ def _render_blind_review(
         "- 说明：A/B 标签已按章节做平衡盲化；请在完成评价前不要打开 `answer_key.json`。",
         "- 优先判断整体胜负或平局；维度分数可选。1=很差，5=很好。",
         "- 维度：忠实度、中文自然度、术语一致性、学习价值。",
+        "- 编辑风格：检查书面化、数字排版、符号呈现、语义编码本地化与术语首现。",
         "- 数学记号准确性单独评价；不要让流畅度掩盖符号错误。",
         "",
     ]
@@ -326,6 +337,7 @@ def _render_blind_review(
                 "- 数学记号准确性：A __/5；B __/5",
                 "- 中文自然度：A __/5；B __/5",
                 "- 术语一致性：A __/5；B __/5",
+                "- 编辑风格：A __/5；B __/5",
                 "- 学习价值：A __/5；B __/5",
                 "- 关键问题或理由：",
                 "",

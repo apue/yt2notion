@@ -10,6 +10,8 @@ The experiment package has four seams:
 - `artifacts.py`: deterministic metrics, balanced blinding, and file rendering;
 - `quality.py`: objective gates over final chapter-level text using only explicit
   source evidence and artifact contracts;
+- `style.py`: advisory, source-aware diagnostics for the shared Chinese
+  math-course editorial policy;
 - `service.py`: orchestration and timing.
 
 The existing `LLMCaller` Protocol and `model.translate_model` factory binding are
@@ -22,3 +24,5 @@ the output contract match.
 `evaluation.json` makes final text the primary target. Human pairwise review
 decides the winner. Intermediate source/block artifacts are retained for
 deterministic coverage and diagnosis but do not contribute a subjective score.
+Style findings are reported separately from blocking correctness gates and do
+not rewrite candidate text.

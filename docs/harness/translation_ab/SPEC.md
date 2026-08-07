@@ -37,3 +37,7 @@ publishing anything.
 9. A successful strategy is checkpointed against the source, strategy, model,
    prompt fingerprint, and ordered IDs, so a retry only regenerates a missing
    or genuinely stale candidate.
+10. Shared editorial rules target concise written Chinese, Arabic numerals for
+    mathematical quantities, direct mathematical symbols, contextual H/T to
+    正/反 localization, and bilingual first use of important technical terms.
+    Deterministic style findings remain separate from blocking correctness gates.

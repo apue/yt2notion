@@ -29,3 +29,12 @@ human final-text score.
 The experiment does not use the producing model as the judge. The reviewer may
 choose A, B, or tie and optionally score fidelity, fluency, terminology, and
 learning value.
+
+## Human style feedback becomes shared policy
+
+Strategy labels do not explain preferences that recur across both candidates.
+Concise written Chinese, Arabic numerals for mathematical quantities, direct
+symbol presentation, contextual H/T localization, and bilingual first-use
+terminology therefore belong to the shared prompt. High-confidence patterns are
+reported by a separate advisory evaluator; they are not auto-rewritten and do
+not override fidelity or human judgment.

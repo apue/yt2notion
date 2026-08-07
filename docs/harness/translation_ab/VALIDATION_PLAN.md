@@ -4,6 +4,9 @@
 - Artifact tests: balanced deterministic blinding and no strategy disclosure.
 - Regression test: explicit `big omega` / `little omega` evidence requires `Ω` / `ω`
   in final chapter text.
+- Style regressions: symbol-pronunciation parentheticals, Chinese technical
+  numerals, spoken ordinal repetition, redundant emphasis filler, untranslated
+  coin outcomes, and missing bilingual first-use terminology.
 - Evaluation artifact: objective final-text gates must pass before the package is
   marked ready for human pairwise review.
 - Service test: exactly two calls against one fake caller and complete outputs.

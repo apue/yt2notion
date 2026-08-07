@@ -78,8 +78,11 @@ source fingerprint, strategy, model identity, prompt fingerprint, and ordered
 IDs all match. Codex model identity includes reasoning effort. Final Chinese text
 is the primary evaluation target: `evaluation.json` records deterministic
 coverage, internal-ID leakage, and notation expectations supported by explicit
-source cues. Intermediate artifacts are diagnostic and receive no subjective
-aggregate score; the blinded human comparison decides the winner.
+source cues. A separate non-blocking style diagnostic reports written-Chinese
+editing, Arabic-number typography, direct symbol presentation, contextual
+coin-outcome localization, and bilingual first-use terminology. Intermediate
+artifacts are diagnostic and receive no subjective aggregate score; the blinded
+human comparison decides the winner.
 
 ## Configuration bindings
 

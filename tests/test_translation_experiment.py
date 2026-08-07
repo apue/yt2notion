@@ -230,6 +230,9 @@ def test_runner_writes_balanced_blind_artifacts_with_two_calls(tmp_path):
     evaluation = json.loads(result.evaluation_path.read_text(encoding="utf-8"))
     assert evaluation["primary_target"] == "final_chinese_text"
     assert evaluation["objective_gates"]["all_candidates_passed"] is True
+    assert evaluation["style_diagnostics"]["policy"].startswith("advisory")
+    assert evaluation["style_diagnostics"]["whole_chapter"]["passed"] is True
+    assert evaluation["style_diagnostics"]["semantic_blocks"]["passed"] is True
     assert evaluation["human_evaluation"]["status"] == "pending"
 
     resumed_caller = FakeCaller([])
