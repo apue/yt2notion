@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：实现翻译策略 A/B 实验，并用 Probability Bootcamp 第四课验证
-- 状态：`style_repair_live_validated`
+- 状态：`merge_approved`
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
 - PR：[#30](https://github.com/apue/yt2notion/pull/30)
@@ -87,4 +87,5 @@
   - 相比前一轮 194.34s，wall 增加 4.09s / 2.1%
   - checkpoint rerun 8.50s，0 次模型调用；无 audio/video；未发布 Obsidian
 - 交付：实现 commit `2731bb9`；分支已 push；PR #30 已创建。
-- 下一步：查看 PR checks；User 完成新 `blind_review.md` 的人工评价后决定是否继续调整风格或批准合并。
+- 最新决策：User 已完成人工评价，确认冻结当前 prompt 与评估规则，批准合并 PR #30；局部翻译细节留待后续真实使用中积累跨课程证据后再优化。
+- 下一步：完成最终本地验证并 squash merge PR #30；合并后结束本任务。
