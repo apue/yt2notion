@@ -2,61 +2,90 @@
 
 ## 当前任务卡
 
-- 任务：统一字幕优先媒体获取路径并降低课程笔记处理延迟
-- 状态：`published_and_merge_authorized`
+- 任务：实现翻译策略 A/B 实验，并用 Probability Bootcamp 第四课验证
+- 状态：`merge_approved`
 - 当前 owner：Codex
-- 分支：`codex/fast-subtitle-pipeline`
-- PR：https://github.com/apue/yt2notion/pull/29（Draft）
-- review 状态：双轴 review 与修复复核完成；无残留问题
+- 分支：`codex/translation-ab-experiment`
+- PR：[#30](https://github.com/apue/yt2notion/pull/30)
+- review 状态：既有双轴 review 与两轮修复复核完成；本轮人类风格修复已做本地静态 diff review，无阻塞 finding；API 会话无可调用的 `/review` 命令
 - 目标：
-  - 播放列表 watch URL 只处理目标视频
-  - `process`、`prepare`、`transcribe` 共用字幕优先 acquisition
-  - 有字幕时不下载媒体、不启动 ASR
-  - `--no-video` 无字幕时直接下载音频
-  - 删除 content/transcript 冗余结果类型与实现分支
-  - 限制 LLM timeout/retry 的最坏耗时
-  - 用播放列表下一课做真实性能验证
-  - 默认优先使用 Codex quota，并完成真实 summary 验证
+  - 对比整章翻译与带稳定 ID 的语义块翻译
+  - 固定源字幕、模型、翻译规范和调用次数
+  - 生成结构校验、诊断指标、盲评稿与独立答案映射
+  - 用第四课 `b_ev4Hdzh-U` 执行真实 Codex 实验
 - 约束：
-  - 不保留后向兼容层
-  - 不新增 CLI 产品面
-  - 自动测试不调用远程服务
   - 不发布到 Obsidian
+  - 不引入无明确口述证据的公式或符号
+  - 不使用中文字符数下限作为质量门槛
+  - 自动测试不调用远程服务
+  - 不保留旧式临时实验格式的兼容逻辑
 - 受影响文件：
-  - `src/yt2notion/media_source/`
-  - `src/yt2notion/extract.py`
+  - `src/yt2notion/translation_experiment/`
   - `src/yt2notion/application.py`
-  - `src/yt2notion/transcript_artifacts.py`
-  - `src/yt2notion/models/llm.py`
-  - 配置、测试和 pipeline 文档
-- 验证模式：strict-tdd + contract-test + trace-review + live smoke-test
+  - `src/yt2notion/cli.py`
+  - `src/yt2notion/prompts/`
+  - `tests/`
+  - `PROJECT_MAP.md`
+- 验证模式：contract/schema tests + deterministic blind-review checks + live smoke test
 - 已完成：
-  - 删除 acquisition profile、两种结果类型和 transcript-only 强制视频路径
-  - 三个 CLI 入口共用字幕优先 acquisition 与 `transcribe_workspace`
-  - playlist watch URL 强制单视频
-  - metadata 驱动一次字幕选择；删除冗余 `subtitles_available` 存储字段
-  - `--no-video` 无字幕时直接下载音频
-  - 默认 LLM backend 改为 `codex_cli`，模型为 `gpt-5.4`
-  - 默认执行边界调整为 `240s × 1`，保留 CLI provider 错误详情
-  - standalone transcript JSON 输出 acquire/segment/transcribe/total 耗时
-  - 删除无生产调用者的 `extract_subtitles()` 兼容包装
-  - 删除 `_download_audio()` 的冗余 config 参数
-  - 删除 Codex 对 Claude 模型别名的兼容映射
-  - 模型默认值收敛到 `model_policy.py`，按 backend 解析模型名
-  - 成功 `prepare` 后清除旧 `failed.json`
+  - 新增 `translation-experiment` CLI；复用字幕优先 `transcribe`
+  - 两种策略各一次批量调用，共用系统翻译规范与配置模型
+  - 精确校验 chapter/block ID 完整性、唯一顺序和非空正文
+  - 生成平衡盲化 review、独立答案、诊断清单和源数据
+  - 成功候选按 source SHA-256、策略和 ordered IDs checkpoint
+  - 第四课真实实验成功，无 Obsidian 发布
 - 验证结果：
-  - `env -u ANTHROPIC_API_KEY uv run --extra dev pytest tests/ -q` → 225 passed, 6 warnings
-  - `uv run --extra dev ruff check src/yt2notion tests` → pass
-  - `uv run --extra dev ruff format --check src/yt2notion tests` → pass
-  - 下一课 transcript：5.494s，343 条人工字幕，8 段，无 audio/video/ASR
-  - 对比旧媒体/转写失败路径约 178s：32.4×，耗时下降 96.9%
-  - 完整 prepare 因 Claude CLI `ConnectionRefused` 无法形成成功基准
-  - Codex summarize 首次在第二笔调用触发旧 `120s` 上限：234.55s，安全停止
-  - Codex summarize 使用 `240s × 1` 后成功：135.65s，生成完整 20,123-byte bundle
-  - 全新 workspace 完整 prepare 成功：156.63s，无 audio/video/ASR/publish
-  - 对比 User 报告的 14+ 分钟：至少 5.36×，耗时至少下降 81.4%
-  - 第 3 课已发布到 Obsidian `Probability Bootcamp/`：英文字幕、完整中文翻译、中文总结
-  - 发布校验：8 个章节时间戳齐全；字幕与 workspace SHA-256 一致
-- 当前证据：见 `docs/harness/PROBLEM_REVIEW.md` 与 `LIVE_VALIDATION.md`
-- review 结论：无标准硬违规、无 scope creep；最新 review 的默认值重复与非同口径实测均已修复
-- 下一步：按 User 明确授权将 PR #29 转为 Ready 并合入 `main`
+  - 本地全量测试：230 passed, 6 warnings
+  - ruff check：pass
+  - ruff format check：pass
+  - 第四课 fresh run：189.11s wall；两候选生成 89.529s / 92.724s
+  - 第四课结构：10 chapters、32 blocks，覆盖/顺序全部通过，A/B 位置 5:5
+  - checkpoint rerun（最终 identity 契约）：6.99s wall，0 次模型调用
+  - 对比 14 分钟基准：双候选实验至少快 4.44x，wall time 至少下降 77.5%
+- 当前证据：`docs/harness/translation_ab/LIVE_VALIDATION.md`
+- review 修复：
+  - checkpoint identity 增加 model label 与 prompt SHA-256，避免混合实验条件
+  - model identity 纳入 Codex reasoning effort，关闭复核发现的剩余公平性缺口
+  - canonical transcript 与 factory config 改为明确类型契约
+  - 抽取共享 load/generate/checkpoint 流程，删除重复逻辑
+  - 在 `PROJECT_MAP.md` 补充 experiment dependency direction
+- 当前修复：
+  - User 发现第四课两候选均保留 `omega`，第二课则忠实恢复 `Ω`
+  - 旧候选在新门禁下均稳定失败：显式 `big/little omega` 缺失 `Ω/ω`
+  - 最终中文文本改为主评价目标；中间 artifacts 只做确定性诊断
+  - prompt 区分忠实符号规范化和无证据公式猜测
+  - 新增 `evaluation.json` 与数学记号独立人工评分维度
+- 新实验结果：
+  - fresh run 194.34s；whole 90.422s，blocks 93.890s
+  - whole: `Ω` 27、`ω` 2、裸 `omega` 0
+  - blocks: `Ω` 27、`ω` 2；2 个 `omega` 仅为首次括注
+  - 两候选 final-text objective gates 全部通过
+  - 10 chapters、32 blocks、blind A/B 5:5、无策略泄漏
+  - checkpoint rerun 5.62s，0 次模型调用
+  - 无 audio/video，未发布 Obsidian
+- 最新验证：234 passed；ruff check/format pass；双轴 review 无残留 finding
+- 新任务：将 User 的盲评理由固化为中文数学课程翻译规范，并重跑第四课。
+- 新验收标准：
+  - 保留实质教学强调，删除无信息的英文口语填充与转写重复
+  - 标准数学符号直接呈现，不附“大写/ASCII 读法”括注
+  - 数学数量、次数与计数使用阿拉伯数字
+  - 保留集合等数学结构，但将硬币结果 H/T 按上下文本地化为正/反
+  - 重要专业概念首次使用“中文（English）”，后续只用中文
+  - 硬性正确性门槛与非阻塞风格诊断分层记录
+- 实现边界：共享 prompt、独立 style evaluator、回归测试、experiment artifacts 和相关事实文档；不改模型、切分策略或发布流程。
+- 验证计划：先跑 style evaluator 与 artifact 针对性测试，再跑全量 pytest/ruff，最后用第四课真实 Codex 调用对比新旧风格诊断和耗时。
+- 实现结果：
+  - 共享 prompt 已加入书面化、数字排版、符号直接呈现、H/T 上下文本地化和专业术语首现规则
+  - 新增独立 `style.py`，风格问题仅作 advisory diagnostics，不自动改写也不覆盖正确性门槛
+  - artifact schema 升级为 3，旧 checkpoint 不再兼容
+- 最新本地验证：`237 passed, 6 warnings`；`ruff check` pass；`ruff format` 完成
+- 第四课真实验证：
+  - fresh wall 198.43s；whole 93.569s；blocks 93.021s
+  - 正确性硬门槛两候选均通过；10 chapters / 32 blocks
+  - style findings：whole 9 → 3，blocks 11 → 2，合计 20 → 5，下降 75%
+  - 剩余 5 条均为“两个”数字排版；H/T、Ω/ω 括注、口语重复、冗余“真的”、measure theory 首现均已修复
+  - 相比前一轮 194.34s，wall 增加 4.09s / 2.1%
+  - checkpoint rerun 8.50s，0 次模型调用；无 audio/video；未发布 Obsidian
+- 交付：实现 commit `2731bb9`；分支已 push；PR #30 已创建。
+- 最新决策：User 已完成人工评价，确认冻结当前 prompt 与评估规则，批准合并 PR #30；局部翻译细节留待后续真实使用中积累跨课程证据后再优化。
+- 下一步：完成最终本地验证并 squash merge PR #30；合并后结束本任务。

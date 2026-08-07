@@ -10,6 +10,7 @@ artifacts, configuration bindings, and extension seams.
 | `yt2notion process URL` | prepare and publish an Obsidian bundle |
 | `yt2notion prepare URL` | prepare a bundle and emit JSON without publishing |
 | `yt2notion transcribe URL` | acquire preferred subtitles or media, transcribe, and stop |
+| `yt2notion translation-experiment URL` | create a local blind whole-chapter vs semantic-block translation experiment |
 
 All commands enter through `application.Yt2Notion`. There is no compatibility
 pipeline or local queue runtime.
@@ -31,6 +32,9 @@ pipeline or local queue runtime.
    `ObsidianStorage`.
 
 `transcribe` stops after step 3. `prepare` stops after step 6.
+`translation-experiment` reuses `transcribe`, then makes one batched translation
+call per strategy and writes only local experiment artifacts. It never reaches
+storage or `PUBLISH`.
 
 ## Transcription state
 
@@ -61,6 +65,24 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 
 Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
+
+`translation_experiment/` contains `source.json`, the two strategy candidates,
+`manifest.json` diagnostics, `evaluation.json`, `blind_review.md`, and a separate
+`answer_key.json`.
+The response contract requires exact ordered chapter/block IDs. Translation
+length ratios are diagnostic only. Explicitly named mathematical symbols are
+normalized faithfully, while formula reconstruction and LaTeX enrichment remain
+disabled so they do not confound the strategy comparison.
+Each candidate is checkpointed immediately and is reused only when schema,
+source fingerprint, strategy, model identity, prompt fingerprint, and ordered
+IDs all match. Codex model identity includes reasoning effort. Final Chinese text
+is the primary evaluation target: `evaluation.json` records deterministic
+coverage, internal-ID leakage, and notation expectations supported by explicit
+source cues. A separate non-blocking style diagnostic reports written-Chinese
+editing, Arabic-number typography, direct symbol presentation, contextual
+coin-outcome localization, and bilingual first-use terminology. Intermediate
+artifacts are diagnostic and receive no subjective aggregate score; the blinded
+human comparison decides the winner.
 
 ## Configuration bindings
 
@@ -101,6 +123,9 @@ elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 
 `NoteComposer` is provider-independent and owns prompt payloads and parsing.
 `TranscriptionEngine` is provider-independent and owns ASR lifecycle.
+`TranslationExperimentRunner` depends on `LLMCaller`, typed canonical transcripts,
+and experiment artifact functions; `application.Yt2Notion` is its only CLI-facing
+orchestrator. It has no dependency on `Storage`.
 
 To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a
@@ -115,6 +140,9 @@ registry or expose provider details through `Yt2Notion`.
 | `compose_guide.md` | `NoteComposer.compose_guide_note` |
 | `compose_longform.md` | `NoteComposer.compose_longform_note` |
 | `compose_note_metadata.md` | `NoteComposer.compose_note_metadata` |
+| `translation_experiment_system.md` | shared translation A/B rules |
+| `translation_experiment_whole.md` | whole-chapter experiment strategy |
+| `translation_experiment_blocks.md` | semantic-block experiment strategy |
 
 Prompt templates are structural inputs and must not be reformatted as ordinary
 documentation.
