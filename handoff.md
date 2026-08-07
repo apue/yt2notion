@@ -6,8 +6,8 @@
 - 状态：`style_repair_live_validated`
 - 当前 owner：Codex
 - 分支：`codex/translation-ab-experiment`
-- PR：未创建
-- review 状态：双轴 review 与两轮修复复核完成；无残留 finding
+- PR：[#30](https://github.com/apue/yt2notion/pull/30)
+- review 状态：既有双轴 review 与两轮修复复核完成；本轮人类风格修复已做本地静态 diff review，无阻塞 finding；API 会话无可调用的 `/review` 命令
 - 目标：
   - 对比整章翻译与带稳定 ID 的语义块翻译
   - 固定源字幕、模型、翻译规范和调用次数
@@ -86,4 +86,5 @@
   - 剩余 5 条均为“两个”数字排版；H/T、Ω/ω 括注、口语重复、冗余“真的”、measure theory 首现均已修复
   - 相比前一轮 194.34s，wall 增加 4.09s / 2.1%
   - checkpoint rerun 8.50s，0 次模型调用；无 audio/video；未发布 Obsidian
-- 下一步：静态 review、再次本地验证、commit；GitHub push/PR 视网络状态。
+- 交付：实现 commit `2731bb9`；分支已 push；PR #30 已创建。
+- 下一步：查看 PR checks；User 完成新 `blind_review.md` 的人工评价后决定是否继续调整风格或批准合并。
