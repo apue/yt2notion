@@ -13,7 +13,7 @@ from yt2notion.transcript_artifacts import (
     render_media_transcript_markdown as render_media_transcript_markdown,
 )
 
-DEFAULT_USER_CONFIG_PATH = Path.home() / ".yt2notion" / "config.yaml"
+DEFAULT_USER_CONFIG_PATH = Path.home() / ".yt2notion-agent" / "config.yaml"
 DEFAULT_REPO_CONFIG_PATH = Path("config.yaml")
 
 

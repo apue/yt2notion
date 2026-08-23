@@ -271,7 +271,7 @@ Codex 执行时应遵守：
 uv run yt2notion transcribe "URL"
 ```
 
-默认配置读取顺序：显式 `--config` → `~/.yt2notion/config.yaml` → 当前仓库 `config.yaml`。
+默认配置读取顺序：显式 `--config` → `~/.yt2notion-agent/config.yaml` → 当前仓库 `config.yaml`。
 
 默认输出：`workspace/<media-id>/metadata.json`、`transcripts.json`、`transcript.md`；优先使用人工/自动字幕，仅在无可用字幕时下载音频或视频并进入 ASR。`video.*` 与 `audio.mp3` 是按需 artifact。命令不触发 review / summarize / Obsidian 发布；需要机器可读结果和阶段耗时时加 `--json`。
 
