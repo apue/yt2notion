@@ -3,10 +3,10 @@
 ## 当前任务卡
 
 - 任务：统一默认用户配置路径到 `~/.yt2notion-agent/config.yaml`
-- 状态：`ready_for_pr`
+- 状态：`in_review`
 - 当前 owner：Codex
 - 分支：`codex/default-agent-config-path`
-- PR：无
+- PR：[#31](https://github.com/apue/yt2notion/pull/31)
 - review 状态：merge-base 静态审查无 finding；当前 API 会话无可调用的 `/review` 命令
 - 目标：CLI 默认配置解析、帮助文本和事实文档统一使用实际 agent runtime 配置目录
 - 受影响文件：`PROJECT_MAP.md`、`src/yt2notion/media_transcribe.py`、`src/yt2notion/cli.py`、`tests/test_media_transcribe.py`、`README.md`、`AGENTS.md`
@@ -14,7 +14,8 @@
 - 约束：不读取、修改或提交用户配置和凭据；不保留旧 `~/.yt2notion/config.yaml` 的兼容 fallback
 - 验证结果：`tests/test_media_transcribe.py` 7 passed；全量 238 passed；ruff check/format pass；两条 CLI help 均显示新路径；默认解析实测命中 agent 配置
 - 最后一次自测命令：`uv run pytest tests/ -q`、`uv run ruff check src/yt2notion tests`、`uv run ruff format --check src/yt2notion tests`
-- 下一步：提交、push 并创建 PR；等待 User 决定是否合并
+- 交付：实现 commit `16eedde`；分支已 push；PR #31 已创建
+- 下一步：检查 PR checks；等待 User 决定是否合并
 
 ## 上一任务卡（已完成）
 
