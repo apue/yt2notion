@@ -19,7 +19,7 @@ uv run yt2notion process "URL"
 `transcribe` resolves configuration in this order:
 
 1. explicit `--config`;
-2. `~/.yt2notion/config.yaml`;
+2. `~/.yt2notion-agent/config.yaml`;
 3. local `config.yaml`.
 
 It writes `metadata.json`, `transcripts.json`, and readable `transcript.md`

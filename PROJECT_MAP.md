@@ -108,7 +108,7 @@ human comparison decides the winner.
 | `workspace.base_dir` | workspace root |
 
 Standalone `transcribe` resolves explicit config, then
-`~/.yt2notion/config.yaml`, then local `config.yaml`.
+`~/.yt2notion-agent/config.yaml`, then local `config.yaml`.
 Its JSON result includes per-stage `acquire`, `segment`, `transcribe`, and total
 elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 
