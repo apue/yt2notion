@@ -164,8 +164,9 @@ Context Builder 本身采用 map/reduce，而不是先把完整字幕交给一�
 - 最终 cue 覆盖、时间轴和 artifact schema 仍由程序对完整字幕包一次性校验。
 
 checkpoint identity 至少包含源 cue 范围及哈希、GlobalBrief 指纹、SectionContext 指纹、
-模型和 prompt 指纹。中断后只恢复匹配的批次；某个局部窗口变化时可重做受影响窗口，
-GlobalBrief 变化则使所有依赖它的校对、翻译和 QA checkpoint 失效。
+模型和 prompt 指纹，以及生成批次预算和 overlap 策略。中断后只恢复匹配的批次；某个局部
+窗口或批次策略变化时可重做受影响窗口，GlobalBrief 变化则使所有依赖它的校对、翻译和
+QA checkpoint 失效。
 
 ## Cue 与字幕包契约
 

@@ -130,10 +130,13 @@ Its JSON result includes per-stage `acquire`, `segment`, `transcribe`, and total
 elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 
 `subtitle-pack` uses `output.target_language` and the existing translation model
-role. Its batch character budget is an internal bounded default rather than a
-public configuration surface. Context and generation checkpoints are reusable
-only when their schema, source/context fingerprint, model identity, prompt
-fingerprint, operation, and ordered cue IDs all match.
+role. Its generation batch character budget is an internal 8,000-character
+default, kept below the larger quality-check budget to fit the existing provider
+timeout without raising the timeout globally. Generation checkpoint identity
+includes the batch budget and overlap policy; context and generation checkpoints
+are reusable only when their schema, source/context fingerprint, model identity,
+prompt fingerprint, operation, ordered cue IDs, and relevant batching policy all
+match.
 
 ## Interfaces and adapters
 

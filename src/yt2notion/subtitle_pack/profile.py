@@ -34,7 +34,7 @@ class ProfileRecorder:
         status = "completed"
         try:
             yield
-        except Exception:
+        except BaseException:
             status = "failed"
             raise
         finally:
@@ -74,7 +74,7 @@ class ProfileRecorder:
             }
         )
 
-    def finish(self, *, error: Exception | None = None) -> Path:
+    def finish(self, *, error: BaseException | None = None) -> Path:
         """Persist a successful or failed profile and return its path."""
         self.status = "failed" if error else "completed"
         self.error = type(error).__name__ if error else None

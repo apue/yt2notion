@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 SCHEMA_VERSION = 1
 _BATCH_CHAR_BUDGET = 12_000
+_GENERATION_BATCH_CHAR_BUDGET = 8_000
 _CONTEXT_CHAR_BUDGET = 24_000
 _OVERLAP_CUES = 3
 
@@ -57,7 +58,7 @@ class SubtitlePackService:
         """Generate a browser-consumable bilingual package from local transcription artifacts."""
         ws = transcription.workspace
         profile = ProfileRecorder(ws.dir, inherited_timings=transcription.timings_seconds)
-        error: Exception | None = None
+        error: BaseException | None = None
         try:
             self._progress("Subtitle pack: building source cues")
             with profile.stage("build_source_cues"):
@@ -152,7 +153,7 @@ class SubtitlePackService:
                 srt_path.write_text(_render_srt(generated), encoding="utf-8")
                 _write_json(report_path, report)
             self._progress(f"Subtitle pack: complete ({package_path})")
-        except Exception as exc:
+        except BaseException as exc:
             error = exc
             raise
         finally:
@@ -277,7 +278,7 @@ class SubtitlePackService:
         workspace_dir: Path,
         profile: ProfileRecorder,
     ) -> list[BilingualCue]:
-        batches = _batch_cues(cues, _BATCH_CHAR_BUDGET)
+        batches = _batch_cues(cues, _GENERATION_BATCH_CHAR_BUDGET)
         output: list[BilingualCue] = []
         for index, (start, end) in enumerate(batches, start=1):
             owned = cues[start:end]
@@ -291,6 +292,8 @@ class SubtitlePackService:
                 "source_kind": source_kind,
                 "target_language": self.target_language,
                 "ordered_ids": [cue.id for cue in owned],
+                "generation_batch_char_budget": _GENERATION_BATCH_CHAR_BUDGET,
+                "overlap_cues": _OVERLAP_CUES,
             }
             batch_id = f"batch-{index:04d}"
             checkpoint = workspace_dir / "subtitle_checkpoints" / f"{batch_id}.json"
@@ -469,7 +472,7 @@ class SubtitlePackService:
         try:
             raw = self.caller.call(self.system_prompt, prompt, max_tokens=max_tokens)
             return raw
-        except Exception:
+        except BaseException:
             status = "failed"
             raise
         finally:

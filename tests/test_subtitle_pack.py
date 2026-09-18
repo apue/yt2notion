@@ -244,6 +244,30 @@ def test_missing_model_id_fails_and_still_writes_profile(tmp_path: Path) -> None
     assert json.loads(profiles[0].read_text(encoding="utf-8"))["status"] == "failed"
 
 
+def test_keyboard_interrupt_writes_failed_profile(tmp_path: Path) -> None:
+    class InterruptingCaller:
+        def call(self, system_prompt: str, user_prompt: str, *, max_tokens: int = 4000) -> str:
+            del system_prompt, user_prompt, max_tokens
+            raise KeyboardInterrupt
+
+    transcription = _transcription(tmp_path, source_kind="automatic_caption")
+
+    with pytest.raises(KeyboardInterrupt):
+        SubtitlePackService(
+            InterruptingCaller(),
+            model_label="fake:model",
+            target_language="zh-CN",
+        ).run(transcription)
+
+    profiles = list((transcription.workspace.dir / "profiles").glob("*.json"))
+    assert len(profiles) == 1
+    profile = json.loads(profiles[0].read_text(encoding="utf-8"))
+    assert profile["status"] == "failed"
+    assert profile["error_type"] == "KeyboardInterrupt"
+    assert profile["stages"][-1]["status"] == "failed"
+    assert profile["llm_calls"][-1]["status"] == "failed"
+
+
 def test_malformed_quality_response_cannot_pass_validation(tmp_path: Path) -> None:
     transcription = _transcription(tmp_path, source_kind="manual_subtitle")
 
@@ -279,6 +303,22 @@ def test_context_checkpoint_is_invalidated_when_metadata_changes(tmp_path: Path)
         (transcription.workspace.dir / "subtitle_context.json").read_text(encoding="utf-8")
     )
     assert context["source_evidence"]["description"] == "A different course and lecturer."
+
+
+def test_generation_checkpoint_records_batch_strategy(tmp_path: Path) -> None:
+    result = SubtitlePackService(
+        FakeSubtitleCaller(),
+        model_label="fake:model",
+        target_language="zh-CN",
+    ).run(_transcription(tmp_path, source_kind="manual_subtitle"))
+
+    checkpoint = json.loads(
+        (result.workspace_dir / "subtitle_checkpoints" / "batch-0001.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert checkpoint["identity"]["generation_batch_char_budget"] == 8_000
+    assert checkpoint["identity"]["overlap_cues"] == 3
 
 
 def test_progress_reports_stages_and_llm_call_duration(tmp_path: Path) -> None:
