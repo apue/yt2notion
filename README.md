@@ -12,6 +12,9 @@ uv run yt2notion transcribe "URL"
 # Generate a context-aware bilingual subtitle package without publishing
 uv run yt2notion subtitle-pack "YOUTUBE_URL"
 
+# Show source, stage, LLM batch, checkpoint, and per-call timing progress
+uv run yt2notion subtitle-pack --verbose "YOUTUBE_URL"
+
 # Build the source/A/B bundle without publishing
 uv run yt2notion prepare "URL"
 

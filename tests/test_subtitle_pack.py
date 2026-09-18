@@ -279,3 +279,24 @@ def test_context_checkpoint_is_invalidated_when_metadata_changes(tmp_path: Path)
         (transcription.workspace.dir / "subtitle_context.json").read_text(encoding="utf-8")
     )
     assert context["source_evidence"]["description"] == "A different course and lecturer."
+
+
+def test_progress_reports_stages_and_llm_call_duration(tmp_path: Path) -> None:
+    messages: list[str] = []
+
+    SubtitlePackService(
+        FakeSubtitleCaller(),
+        model_label="fake:model",
+        target_language="zh-CN",
+        progress_callback=messages.append,
+    ).run(_transcription(tmp_path, source_kind="manual_subtitle"))
+
+    assert "Subtitle pack: 2 source cues (manual_subtitle)" in messages
+    assert any(
+        message.startswith("LLM context_section context-001: started") for message in messages
+    )
+    assert any(
+        message.startswith("LLM semantic_quality quality-0001: completed in ")
+        for message in messages
+    )
+    assert any(message.startswith("Subtitle pack: complete (") for message in messages)

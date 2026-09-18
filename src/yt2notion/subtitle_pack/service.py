@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,10 +36,18 @@ class SubtitlePackError(ValueError):
 class SubtitlePackService:
     """Build context, translate immutable cues, validate, and write artifacts."""
 
-    def __init__(self, caller: LLMCaller, *, model_label: str, target_language: str) -> None:
+    def __init__(
+        self,
+        caller: LLMCaller,
+        *,
+        model_label: str,
+        target_language: str,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
         self.caller = caller
         self.model_label = model_label
         self.target_language = target_language
+        self.progress_callback = progress_callback
         self.system_prompt = (
             "You edit professional subtitles. Treat IDs and timing as immutable. "
             "Return only the requested JSON and never omit or invent an ID."
@@ -50,12 +59,15 @@ class SubtitlePackService:
         profile = ProfileRecorder(ws.dir, inherited_timings=transcription.timings_seconds)
         error: Exception | None = None
         try:
+            self._progress("Subtitle pack: building source cues")
             with profile.stage("build_source_cues"):
                 source_kind, cues = _build_source_cues(transcription)
                 _validate_source_cues(cues)
                 _write_json(ws.dir / "source_cues.json", [asdict(cue) for cue in cues])
+            self._progress(f"Subtitle pack: {len(cues)} source cues ({source_kind})")
 
             source_fingerprint = _fingerprint([asdict(cue) for cue in cues])
+            self._progress("Subtitle pack: building bounded global context")
             with profile.stage("build_context"):
                 context = self._build_context(
                     transcription.metadata,
@@ -75,6 +87,7 @@ class SubtitlePackService:
                     },
                 )
 
+            self._progress("Subtitle pack: correcting and translating cue batches")
             with profile.stage("generate_batches"):
                 generated = self._generate_all(
                     cues,
@@ -85,9 +98,11 @@ class SubtitlePackService:
                     profile,
                 )
 
+            self._progress("Subtitle pack: running semantic quality checks")
             with profile.stage("semantic_quality"):
                 semantic_issues = self._semantic_quality(generated, context, profile)
             if semantic_issues:
+                self._progress(f"Subtitle pack: repairing {len(semantic_issues)} semantic issue(s)")
                 with profile.stage("repair"):
                     generated = self._repair_issues(
                         generated,
@@ -104,6 +119,7 @@ class SubtitlePackService:
                         operation="semantic_quality_after_repair",
                     )
 
+            self._progress("Subtitle pack: validating and writing artifacts")
             with profile.stage("validate_and_write"):
                 report = _validate_bilingual(cues, generated, semantic_issues)
                 if source_kind != "manual_subtitle":
@@ -135,6 +151,7 @@ class SubtitlePackService:
                 _write_json(package_path, package)
                 srt_path.write_text(_render_srt(generated), encoding="utf-8")
                 _write_json(report_path, report)
+            self._progress(f"Subtitle pack: complete ({package_path})")
         except Exception as exc:
             error = exc
             raise
@@ -172,6 +189,7 @@ class SubtitlePackService:
         }
         cached = _load_checkpoint(checkpoint, identity)
         if isinstance(cached, dict):
+            self._progress("Subtitle context: reused checkpoint")
             profile.record_call(
                 operation="context",
                 batch_id="context",
@@ -280,6 +298,10 @@ class SubtitlePackService:
             reused_checkpoint = isinstance(cached, list)
             if isinstance(cached, list):
                 records = cached
+                self._progress(
+                    f"Subtitle generation {batch_id}: reused checkpoint "
+                    f"({owned[0].id}..{owned[-1].id})"
+                )
                 profile.record_call(
                     operation="generate",
                     batch_id=batch_id,
@@ -440,6 +462,10 @@ class SubtitlePackService:
         started = time.perf_counter()
         status = "completed"
         raw = ""
+        self._progress(
+            f"LLM {operation} {batch_id}: started"
+            + (f" ({cue_start}..{cue_end})" if cue_start and cue_end else "")
+        )
         try:
             raw = self.caller.call(self.system_prompt, prompt, max_tokens=max_tokens)
             return raw
@@ -447,6 +473,7 @@ class SubtitlePackService:
             status = "failed"
             raise
         finally:
+            elapsed_seconds = time.perf_counter() - started
             profile.record_call(
                 operation=operation,
                 batch_id=batch_id,
@@ -454,10 +481,15 @@ class SubtitlePackService:
                 cue_end=cue_end,
                 input_chars=len(self.system_prompt) + len(prompt),
                 output_chars=len(raw),
-                elapsed_seconds=time.perf_counter() - started,
+                elapsed_seconds=elapsed_seconds,
                 reused_checkpoint=False,
                 status=status,
             )
+            self._progress(f"LLM {operation} {batch_id}: {status} in {elapsed_seconds:.1f}s")
+
+    def _progress(self, message: str) -> None:
+        if self.progress_callback is not None:
+            self.progress_callback(message)
 
 
 def _build_source_cues(transcription: MediaTranscribeResult) -> tuple[str, list[SourceCue]]:

@@ -415,10 +415,19 @@ class Yt2Notion:
                 f"{model_config['backend']}:{model_config['translate_model']}:"
                 f"reasoning={model_config.get('reasoning_effort', 'low')}"
             )
+            if verbose:
+                typer.echo(
+                    f"Subtitle LLM: {model_label}; "
+                    f"timeout={model_config['timeout_seconds']}s per provider attempt",
+                    err=True,
+                )
             service = SubtitlePackService(
                 create_llm_caller(self.raw_config, model_key="translate_model"),
                 model_label=model_label,
                 target_language=str(self.config.output.get("target_language", "zh-CN")),
+                progress_callback=(lambda message: typer.echo(message, err=True))
+                if verbose
+                else None,
             )
         return service.run(transcription)
 
