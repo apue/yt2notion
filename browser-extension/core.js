@@ -44,18 +44,27 @@
     return payload;
   }
 
-  function findCue(cues, timeMs) {
+  function findActiveCues(cues, timeMs) {
     let low = 0;
     let high = cues.length - 1;
+    let lastStarted = -1;
     while (low <= high) {
       const middle = (low + high) >> 1;
       const cue = cues[middle];
-      if (timeMs < cue.start_ms) high = middle - 1;
-      else if (timeMs >= cue.end_ms) low = middle + 1;
-      else return cue;
+      if (cue.start_ms <= timeMs) {
+        lastStarted = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
     }
-    return null;
+    const active = [];
+    for (let index = 0; index <= lastStarted; index += 1) {
+      const cue = cues[index];
+      if (timeMs < cue.end_ms) active.push(cue);
+    }
+    return active;
   }
 
-  global.Yt2NotionSubtitleCore = { videoIdFromUrl, validatePackage, findCue };
+  global.Yt2NotionSubtitleCore = { videoIdFromUrl, validatePackage, findActiveCues };
 })(typeof globalThis !== "undefined" ? globalThis : window);

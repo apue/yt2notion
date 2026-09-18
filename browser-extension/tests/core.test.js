@@ -20,10 +20,23 @@ const pkg = {
   ]
 };
 assert.equal(core.validatePackage(pkg), pkg);
-assert.equal(core.findCue(pkg.cues, 999), null);
-assert.equal(core.findCue(pkg.cues, 1000).id, "one");
-assert.equal(core.findCue(pkg.cues, 2000), null);
-assert.equal(core.findCue(pkg.cues, 2999).id, "two");
+assert.deepEqual(Array.from(core.findActiveCues(pkg.cues, 999), (cue) => cue.id), []);
+assert.deepEqual(Array.from(core.findActiveCues(pkg.cues, 1000), (cue) => cue.id), ["one"]);
+assert.deepEqual(Array.from(core.findActiveCues(pkg.cues, 2000), (cue) => cue.id), []);
+assert.deepEqual(Array.from(core.findActiveCues(pkg.cues, 2999), (cue) => cue.id), ["two"]);
+
+const overlapping = [
+  { id: "A", start_ms: 1000, end_ms: 3000 },
+  { id: "B", start_ms: 2000, end_ms: 4000 },
+  { id: "C", start_ms: 5000, end_ms: 6000 }
+];
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 1999), (cue) => cue.id), ["A"]);
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 2000), (cue) => cue.id), ["A", "B"]);
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 2999), (cue) => cue.id), ["A", "B"]);
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 3000), (cue) => cue.id), ["B"]);
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 4000), (cue) => cue.id), []);
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 4999), (cue) => cue.id), []);
+assert.deepEqual(Array.from(core.findActiveCues(overlapping, 5000), (cue) => cue.id), ["C"]);
 assert.throws(() => core.validatePackage({ ...pkg, cues: [pkg.cues[1], pkg.cues[0]] }), /Invalid cue/);
 assert.throws(
   () => core.validatePackage({ ...pkg, quality: { passed: false, semantic_issue_count: 1 } }),

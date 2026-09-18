@@ -7,7 +7,7 @@
 - 当前 owner：Codex
 - 分支：`codex/bilingual-subtitle-pack`
 - PR：[#32](https://github.com/apue/yt2notion/pull/32)
-- review 状态：PR diff 本地 review 完成；已修复无 package 时高频 storage 读取、SPA 异步加载竞态、生成批次超时风险和中断 profile 误报，并为长时间 LLM 阶段增加 verbose 进度与耗时日志；当前 API 会话无可调用的 `/review` 命令；仓库未返回 CI checks
+- review 状态：PR diff 本地 review 完成；已修复无 package 时高频 storage 读取、SPA 异步加载竞态、重叠 auto-caption 单 cue 查找导致的延迟/跳条、生成批次超时风险和中断 profile 误报，并为长时间 LLM 阶段增加 verbose 进度与耗时日志；当前 API 会话无可调用的 `/review` 命令；仓库未返回 CI checks
 - 设计文档：[`docs/bilingual-subtitles-design.md`](./docs/bilingual-subtitles-design.md)
 - 目标：
   - 输入单个 YouTube URL，生成保留 cue 时间轴的双语字幕包
@@ -41,11 +41,11 @@
   - 成功、失败、重试和 checkpoint reuse 均生成不含 prompt 正文或凭据的 profile
 - 验证：contract/schema tests、确定性校验、fake LLM、浏览器核心逻辑和 Chromium 视觉检查均通过
 - 设计图：`docs/diagrams/` 下包含 2 份可维护的 Archify sequence JSON 与对应交互 HTML
-- 当前验证结果：249 项全量测试通过；ruff check/format pass；真实 `UwfjzyLnvMg` 运行生成 1,648 cues，4 个语义问题修复后复检通过，`quality_passed=true`；extension core test 与 JS/manifest syntax pass；popup loaded/empty 和双语 overlay 在 Chromium 2× 截图中无遮挡、截断或错误布局；两份 Archify diagram showcase 9/9，readability/viewer chrome pass，长页面 vertical containment 按预期 fail
+- 当前验证结果：249 项全量测试通过；ruff check/format pass；真实 `UwfjzyLnvMg` 运行生成 1,648 cues，4 个语义问题修复后复检通过，`quality_passed=true`；extension core 的 overlap/boundary/gap tests 与 JS/manifest syntax pass；真实 cue 45/46 的双语滚动窗口在 Chromium 2× 截图中无遮挡或截断，gap 隐藏和 seek 重建 DOM 检查通过；popup loaded/empty 视觉检查通过；两份 Archify diagram showcase 9/9，readability/viewer chrome pass，长页面 vertical containment 按预期 fail
 - 真实运行诊断：12,000 字符 generation batches 分别观测到 211.6s、274.5s、278.8s、216.7s、240.3s；默认 240s 在 batch-0002 触发 `RetryExhaustedError`。使用仅本次进程的 600s 临时配置完成恢复，未修改持久用户配置；持久修复改为缩小 generation batch，不全局提高 timeout。
 - 最后一次自测命令：`uv run --extra dev pytest tests/ -q`、`uv run --extra dev ruff check src/ tests/`、`uv run --extra dev ruff format --check src/ tests/`
 - 交付：实现 commit `53b3066`；review 修复包含于当前分支和 PR #32
-- 下一步：User 将 `workspace/UwfjzyLnvMg/bilingual_subtitles.json` 手动导入 `browser-extension/` 验收；根据人工验收决定是否合并 PR #32
+- 下一步：User 在 `chrome://extensions` reload 插件后，用既有 `workspace/UwfjzyLnvMg/bilingual_subtitles.json` 复测重叠字幕滚动窗口；根据人工验收决定是否合并 PR #32
 
 ## 上一任务卡（等待合并）
 

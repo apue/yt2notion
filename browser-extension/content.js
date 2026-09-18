@@ -5,7 +5,7 @@
   const HOST_ID = "yt2notion-subtitle-host";
   let subtitlePackage = null;
   let settings = { enabled: true, fontScale: 1, bottomOffset: 9 };
-  let activeCueId = null;
+  let activeCueKey = "";
   let currentVideoId;
   let host = null;
   let sourceLine = null;
@@ -26,7 +26,8 @@
         .line { display: table; max-width: 100%; margin: 4px auto; padding: .18em .5em; border-radius: .28em;
           color: #fff; background: rgba(6, 9, 15, .78); box-decoration-break: clone; -webkit-box-decoration-break: clone;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: calc(24px * var(--subtitle-scale, 1));
-          font-weight: 650; line-height: 1.32; letter-spacing: .005em; text-shadow: 0 1px 3px #000; }
+          font-weight: 650; line-height: 1.32; letter-spacing: .005em; text-shadow: 0 1px 3px #000;
+          white-space: pre-line; }
         .translated { color: #ffe08a; font-weight: 700; }
         @media (max-width: 720px) { .line { font-size: calc(18px * var(--subtitle-scale, 1)); } }
       </style>
@@ -55,7 +56,7 @@
   function hide() {
     if (!host || !host.shadowRoot) return;
     host.shadowRoot.querySelector(".wrap").classList.remove("visible");
-    activeCueId = null;
+    activeCueKey = "";
   }
 
   function render() {
@@ -64,15 +65,16 @@
       hide();
       return;
     }
-    const cue = core.findCue(subtitlePackage.cues, video.currentTime * 1000);
-    if (!cue) {
+    const cues = core.findActiveCues(subtitlePackage.cues, video.currentTime * 1000);
+    if (cues.length === 0) {
       hide();
       return;
     }
-    if (cue.id !== activeCueId) {
-      sourceLine.textContent = cue.source_text;
-      translatedLine.textContent = cue.translated_text;
-      activeCueId = cue.id;
+    const cueKey = cues.map((cue) => cue.id).join("|");
+    if (cueKey !== activeCueKey) {
+      sourceLine.textContent = cues.map((cue) => cue.source_text).join("\n");
+      translatedLine.textContent = cues.map((cue) => cue.translated_text).join("\n");
+      activeCueKey = cueKey;
     }
     host.shadowRoot.querySelector(".wrap").classList.add("visible");
   }

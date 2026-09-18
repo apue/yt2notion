@@ -12,3 +12,6 @@
 Packages are validated and stored locally by YouTube video ID. The extension
 does not send subtitle content to a server and does not invoke an LLM. Use the
 popup controls to enable the overlay, change text size, or move it vertically.
+When source cues overlap, all currently active cues appear in order as a rolling
+multiline window; gaps hide the overlay and seeking rebuilds the window from the
+target playback time.

@@ -320,7 +320,13 @@ checkpoint、问题诊断和恢复执行。`subtitle_checkpoints/` 保存 contex
 
 Overlay 默认挂载在文档根节点；进入浏览器全屏时移入 `document.fullscreenElement`，
 因此仍属于全屏 DOM 子树。同步以 `HTMLVideoElement.currentTime` 为唯一时间源，因此
-暂停、seek 和倍速不会产生独立计时器漂移。
+暂停、seek 和倍速不会产生独立计时器漂移。播放窗口显示所有满足
+`start_ms <= currentTime < end_ms` 的 cue，并按开始时间在同一原文框和译文框中逐行排列；
+因此 YouTube 自动字幕的重叠 cue 会形成随时间滚动的上下文，而不是被单 cue 二分查找
+错误地延迟或跳过。时间空档立即隐藏，seek 后只按目标时间重建窗口，不保留播放路径历史。
+
+当前 artifact 只有 cue 级时间，因此可以保证不显示尚未开始的未来 cue，但不能像 YouTube
+原生 json3 caption event 一样逐词揭示一个 cue。严格的词级滚动需要后续保留词级时间戳。
 
 ## 实施顺序
 
