@@ -7,11 +7,11 @@
 - 当前 owner：Codex
 - 分支：`codex/typed-pipeline-architecture`
 - PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
-- review 状态：完成文档自查；待 User 阅读 VS Code Markdown preview
+- review 状态：已按 User 新要求从头重写并完成本地自查；保留初稿 commit 供 review history 对比
 - 目标：
-  - 将 typed-node / typed-pipeline 重构讨论整理为完整、可实施的中文目标架构
-  - 明确 typed contracts、node 能力、四类 pipeline、acquisition split 和横切 runtime 设计
-  - 给出保持既有 JSON schema 与运行行为的增量迁移计划，首阶段移除核心 `list[dict]` 与 translation experiment cast
+  - 用更短、按决策展开的中文提案说明 typed capabilities/nodes、普通 Python pipelines、provider adapters 与横切 runtime 的边界
+  - 通过 system context、repository components、acquisition/runtime sequences、focused pipeline flows 和 recovery flow 渐进展示架构
+  - 保持既有 JSON schema 与行为，首阶段移除核心 `list[dict]` 与 translation experiment cast
 - 约束：
   - 仅文档 / 设计，不实现运行时代码
   - `PROJECT_MAP.md` 继续作为当前实现唯一事实锚点，不把提议架构写成已落地事实
@@ -20,10 +20,11 @@
 - 受影响文件：
   - `docs/typed-pipeline-architecture.md`
   - `handoff.md`
-- 设计内容：目标与非目标、分层依赖、typed contracts 与 ownership、完整 node inventory、acquisition probe/plan/execute/fallback、四类 pipelines、ArtifactStore / NodeExecutor / profiler / events / checkpoint / health / retry / publish safety、配置、离线测试、Phase 0–5 增量迁移、模块布局与未来边界
-- 验证结果：909 行文档中的 12 个 Markdown fence、8 个 Mermaid block 和本地相对链接静态检查通过；无尾随空白；`git diff --check` 通过；未发现仓库已有 Mermaid CLI，因此按要求未安装新依赖做渲染验证
-- 最后一次自测命令：`git diff --cached --check`；内联 Python 检查 Markdown fences、Mermaid block 类型/数量、必需架构术语和本地相对链接；`rg -n '[ \t]+$' docs/typed-pipeline-architecture.md handoff.md`；`git diff --stat` / `git status --short --branch`
-- 下一步：User 在 VS Code Markdown preview 阅读设计并确认开放决策；若进入实现，先单独规划 Phase 0 / Phase 1，不直接实施完整迁移
+- 重写结果：文档从 909 行缩短为 431 行；删除 exhaustive node inventory、精确 class fields/module tree/YAML schema/error taxonomy/retry matrix，将内容收敛为架构边界、交互与验收决策
+- 图表：9 个 Mermaid block（2 个 sequenceDiagram、7 个 focused flowchart），分别覆盖 system context、repository components、acquisition、4 条 pipelines、node execution/profiling 和 retry/recovery
+- 验证结果：Markdown/Mermaid fences 与图类型、相对链接、关键约束、延期决策和尾随空白检查通过；`git diff --check` 通过；未发现现成 Mermaid CLI，因此按要求未安装新依赖
+- 最后一次自测命令：`git diff --cached --check`；内联 Python 文档结构/链接/约束检查；`git diff HEAD^..HEAD --stat`；`git status --short --branch`
+- 下一步：User 对比两个本地 commits 审阅信息密度；若进入实现，单独规划 Phase 1 typed transcript spine
 
 ## 上一任务卡（已合并至 main）
 
