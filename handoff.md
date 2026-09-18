@@ -2,6 +2,31 @@
 
 ## 当前任务卡
 
+- 任务：Typed Node / Typed Pipeline 目标架构设计文档
+- 状态：`completed_local`
+- 当前 owner：Codex
+- 分支：`codex/typed-pipeline-architecture`
+- PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
+- review 状态：完成文档自查；待 User 阅读 VS Code Markdown preview
+- 目标：
+  - 将 typed-node / typed-pipeline 重构讨论整理为完整、可实施的中文目标架构
+  - 明确 typed contracts、node 能力、四类 pipeline、acquisition split 和横切 runtime 设计
+  - 给出保持既有 JSON schema 与运行行为的增量迁移计划，首阶段移除核心 `list[dict]` 与 translation experiment cast
+- 约束：
+  - 仅文档 / 设计，不实现运行时代码
+  - `PROJECT_MAP.md` 继续作为当前实现唯一事实锚点，不把提议架构写成已落地事实
+  - 自动测试策略仅允许离线 contract tests；不调用 YouTube / ASR / LLM / Obsidian
+  - 不 push、不创建 PR、不 merge、不修改 `main`
+- 受影响文件：
+  - `docs/typed-pipeline-architecture.md`
+  - `handoff.md`
+- 设计内容：目标与非目标、分层依赖、typed contracts 与 ownership、完整 node inventory、acquisition probe/plan/execute/fallback、四类 pipelines、ArtifactStore / NodeExecutor / profiler / events / checkpoint / health / retry / publish safety、配置、离线测试、Phase 0–5 增量迁移、模块布局与未来边界
+- 验证结果：909 行文档中的 12 个 Markdown fence、8 个 Mermaid block 和本地相对链接静态检查通过；无尾随空白；`git diff --check` 通过；未发现仓库已有 Mermaid CLI，因此按要求未安装新依赖做渲染验证
+- 最后一次自测命令：`git diff --cached --check`；内联 Python 检查 Markdown fences、Mermaid block 类型/数量、必需架构术语和本地相对链接；`rg -n '[ \t]+$' docs/typed-pipeline-architecture.md handoff.md`；`git diff --stat` / `git status --short --branch`
+- 下一步：User 在 VS Code Markdown preview 阅读设计并确认开放决策；若进入实现，先单独规划 Phase 0 / Phase 1，不直接实施完整迁移
+
+## 上一任务卡（已合并至 main）
+
 - 任务：生成可供浏览器插件播放的 LLM 精校双语字幕
 - 状态：`ready_for_manual_validation`
 - 当前 owner：Codex
