@@ -3,11 +3,11 @@
 ## 当前任务卡
 
 - 任务：生成可供浏览器插件播放的 LLM 精校双语字幕
-- 状态：`implemented_local_validation_passed`
+- 状态：`ready_for_manual_validation`
 - 当前 owner：Codex
 - 分支：`codex/bilingual-subtitle-pack`
-- PR：尚未创建
-- review 状态：等待创建 PR 后进入 review
+- PR：[#32](https://github.com/apue/yt2notion/pull/32)
+- review 状态：PR diff 本地 review 完成；修复无 package 时高频 storage 读取及 SPA 异步加载竞态；当前 API 会话无可调用的 `/review` 命令；仓库未返回 CI checks
 - 设计文档：[`docs/bilingual-subtitles-design.md`](./docs/bilingual-subtitles-design.md)
 - 目标：
   - 输入单个 YouTube URL，生成保留 cue 时间轴的双语字幕包
@@ -42,7 +42,8 @@
 - 当前验证结果：246 项全量测试通过（新增 targeted suite 15 项）；ruff check/format pass；extension core test 与 JS/manifest syntax pass；popup loaded/empty 和双语 overlay 在 Chromium 2× 截图中无遮挡、截断或错误布局；两份 Archify diagram showcase 9/9，readability/viewer chrome pass，长页面 vertical containment 按预期 fail
 - 环境限制：当前 orb 没有 runtime config、`yt-dlp` 或 LLM CLI，因此未对指定 URL 发起真实下载/LLM 调用；不影响 fake provider 与浏览器 fixture 的本地闭环验证
 - 最后一次自测命令：`uv run pytest tests/ -q`、`uv run ruff check src/ tests/`、`uv run ruff format --check src/ tests/`、`node browser-extension/tests/core.test.js`
-- 下一步：提交并 push 分支，创建 PR 并 review；User 在有 runtime config 的机器生成指定视频 package 后手动加载 `browser-extension/`
+- 交付：实现 commit `53b3066`；review 修复包含于当前分支和 PR #32
+- 下一步：User 在有 runtime config 的机器生成指定视频 package 后手动加载 `browser-extension/`；根据人工验收决定是否合并 PR #32
 
 ## 上一任务卡（等待合并）
 

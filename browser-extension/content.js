@@ -6,7 +6,7 @@
   let subtitlePackage = null;
   let settings = { enabled: true, fontScale: 1, bottomOffset: 9 };
   let activeCueId = null;
-  let currentVideoId = null;
+  let currentVideoId;
   let host = null;
   let sourceLine = null;
   let translatedLine = null;
@@ -79,9 +79,13 @@
 
   async function loadForCurrentVideo() {
     const nextVideoId = core.videoIdFromUrl(location.href);
-    if (nextVideoId === currentVideoId && subtitlePackage) return;
+    if (nextVideoId === currentVideoId) return;
     currentVideoId = nextVideoId;
     const stored = await chrome.storage.local.get(["subtitlePackages", "subtitleSettings"]);
+    if (
+      nextVideoId !== currentVideoId ||
+      nextVideoId !== core.videoIdFromUrl(location.href)
+    ) return;
     settings = { ...settings, ...(stored.subtitleSettings || {}) };
     applySettings();
     subtitlePackage = nextVideoId ? (stored.subtitlePackages || {})[nextVideoId] || null : null;
