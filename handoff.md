@@ -2,6 +2,50 @@
 
 ## 当前任务卡
 
+- 任务：生成可供浏览器插件播放的 LLM 精校双语字幕
+- 状态：`implemented_local_validation_passed`
+- 当前 owner：Codex
+- 分支：`codex/bilingual-subtitle-pack`
+- PR：尚未创建
+- review 状态：等待创建 PR 后进入 review
+- 设计文档：[`docs/bilingual-subtitles-design.md`](./docs/bilingual-subtitles-design.md)
+- 目标：
+  - 输入单个 YouTube URL，生成保留 cue 时间轴的双语字幕包
+  - 人工字幕默认直接翻译；自动字幕和 ASR 先结合上下文校对，再翻译
+  - 自动利用标题、频道、description、完整字幕和模型领域知识形成翻译上下文
+  - 记录阶段、逻辑 LLM 调用和 checkpoint reuse 的结构化 profiling
+  - 浏览器插件关闭 YouTube 原生字幕后，按播放器时间显示本地双语字幕
+- 当前决策：
+  - 不复用章节级 `transcripts.json` 作为播放契约，新增逐 cue、稳定 ID 的字幕包契约
+  - 第一阶段采用 CLI 预生成字幕包、浏览器插件手动导入的最小闭环
+  - context 由系统从标题、频道、description 和完整字幕自动构建
+  - 结构与时间轴由程序确定性校验，语义与翻译质量由带上下文的 LLM 校验
+  - 音频校对作为后续显式高质量模式，MVP 先验证字幕获取、上下文校对、翻译和播放体验
+- 约束：
+  - 不改变现有笔记生成、translation experiment 或 Obsidian 发布行为
+  - 不自动发布；自动测试不调用远程 ASR/LLM
+  - pipeline、artifact 契约或扩展点变化时先更新 `PROJECT_MAP.md`
+- 已实现范围：
+  - 新的 subtitle-pack 应用用例、CLI、artifact contract 与测试
+  - subtitle cue 获取、context 构建、校对/翻译/校验服务
+  - profiling artifact 与逻辑 LLM 调用计时；adapter 内部 retry attempt 尚不拆分观测
+  - 独立的 Manifest V3 浏览器插件
+  - `PROJECT_MAP.md`、README 和设计文档中必要的事实说明
+- 验收方向：
+  - 给定单视频 URL，生成来源完整、时间轴有效、cue 覆盖完整的双语字幕包
+  - YouTube 暂停、seek、倍速、全屏和 SPA 换视频时字幕同步正确
+  - 人工字幕不经过源文本改写；自动字幕/ASR 保留可追溯的校对结果
+  - LLM 输出不能改变 cue ID 或时间轴，错误或缺失输出不能静默进入最终字幕包
+  - 成功、失败、重试和 checkpoint reuse 均生成不含 prompt 正文或凭据的 profile
+- 验证：contract/schema tests、确定性校验、fake LLM、浏览器核心逻辑和 Chromium 视觉检查均通过
+- 设计图：`docs/diagrams/` 下包含 2 份可维护的 Archify sequence JSON 与对应交互 HTML
+- 当前验证结果：246 项全量测试通过（新增 targeted suite 15 项）；ruff check/format pass；extension core test 与 JS/manifest syntax pass；popup loaded/empty 和双语 overlay 在 Chromium 2× 截图中无遮挡、截断或错误布局；两份 Archify diagram showcase 9/9，readability/viewer chrome pass，长页面 vertical containment 按预期 fail
+- 环境限制：当前 orb 没有 runtime config、`yt-dlp` 或 LLM CLI，因此未对指定 URL 发起真实下载/LLM 调用；不影响 fake provider 与浏览器 fixture 的本地闭环验证
+- 最后一次自测命令：`uv run pytest tests/ -q`、`uv run ruff check src/ tests/`、`uv run ruff format --check src/ tests/`、`node browser-extension/tests/core.test.js`
+- 下一步：提交并 push 分支，创建 PR 并 review；User 在有 runtime config 的机器生成指定视频 package 后手动加载 `browser-extension/`
+
+## 上一任务卡（等待合并）
+
 - 任务：统一默认用户配置路径到 `~/.yt2notion-agent/config.yaml`
 - 状态：`ready_for_merge`
 - 当前 owner：Codex
