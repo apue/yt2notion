@@ -7,7 +7,7 @@
 - 当前 owner：Codex
 - 分支：`codex/bilingual-subtitle-pack`
 - PR：[#32](https://github.com/apue/yt2notion/pull/32)
-- review 状态：PR diff 本地 review 完成；已修复无 package 时高频 storage 读取、SPA 异步加载竞态、重叠 auto-caption 单 cue 查找导致的延迟/跳条、生成批次超时风险和中断 profile 误报，并为长时间 LLM 阶段增加 verbose 进度与耗时日志；当前 API 会话无可调用的 `/review` 命令；仓库未返回 CI checks
+- review 状态：PR diff 本地 review 完成；已修复无 package 时高频 storage 读取、SPA 异步加载竞态、重叠 auto-caption 单 cue 查找导致的延迟/跳条、宽屏固定 1100px 上限、生成批次超时风险和中断 profile 误报，并为长时间 LLM 阶段增加 verbose 进度与耗时日志；当前 API 会话无可调用的 `/review` 命令；仓库未返回 CI checks
 - 设计文档：[`docs/bilingual-subtitles-design.md`](./docs/bilingual-subtitles-design.md)
 - 目标：
   - 输入单个 YouTube URL，生成保留 cue 时间轴的双语字幕包

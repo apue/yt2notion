@@ -20,7 +20,8 @@
     shadow.innerHTML = `
       <style>
         :host { all: initial; position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; }
-        .wrap { position: absolute; left: 50%; bottom: var(--subtitle-bottom, 9%); width: min(92vw, 1100px);
+        .wrap { position: absolute; left: var(--subtitle-left, 50%); bottom: var(--subtitle-bottom, 9%);
+          width: var(--subtitle-width, 92vw);
           transform: translateX(-50%); text-align: center; opacity: 0; transition: opacity 90ms linear; }
         .wrap.visible { opacity: 1; }
         .line { display: table; max-width: 100%; margin: 4px auto; padding: .18em .5em; border-radius: .28em;
@@ -59,12 +60,20 @@
     activeCueKey = "";
   }
 
+  function alignToVideo(video) {
+    const rect = video.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    host.style.setProperty("--subtitle-left", `${rect.left + rect.width / 2}px`);
+    host.style.setProperty("--subtitle-width", `${rect.width * 0.92}px`);
+  }
+
   function render() {
     const video = document.querySelector("video.html5-main-video, video");
     if (!video || !subtitlePackage || !settings.enabled) {
       hide();
       return;
     }
+    alignToVideo(video);
     const cues = core.findActiveCues(subtitlePackage.cues, video.currentTime * 1000);
     if (cues.length === 0) {
       hide();
