@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "yt2notion Bilingual Subtitles",
+  "version": "0.1.0",
+  "description": "Play locally generated yt2notion bilingual subtitle packages on YouTube.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "action": {
+    "default_title": "Bilingual subtitles",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["core.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

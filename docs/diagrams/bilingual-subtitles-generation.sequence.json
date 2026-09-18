@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "双语字幕包生成",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/bilingual-subtitles-generation.sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1080, 1260],
+    "views": [
+      {
+        "id": "acquire-context",
+        "label": "获取字幕并建立上下文",
+        "focus": ["user", "cli", "youtube", "context", "llm", "workspace"],
+        "note": "人工字幕、自动字幕和无字幕 ASR 分支最终汇合为带稳定 ID 的原始 cue。"
+      },
+      {
+        "id": "review-translate",
+        "label": "校对与翻译",
+        "focus": ["cli", "context", "llm", "validator", "workspace"],
+        "note": "人工字幕跳过源文本校对；自动字幕和 ASR 在翻译前接受上下文校对。"
+      },
+      {
+        "id": "quality-gate",
+        "label": "质量门槛与定向修复",
+        "focus": ["cli", "llm", "validator", "workspace", "user"],
+        "note": "确定性契约先阻断非法结果，语义检查只驱动有界的局部修复。"
+      }
+    ]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "YouTube URL" },
+    { "id": "cli", "type": "frontend", "label": "Agent / CLI", "sublabel": "subtitle-pack" },
+    { "id": "youtube", "type": "cloud", "label": "YouTube / yt-dlp", "sublabel": "媒体与 metadata" },
+    { "id": "context", "type": "backend", "label": "Context Builder", "sublabel": "证据与 brief" },
+    { "id": "llm", "type": "cloud", "label": "LLM", "sublabel": "理解、校对、翻译" },
+    { "id": "validator", "type": "security", "label": "Validator", "sublabel": "结构与语义门槛" },
+    { "id": "workspace", "type": "database", "label": "Workspace", "sublabel": "artifact 与 checkpoint" }
+  ],
+  "segments": [
+    { "from": 150, "to": 392, "label": "获取来源并建立 context" },
+    { "from": 410, "to": 758, "label": "按来源校对并翻译" },
+    { "from": 776, "to": 1118, "label": "完整质量门槛与交付" }
+  ],
+  "messages": [
+    { "id": "submit-url", "from": "user", "to": "cli", "y": 180, "label": "提交单视频 URL", "variant": "emphasis" },
+    { "id": "probe-source", "from": "cli", "to": "youtube", "y": 224, "label": "解析 ID，探测 metadata 与字幕", "variant": "emphasis" },
+    { "id": "return-metadata", "from": "youtube", "to": "cli", "y": 268, "label": "标题、description、章节、字幕列表", "variant": "return" },
+    { "id": "acquire-source", "from": "cli", "to": "youtube", "y": 312, "label": "获取最佳字幕；无字幕时下载音频", "variant": "default", "note": "人工字幕直接使用；自动字幕保留来源；无字幕进入现有 ASR。" },
+    { "id": "persist-source", "from": "cli", "to": "workspace", "y": 356, "label": "保存带稳定 ID 和时间轴的原始 cue", "variant": "emphasis" },
+    { "id": "request-context", "from": "cli", "to": "context", "y": 430, "label": "metadata、description、完整字幕", "variant": "default" },
+    { "id": "analyze-context", "from": "context", "to": "llm", "y": 474, "label": "识别领域、课程、人物与主题", "variant": "default" },
+    { "id": "return-brief", "from": "llm", "to": "context", "y": 518, "label": "translation brief", "variant": "return" },
+    { "id": "persist-context", "from": "context", "to": "workspace", "y": 562, "label": "保存 section context、global brief 与指纹", "variant": "emphasis" },
+    { "id": "review-source", "from": "cli", "to": "llm", "y": 626, "label": "cue + global context + 只读前后文", "variant": "default", "note": "人工字幕只翻译；自动字幕和 ASR 在同一批次中先窄幅校对再翻译。" },
+    { "id": "return-review", "from": "llm", "to": "cli", "y": 670, "label": "按原 ID 返回 source_text 与 translated_text", "variant": "return" },
+    { "id": "validate-review", "from": "cli", "to": "validator", "y": 714, "label": "校验 ID、顺序、覆盖、来源规则与非空文本", "variant": "security" },
+    { "id": "checkpoint-review", "from": "validator", "to": "workspace", "y": 748, "label": "合法批次写 checkpoint；非法结果明确失败", "variant": "emphasis" },
+    { "id": "translate-cues", "from": "cli", "to": "workspace", "y": 822, "label": "写逻辑调用、耗时与 checkpoint reuse profile", "variant": "emphasis" },
+    { "id": "return-translation", "from": "workspace", "to": "cli", "y": 866, "label": "确认本批 artifact 已持久化", "variant": "return" },
+    { "id": "validate-translation", "from": "cli", "to": "validator", "y": 910, "label": "校验结构、时间轴与翻译覆盖", "variant": "security" },
+    { "id": "semantic-qa", "from": "validator", "to": "llm", "y": 954, "label": "检查漏译、误译、专名与跨 cue 连贯性", "variant": "default" },
+    { "id": "return-issues", "from": "llm", "to": "validator", "y": 998, "label": "按 cue ID 返回问题清单", "variant": "return" },
+    { "id": "targeted-repair", "from": "validator", "to": "llm", "y": 1042, "label": "仅请求修复阻塞问题 cue", "variant": "dashed" },
+    { "id": "persist-final", "from": "validator", "to": "workspace", "y": 1086, "label": "复检通过后写字幕包与质量报告", "variant": "emphasis" },
+    { "id": "complete", "from": "cli", "to": "user", "y": 1130, "label": "返回 artifact 路径；失败时明确报告", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "cli", "from": 174, "to": 1140, "type": "frontend" },
+    { "participant": "context", "from": 424, "to": 570, "type": "backend" },
+    { "participant": "llm", "from": 468, "to": 526, "type": "cloud" },
+    { "participant": "llm", "from": 620, "to": 678, "type": "cloud" },
+    { "participant": "workspace", "from": 816, "to": 874, "type": "database" },
+    { "participant": "validator", "from": 708, "to": 766, "type": "security" },
+    { "participant": "validator", "from": 904, "to": 1094, "type": "security" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "来源决定校对分支",
+      "items": ["人工字幕保持源文本", "自动字幕与 ASR 接受上下文校对", "所有分支共享稳定 cue ID 与时间轴"]
+    },
+    {
+      "dot": "rose",
+      "title": "程序拥有结构契约",
+      "items": ["LLM 不能修改 ID 或时间轴", "非法批次不会写入 checkpoint", "调用失败时 profile 仍然落盘并明确失败"]
+    },
+    {
+      "dot": "emerald",
+      "title": "上下文驱动质量",
+      "items": ["metadata 与 description 是直接证据", "translation brief 为分批处理保留全局语境", "语义检查只触发局部修复"]
+    }
+  ]
+}

@@ -236,3 +236,57 @@ def test_cli_translation_experiment_outputs_json(
         keep_video=False,
         verbose=False,
     )
+
+
+@patch("yt2notion.media_transcribe.resolve_media_transcribe_config_path")
+@patch("yt2notion.cli.load_config")
+@patch("yt2notion.cli.create_yt2notion")
+def test_cli_subtitle_pack_outputs_json(
+    mock_create_app,
+    mock_load_config,
+    mock_resolve_config,
+    tmp_path,
+):
+    from yt2notion.config import AppConfig
+    from yt2notion.subtitle_pack import SubtitlePackResult
+
+    config_path = tmp_path / "config.yaml"
+    mock_resolve_config.return_value = config_path
+    mock_load_config.return_value = AppConfig()
+    workspace = tmp_path / "workspace" / "video"
+    expected = SubtitlePackResult(
+        workspace_dir=workspace,
+        package_path=workspace / "bilingual_subtitles.json",
+        srt_path=workspace / "bilingual_subtitles.srt",
+        context_path=workspace / "subtitle_context.json",
+        quality_report_path=workspace / "subtitle_quality_report.json",
+        profile_path=workspace / "profiles" / "run.json",
+        cue_count=12,
+        source_kind="manual_subtitle",
+        quality_passed=True,
+    )
+    app_instance = MagicMock()
+    app_instance.create_subtitle_pack.return_value = expected
+    mock_create_app.return_value = app_instance
+
+    result = runner.invoke(
+        app,
+        [
+            "subtitle-pack",
+            "https://www.youtube.com/watch?v=video",
+            "--config",
+            str(config_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["package_path"] == str(workspace / "bilingual_subtitles.json")
+    assert payload["cue_count"] == 12
+    assert payload["quality_passed"] is True
+    app_instance.create_subtitle_pack.assert_called_once_with(
+        "https://www.youtube.com/watch?v=video",
+        workspace_dir=None,
+        keep_video=False,
+        verbose=False,
+    )

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from yt2notion.config import AppConfig
     from yt2notion.models.base import NoteBundle, VideoMeta
     from yt2notion.storage.base import Storage
+    from yt2notion.subtitle_pack import SubtitlePackResult, SubtitlePackService
     from yt2notion.transcribe.engine import TranscriptionEngine
     from yt2notion.translation_experiment import (
         TranslationExperimentResult,
@@ -87,6 +88,7 @@ class Yt2Notion:
         content_preparation: ContentPreparation | None = None,
         storage_factory: Callable[[dict], Storage] = create_storage,
         translation_experiment_runner: TranslationExperimentRunner | None = None,
+        subtitle_pack_service: SubtitlePackService | None = None,
     ) -> None:
         self.config = config
         self.raw_config = {
@@ -103,6 +105,7 @@ class Yt2Notion:
         self.content_preparation = content_preparation or ContentPreparation()
         self.storage_factory = storage_factory
         self.translation_experiment_runner = translation_experiment_runner
+        self.subtitle_pack_service = subtitle_pack_service
 
     def prepare(
         self,
@@ -386,6 +389,47 @@ class Yt2Notion:
             cast("list[CanonicalTranscript]", transcripts),
             transcription.workspace,
         )
+
+    def create_subtitle_pack(
+        self,
+        url: str,
+        *,
+        workspace_dir: str | None = None,
+        keep_video: bool = False,
+        verbose: bool = False,
+    ) -> SubtitlePackResult:
+        """Create a local cue-timed bilingual package without publishing."""
+        transcription = self.transcribe(
+            url,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
+        )
+        service = self.subtitle_pack_service
+        if service is None:
+            from yt2notion.models.llm import create_llm_caller
+            from yt2notion.subtitle_pack import SubtitlePackService
+
+            model_config = self.config.model
+            model_label = (
+                f"{model_config['backend']}:{model_config['translate_model']}:"
+                f"reasoning={model_config.get('reasoning_effort', 'low')}"
+            )
+            if verbose:
+                typer.echo(
+                    f"Subtitle LLM: {model_label}; "
+                    f"timeout={model_config['timeout_seconds']}s per provider attempt",
+                    err=True,
+                )
+            service = SubtitlePackService(
+                create_llm_caller(self.raw_config, model_key="translate_model"),
+                model_label=model_label,
+                target_language=str(self.config.output.get("target_language", "zh-CN")),
+                progress_callback=(lambda message: typer.echo(message, err=True))
+                if verbose
+                else None,
+            )
+        return service.run(transcription)
 
     def _workspace_base(self, workspace_dir: str | None) -> Path:
         workspace_base = workspace_dir or self.config.workspace.get("base_dir", "./workspace")

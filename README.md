@@ -9,6 +9,12 @@ note bundle, and optionally publish the bundle to Obsidian.
 # Prefer source captions; download media and run ASR only when needed
 uv run yt2notion transcribe "URL"
 
+# Generate a context-aware bilingual subtitle package without publishing
+uv run yt2notion subtitle-pack "YOUTUBE_URL"
+
+# Show source, stage, LLM batch, checkpoint, and per-call timing progress
+uv run yt2notion subtitle-pack --verbose "YOUTUBE_URL"
+
 # Build the source/A/B bundle without publishing
 uv run yt2notion prepare "URL"
 
@@ -27,6 +33,15 @@ under the workspace. When preferred captions are available, it skips video,
 audio, and ASR entirely. Otherwise it downloads audio directly with
 `--no-video`, or retains video when requested. JSON output includes per-stage
 elapsed seconds.
+
+`subtitle-pack` preserves cue timing, translates manual subtitles without
+rewriting their source text, and contextually corrects automatic captions or
+ASR before translation. It writes `bilingual_subtitles.json`, a bilingual SRT,
+a quality report, checkpoints, and a content-free timing profile. Load the
+unpacked extension from [`browser-extension/`](browser-extension/), open the
+matching YouTube video, turn YouTube captions off, and import the generated
+JSON from the extension popup. The extension stores packages locally and does
+not call an LLM or publish content.
 
 ## Installation
 

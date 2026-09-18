@@ -11,6 +11,7 @@ artifacts, configuration bindings, and extension seams.
 | `yt2notion prepare URL` | prepare a bundle and emit JSON without publishing |
 | `yt2notion transcribe URL` | acquire preferred subtitles or media, transcribe, and stop |
 | `yt2notion translation-experiment URL` | create a local blind whole-chapter vs semantic-block translation experiment |
+| `yt2notion subtitle-pack URL` | create a local, cue-timed bilingual subtitle package for browser playback |
 
 All commands enter through `application.Yt2Notion`. There is no compatibility
 pipeline or local queue runtime.
@@ -35,6 +36,15 @@ pipeline or local queue runtime.
 `translation-experiment` reuses `transcribe`, then makes one batched translation
 call per strategy and writes only local experiment artifacts. It never reaches
 storage or `PUBLISH`.
+
+`subtitle-pack` reuses subtitle-first acquisition and transcription, but reads
+`subtitles.srt|vtt` directly when available so cue timing is not collapsed into
+chapter transcripts. Manual subtitles are translated without rewriting the
+source text. Automatic captions and ASR-derived cues are contextually corrected
+before translation. The use case builds context from source metadata and the
+complete transcript, processes long inputs in bounded batches with read-only
+overlap, validates exact ordered cue coverage, and writes only local artifacts.
+It never reaches storage or `PUBLISH`.
 
 ## Transcription state
 
@@ -62,6 +72,13 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 | `note_bundle.json` | source, guide, longform, stable tags, source topics |
 | `failed.json` | failed step, error type/message, retry exhaustion, timestamp |
 | `transcript.md` | readable output of standalone `transcribe` |
+| `subtitle_context.json` | bounded global context plus per-section evidence used by subtitle calls |
+| `source_cues.json` | canonical ordered cue timeline before LLM processing |
+| `reviewed_cues.json` | corrected source cues for automatic-caption or ASR inputs |
+| `bilingual_subtitles.json` | stable schema-v1 browser-extension input with original, source, and translated text |
+| `bilingual_subtitles.srt` | readable bilingual export generated from the stable JSON package |
+| `subtitle_quality_report.json` | deterministic coverage/timeline validation and semantic QA findings |
+| `profiles/<run-id>.json` | stage and LLM-batch timing, status, sizes, and checkpoint reuse without content or secrets |
 
 Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
@@ -112,6 +129,15 @@ Standalone `transcribe` resolves explicit config, then
 Its JSON result includes per-stage `acquire`, `segment`, `transcribe`, and total
 elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 
+`subtitle-pack` uses `output.target_language` and the existing translation model
+role. Its generation batch character budget is an internal 8,000-character
+default, kept below the larger quality-check budget to fit the existing provider
+timeout without raising the timeout globally. Generation checkpoint identity
+includes the batch budget and overlap policy; context and generation checkpoints
+are reusable only when their schema, source/context fingerprint, model identity,
+prompt fingerprint, operation, ordered cue IDs, and relevant batching policy all
+match.
+
 ## Interfaces and adapters
 
 | Interface | Factory | Adapters |
@@ -126,6 +152,14 @@ elapsed seconds. Captioned inputs do not initialize a `Transcriber` adapter.
 `TranslationExperimentRunner` depends on `LLMCaller`, typed canonical transcripts,
 and experiment artifact functions; `application.Yt2Notion` is its only CLI-facing
 orchestrator. It has no dependency on `Storage`.
+`SubtitlePackService` is the application orchestrator. It delegates cue recovery
+to `subtitle_pack.source`, bounded context/generation/QA calls to
+`SubtitleLLMWorkflow`, deterministic model-output checks to
+`subtitle_pack.validation`, and checkpoint/package serialization to
+`subtitle_pack.artifacts`. The workflow depends on `LLMCaller` and the profile
+recorder. `application.Yt2Notion` owns acquisition/transcription and passes their
+local result to the service. The browser extension consumes only
+`bilingual_subtitles.json`; it does not call an LLM or local companion service.
 
 To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a
@@ -143,6 +177,9 @@ registry or expose provider details through `Yt2Notion`.
 | `translation_experiment_system.md` | shared translation A/B rules |
 | `translation_experiment_whole.md` | whole-chapter experiment strategy |
 | `translation_experiment_blocks.md` | semantic-block experiment strategy |
+| `subtitle_context.md` | derive bounded domain, course, people, topic, and terminology context |
+| `subtitle_generate.md` | manual-source translation or automatic/ASR correction plus translation |
+| `subtitle_quality.md` | compact semantic QA over generated bilingual cues |
 
 Prompt templates are structural inputs and must not be reformatted as ordinary
 documentation.
@@ -157,4 +194,7 @@ note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters
 TranscriptionEngine -> Transcriber adapters, Workspace
 Storage -> ObsidianStorage
+SubtitlePackService -> subtitle source, SubtitleLLMWorkflow, validation, artifacts
+SubtitleLLMWorkflow -> LLMCaller, profile recorder
+browser-extension -> bilingual_subtitles.json
 ```

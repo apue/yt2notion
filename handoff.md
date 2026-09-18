@@ -2,6 +2,53 @@
 
 ## 当前任务卡
 
+- 任务：生成可供浏览器插件播放的 LLM 精校双语字幕
+- 状态：`ready_for_manual_validation`
+- 当前 owner：Codex
+- 分支：`codex/bilingual-subtitle-pack`
+- PR：[#32](https://github.com/apue/yt2notion/pull/32)
+- review 状态：PR diff 本地 review 完成；已修复无 package 时高频 storage 读取、SPA 异步加载竞态、重叠 auto-caption 单 cue 查找导致的延迟/跳条、宽屏固定 1100px 上限、生成批次超时风险和中断 profile 误报，并为长时间 LLM 阶段增加 verbose 进度与耗时日志；subtitle-pack 已按 source/workflow/validation/artifacts 职责重构，测试全部为离线契约测试；当前 API 会话无可调用的 `/review` 命令；仓库未返回 CI checks
+- 设计文档：[`docs/bilingual-subtitles-design.md`](./docs/bilingual-subtitles-design.md)
+- 目标：
+  - 输入单个 YouTube URL，生成保留 cue 时间轴的双语字幕包
+  - 人工字幕默认直接翻译；自动字幕和 ASR 先结合上下文校对，再翻译
+  - 自动利用标题、频道、description、完整字幕和模型领域知识形成翻译上下文
+  - 记录阶段、逻辑 LLM 调用和 checkpoint reuse 的结构化 profiling
+  - 浏览器插件关闭 YouTube 原生字幕后，按播放器时间显示本地双语字幕
+- 当前决策：
+  - 不复用章节级 `transcripts.json` 作为播放契约，新增逐 cue、稳定 ID 的字幕包契约
+  - 第一阶段采用 CLI 预生成字幕包、浏览器插件手动导入的最小闭环
+  - context 由系统从标题、频道、description 和完整字幕自动构建
+  - 结构与时间轴由程序确定性校验，语义与翻译质量由带上下文的 LLM 校验
+  - 音频校对作为后续显式高质量模式，MVP 先验证字幕获取、上下文校对、翻译和播放体验
+- 约束：
+  - 不改变现有笔记生成、translation experiment 或 Obsidian 发布行为
+  - 不自动发布；自动测试不调用远程 ASR/LLM
+  - pipeline、artifact 契约或扩展点变化时先更新 `PROJECT_MAP.md`
+- 已实现范围：
+  - 新的 subtitle-pack 应用用例、CLI、artifact contract 与测试
+  - subtitle cue 获取、context 构建、校对/翻译/校验服务
+  - generation 独立使用 8,000 字符预算，checkpoint identity 纳入预算和 overlap 策略
+  - profiling artifact 与逻辑 LLM 调用计时；adapter 内部 retry attempt 尚不拆分观测
+  - `KeyboardInterrupt` 等运行中断会将 stage、LLM call 和 run profile 标记为 failed
+  - 独立的 Manifest V3 浏览器插件
+  - `PROJECT_MAP.md`、README 和设计文档中必要的事实说明
+- 验收方向：
+  - 给定单视频 URL，生成来源完整、时间轴有效、cue 覆盖完整的双语字幕包
+  - YouTube 暂停、seek、倍速、全屏和 SPA 换视频时字幕同步正确
+  - 人工字幕不经过源文本改写；自动字幕/ASR 保留可追溯的校对结果
+  - LLM 输出不能改变 cue ID 或时间轴，错误或缺失输出不能静默进入最终字幕包
+  - 成功、失败、重试和 checkpoint reuse 均生成不含 prompt 正文或凭据的 profile
+- 验证：contract/schema tests、确定性校验、fake LLM、浏览器核心逻辑和 Chromium 视觉检查均通过
+- 设计图：`docs/diagrams/` 只提交 2 份可维护的 Archify sequence JSON；自包含交互 HTML 按需本地生成并由 `.gitignore` 排除
+- 当前验证结果：251 项全量离线测试通过；ruff check/format pass；extension core tests 与 JS syntax pass；两份 Archify JSON showcase validation 均 9/9、0 errors、0 warnings；真实 `UwfjzyLnvMg` 运行生成 1,648 cues，4 个语义问题修复后复检通过，`quality_passed=true`；真实 cue 45/46 的双语滚动窗口在 Chromium 2× 截图中无遮挡或截断，gap 隐藏和 seek 重建 DOM 检查通过；popup loaded/empty 视觉检查通过
+- 真实运行诊断：12,000 字符 generation batches 分别观测到 211.6s、274.5s、278.8s、216.7s、240.3s；默认 240s 在 batch-0002 触发 `RetryExhaustedError`。使用仅本次进程的 600s 临时配置完成恢复，未修改持久用户配置；持久修复改为缩小 generation batch，不全局提高 timeout。
+- 最后一次自测命令：`uv run --extra dev pytest tests/ -q`、`uv run --extra dev ruff check src/ tests/`、`uv run --extra dev ruff format --check src/ tests/`、`node browser-extension/tests/core.test.js`
+- 交付：实现 commit `53b3066`；review 修复包含于当前分支和 PR #32
+- 下一步：User 在 `chrome://extensions` reload 插件后，用既有 `workspace/UwfjzyLnvMg/bilingual_subtitles.json` 复测重叠字幕滚动窗口；根据人工验收决定是否合并 PR #32
+
+## 上一任务卡（等待合并）
+
 - 任务：统一默认用户配置路径到 `~/.yt2notion-agent/config.yaml`
 - 状态：`ready_for_merge`
 - 当前 owner：Codex

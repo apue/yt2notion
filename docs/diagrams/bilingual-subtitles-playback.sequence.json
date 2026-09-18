@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "浏览器双语字幕播放",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/bilingual-subtitles-playback.sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1000, 980],
+    "views": [
+      {
+        "id": "import-pack",
+        "label": "导入与持久化",
+        "focus": ["user", "extension", "store"],
+        "note": "插件先校验字幕包，再按 video ID 存入 chrome.storage.local。"
+      },
+      {
+        "id": "sync-playback",
+        "label": "播放器同步",
+        "focus": ["page", "video", "extension", "overlay", "user"],
+        "note": "HTMLVideoElement.currentTime 是暂停、seek 与倍速下的唯一时间源。"
+      },
+      {
+        "id": "spa-navigation",
+        "label": "YouTube SPA 换视频",
+        "focus": ["page", "extension", "store", "overlay"],
+        "note": "导航完成后清理旧状态，并使用新 video ID 重新查询。"
+      }
+    ]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "观看与导入" },
+    { "id": "extension", "type": "frontend", "label": "Chrome Extension", "sublabel": "Manifest V3" },
+    { "id": "store", "type": "database", "label": "Local Storage", "sublabel": "chrome.storage.local" },
+    { "id": "page", "type": "frontend", "label": "YouTube 页面", "sublabel": "watch / SPA" },
+    { "id": "video", "type": "backend", "label": "HTMLVideoElement", "sublabel": "唯一播放时钟" },
+    { "id": "overlay", "type": "frontend", "label": "Shadow DOM Overlay", "sublabel": "双语字幕" }
+  ],
+  "segments": [
+    { "from": 150, "to": 330, "label": "导入字幕包" },
+    { "from": 348, "to": 718, "label": "匹配视频并同步播放" },
+    { "from": 736, "to": 856, "label": "响应 SPA 导航" }
+  ],
+  "messages": [
+    { "id": "import-pack", "from": "user", "to": "extension", "y": 180, "label": "导入 bilingual_subtitles.json", "variant": "emphasis" },
+    { "id": "validate-pack", "from": "extension", "to": "store", "y": 246, "label": "校验 schema 后按 video ID 保存", "variant": "security" },
+    { "id": "import-complete", "from": "extension", "to": "user", "y": 312, "label": "显示导入成功", "variant": "return" },
+    { "id": "open-video", "from": "user", "to": "page", "y": 382, "label": "打开 YouTube watch 页面", "variant": "emphasis" },
+    { "id": "navigation-event", "from": "page", "to": "extension", "y": 426, "label": "初始加载或 SPA 导航完成", "variant": "dashed" },
+    { "id": "lookup-pack", "from": "extension", "to": "store", "y": 470, "label": "使用当前 video ID 查询", "variant": "default" },
+    { "id": "return-cues", "from": "store", "to": "extension", "y": 514, "label": "返回 cue；无结果则提示用户", "variant": "return" },
+    { "id": "mount-overlay", "from": "extension", "to": "overlay", "y": 558, "label": "挂载 Shadow DOM；全屏时移入全屏元素", "variant": "emphasis" },
+    { "id": "read-clock", "from": "extension", "to": "video", "y": 602, "label": "读取 currentTime 与播放事件", "variant": "default" },
+    { "id": "return-time", "from": "video", "to": "extension", "y": 646, "label": "当前媒体时间", "variant": "return" },
+    { "id": "render-cue", "from": "extension", "to": "overlay", "y": 690, "label": "二分查找并更新当前双语 cue", "variant": "emphasis" },
+    { "id": "display-cue", "from": "overlay", "to": "user", "y": 734, "label": "显示同步字幕", "variant": "return" },
+    { "id": "switch-video", "from": "page", "to": "extension", "y": 790, "label": "SPA 切换到另一视频", "variant": "dashed" },
+    { "id": "clear-overlay", "from": "extension", "to": "overlay", "y": 834, "label": "清理旧状态并按新 ID 重新匹配", "variant": "default" }
+  ],
+  "activations": [
+    { "participant": "extension", "from": 174, "to": 320, "type": "frontend" },
+    { "participant": "extension", "from": 420, "to": 842, "type": "frontend" },
+    { "participant": "store", "from": 262, "to": 276, "type": "database" },
+    { "participant": "store", "from": 464, "to": 522, "type": "database" },
+    { "participant": "video", "from": 596, "to": 654, "type": "backend" },
+    { "participant": "overlay", "from": 552, "to": 742, "type": "frontend" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "本地、预生成、可复用",
+      "items": ["插件不调用 LLM", "字幕包按 video ID 持久化", "未导入的视频不会显示错误字幕"]
+    },
+    {
+      "dot": "emerald",
+      "title": "播放器时间是唯一时钟",
+      "items": ["暂停与 seek 后立即重算 cue", "倍速播放不累积独立计时误差", "进入全屏时 overlay 移入全屏 DOM 子树"]
+    }
+  ]
+}
