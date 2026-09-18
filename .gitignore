@@ -35,6 +35,9 @@ workspace/
 .coverage
 htmlcov/
 
+# Generated Archify viewers (JSON specs are tracked)
+docs/diagrams/*.html
+
 # Claude Code
 .claude/
 !.claude/

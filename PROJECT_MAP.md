@@ -152,9 +152,13 @@ match.
 `TranslationExperimentRunner` depends on `LLMCaller`, typed canonical transcripts,
 and experiment artifact functions; `application.Yt2Notion` is its only CLI-facing
 orchestrator. It has no dependency on `Storage`.
-`SubtitlePackService` depends on `LLMCaller`, cue-level source artifacts, and a
-profile recorder. `application.Yt2Notion` owns acquisition/transcription and
-passes their local result to the service. The browser extension consumes only
+`SubtitlePackService` is the application orchestrator. It delegates cue recovery
+to `subtitle_pack.source`, bounded context/generation/QA calls to
+`SubtitleLLMWorkflow`, deterministic model-output checks to
+`subtitle_pack.validation`, and checkpoint/package serialization to
+`subtitle_pack.artifacts`. The workflow depends on `LLMCaller` and the profile
+recorder. `application.Yt2Notion` owns acquisition/transcription and passes their
+local result to the service. The browser extension consumes only
 `bilingual_subtitles.json`; it does not call an LLM or local companion service.
 
 To add an adapter, implement the relevant Protocol, extend its explicit
@@ -190,6 +194,7 @@ note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters
 TranscriptionEngine -> Transcriber adapters, Workspace
 Storage -> ObsidianStorage
-SubtitlePackService -> LLMCaller, subtitle artifacts, profile recorder
+SubtitlePackService -> subtitle source, SubtitleLLMWorkflow, validation, artifacts
+SubtitleLLMWorkflow -> LLMCaller, profile recorder
 browser-extension -> bilingual_subtitles.json
 ```

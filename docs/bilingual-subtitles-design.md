@@ -55,9 +55,10 @@ YouTube 原生字幕后，由浏览器插件根据播放器时间显示经过上
 
 ## 完整生成流程
 
-[打开可交互的双语字幕生成时序图](./diagrams/bilingual-subtitles-generation.sequence.html)
-
 [查看可维护的 Archify JSON 源规格](./diagrams/bilingual-subtitles-generation.sequence.json)
+
+交互 HTML 是可再生的本地产物，不进入 Git。生成和预览方式见
+[`diagrams/README.md`](./diagrams/README.md)。
 
 ## Context 构建
 
@@ -314,9 +315,10 @@ checkpoint、问题诊断和恢复执行。`subtitle_checkpoints/` 保存 contex
 
 ## 浏览器播放流程
 
-[打开可交互的浏览器字幕播放时序图](./diagrams/bilingual-subtitles-playback.sequence.html)
-
 [查看可维护的 Archify JSON 源规格](./diagrams/bilingual-subtitles-playback.sequence.json)
+
+交互 HTML 是可再生的本地产物，不进入 Git。生成和预览方式见
+[`diagrams/README.md`](./diagrams/README.md)。
 
 Overlay 默认挂载在文档根节点；进入浏览器全屏时移入 `document.fullscreenElement`，
 因此仍属于全屏 DOM 子树。同步以 `HTMLVideoElement.currentTime` 为唯一时间源，因此
