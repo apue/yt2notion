@@ -14,6 +14,8 @@ yt2notion 已经从单一路径发展出转录、笔记、双语字幕包和翻�
 
 因此，本设计只解决一个核心问题：**把稳定的业务能力做成 typed nodes，由几条普通 Python pipeline 按用例组合；provider adapter 位于其下，执行、观测和恢复机制位于其侧。**
 
+> 实现状态（2026-09-19）：Phase 1–3 已落地 typed transcript spine、acquisition split 与共享 runtime/checkpoint/retry 边界。为表达嵌套 parentage 和 interruption，subtitle profile 已明确升级为 schema v2；业务 artifact 与 checkpoint schema 保持不变。Phase 4 的 ordinary Python pipeline composition 尚在进行。
+
 ### 已确定的约束
 
 - pipeline 是普通 Python 函数，使用 `if`、`for` 和函数调用表达流程。
@@ -396,7 +398,7 @@ checkpoint identity 必须覆盖所有影响输出的因素，例如输入 conte
 
 把专项流程中已经存在的 profile/checkpoint 经验收敛到 executor、events、checkpoint identity 和 artifact codecs，再逐条迁移 node。
 
-**验收：**所有外部调用可关联到 run/node/provider attempt；checkpoint reuse 不比当前宽松；profile 无内容或 secret；既有 artifact schema 保持。
+**验收：**所有外部调用可关联到 run/node/provider attempt；checkpoint reuse 不比当前宽松；profile 无内容或 secret；业务 artifact/checkpoint schema 保持，profile 如需表达新增观测语义则明确版本化。
 
 ### Phase 4：ordinary Python pipelines
 

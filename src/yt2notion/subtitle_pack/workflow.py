@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from yt2notion.prompts import render_prompt
+from yt2notion.runtime import CheckpointStore, RuntimeObserver
 from yt2notion.subtitle_pack.artifacts import (
     fingerprint,
-    load_checkpoint,
     prompt_fingerprint,
-    save_checkpoint,
 )
 from yt2notion.subtitle_pack.models import BilingualCue, SourceCue
 from yt2notion.subtitle_pack.validation import (
@@ -27,7 +26,6 @@ from yt2notion.subtitle_pack.validation import (
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
     from yt2notion.models.llm import LLMCaller
-    from yt2notion.subtitle_pack.profile import ProfileRecorder
 
 _QUALITY_BATCH_CHAR_BUDGET = 12_000
 _GENERATION_BATCH_CHAR_BUDGET = 8_000
@@ -63,7 +61,7 @@ class SubtitleLLMWorkflow:
         cues: Sequence[SourceCue],
         workspace_dir: Path,
         source_fingerprint: str,
-        profile: ProfileRecorder,
+        profile: RuntimeObserver,
     ) -> dict[str, object]:
         """Build or restore bounded domain context for the complete source."""
         checkpoint = workspace_dir / "subtitle_checkpoints" / "context.json"
@@ -75,20 +73,10 @@ class SubtitleLLMWorkflow:
             "model_label": self.model_label,
             "prompt_sha256": prompt_fingerprint("subtitle_context"),
         }
-        cached = load_checkpoint(checkpoint, identity)
+        checkpoints: CheckpointStore[object] = CheckpointStore(profile)
+        cached = checkpoints.load(checkpoint, identity=identity)
         if isinstance(cached, dict):
             self._progress("Subtitle context: reused checkpoint")
-            profile.record_call(
-                operation="context",
-                batch_id="context",
-                cue_start=cues[0].id,
-                cue_end=cues[-1].id,
-                input_chars=0,
-                output_chars=0,
-                elapsed_seconds=0,
-                reused_checkpoint=True,
-                status="completed",
-            )
             return cached
 
         transcript = "\n".join(f"{cue.id}: {cue.original_text}" for cue in cues)
@@ -152,7 +140,7 @@ class SubtitleLLMWorkflow:
             "global_brief": reduction_level[0],
             "section_contexts": section_briefs,
         }
-        save_checkpoint(checkpoint, identity, context)
+        checkpoints.save(checkpoint, identity=identity, result=context)
         return context
 
     def generate_all(
@@ -162,7 +150,7 @@ class SubtitleLLMWorkflow:
         context: dict[str, object],
         context_fingerprint: str,
         workspace_dir: Path,
-        profile: ProfileRecorder,
+        profile: RuntimeObserver,
     ) -> list[BilingualCue]:
         """Generate all owned cue batches with overlap and checkpoint recovery."""
         batches = _batch_cues(cues, _GENERATION_BATCH_CHAR_BUDGET)
@@ -184,24 +172,14 @@ class SubtitleLLMWorkflow:
             }
             batch_id = f"batch-{index:04d}"
             checkpoint = workspace_dir / "subtitle_checkpoints" / f"{batch_id}.json"
-            cached = load_checkpoint(checkpoint, identity)
+            checkpoints: CheckpointStore[object] = CheckpointStore(profile)
+            cached = checkpoints.load(checkpoint, identity=identity)
             reused_checkpoint = isinstance(cached, list)
             if isinstance(cached, list):
                 records = cached
                 self._progress(
                     f"Subtitle generation {batch_id}: reused checkpoint "
                     f"({owned[0].id}..{owned[-1].id})"
-                )
-                profile.record_call(
-                    operation="generate",
-                    batch_id=batch_id,
-                    cue_start=owned[0].id,
-                    cue_end=owned[-1].id,
-                    input_chars=0,
-                    output_chars=0,
-                    elapsed_seconds=0,
-                    reused_checkpoint=True,
-                    status="completed",
                 )
             else:
                 payload = {
@@ -229,7 +207,7 @@ class SubtitleLLMWorkflow:
                 records = parse_json_array(raw, "subtitle generation")
             parsed = parse_generated(records, owned, source_kind)
             if not reused_checkpoint:
-                save_checkpoint(checkpoint, identity, records)
+                checkpoints.save(checkpoint, identity=identity, result=records)
             output.extend(parsed)
         return output
 
@@ -237,7 +215,7 @@ class SubtitleLLMWorkflow:
         self,
         cues: Sequence[BilingualCue],
         context: dict[str, object],
-        profile: ProfileRecorder,
+        profile: RuntimeObserver,
         *,
         operation: str = "semantic_quality",
     ) -> list[dict[str, str]]:
@@ -283,7 +261,7 @@ class SubtitleLLMWorkflow:
         issues: Sequence[dict[str, str]],
         source_kind: str,
         context: dict[str, object],
-        profile: ProfileRecorder,
+        profile: RuntimeObserver,
     ) -> list[BilingualCue]:
         """Repair only cue IDs named by semantic quality checks."""
         by_id = {cue.id: cue for cue in cues}
@@ -349,35 +327,53 @@ class SubtitleLLMWorkflow:
         batch_id: str,
         cue_start: str | None,
         cue_end: str | None,
-        profile: ProfileRecorder,
+        profile: RuntimeObserver,
     ) -> str:
         started = time.perf_counter()
-        status = "completed"
-        raw = ""
         self._progress(
             f"LLM {operation} {batch_id}: started"
             + (f" ({cue_start}..{cue_end})" if cue_start and cue_end else "")
         )
         try:
-            raw = self.caller.call(self.system_prompt, prompt, max_tokens=max_tokens)
-            return raw
+            with (
+                profile.span(
+                    "batch",
+                    batch_id,
+                    attributes={"cue_start": cue_start, "cue_end": cue_end},
+                ),
+                profile.span(
+                    "provider_call",
+                    operation,
+                    attributes={
+                        "input_chars": len(self.system_prompt) + len(prompt),
+                        "output_chars": 0,
+                    },
+                ) as call,
+            ):
+                try:
+                    raw = self.caller.call(
+                        self.system_prompt,
+                        prompt,
+                        max_tokens=max_tokens,
+                    )
+                except Exception:
+                    profile.availability(
+                        self.model_label,
+                        available=False,
+                        failure_category="provider",
+                    )
+                    raise
+                profile.availability(self.model_label, available=True)
+                call.attributes["output_chars"] = len(raw)
+                return raw
         except BaseException:
-            status = "failed"
+            self._progress(f"LLM {operation} {batch_id}: failed")
             raise
         finally:
-            elapsed_seconds = time.perf_counter() - started
-            profile.record_call(
-                operation=operation,
-                batch_id=batch_id,
-                cue_start=cue_start,
-                cue_end=cue_end,
-                input_chars=len(self.system_prompt) + len(prompt),
-                output_chars=len(raw),
-                elapsed_seconds=elapsed_seconds,
-                reused_checkpoint=False,
-                status=status,
-            )
-            self._progress(f"LLM {operation} {batch_id}: {status} in {elapsed_seconds:.1f}s")
+            if "raw" in locals():
+                self._progress(
+                    f"LLM {operation} {batch_id}: completed in {time.perf_counter() - started:.1f}s"
+                )
 
     def _progress(self, message: str) -> None:
         if self.progress_callback is not None:

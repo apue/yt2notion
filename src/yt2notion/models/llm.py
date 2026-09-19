@@ -8,7 +8,7 @@ import subprocess
 from typing import Protocol
 
 from yt2notion.model_policy import MODEL_BACKEND_DEFAULTS, resolve_model_config
-from yt2notion.retry import retry
+from yt2notion.retry import retry, retry_for_exceptions
 
 
 class LLMCaller(Protocol):
@@ -88,7 +88,7 @@ class ClaudeCodeCaller:
             _run,
             max_retries=self.max_attempts,
             base_delay=5.0,
-            retryable=(
+            classify=retry_for_exceptions(
                 subprocess.TimeoutExpired,
                 _EmptyOutputError,
             ),

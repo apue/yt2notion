@@ -70,7 +70,11 @@ def test_semantic_issue_is_repaired_and_rechecked(tmp_path: Path) -> None:
 
     assert result.quality_passed is True
     profile = json.loads(result.profile_path.read_text(encoding="utf-8"))
-    operations = [call["operation"] for call in profile["llm_calls"]]
+    operations = [
+        observation["name"]
+        for observation in profile["observations"]
+        if observation["kind"] == "provider_call"
+    ]
     assert "repair" in operations
     assert "semantic_quality_after_repair" in operations
 

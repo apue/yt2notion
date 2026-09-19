@@ -160,7 +160,7 @@ match.
 | `LLMCaller` | `create_llm_caller` | Claude CLI, Codex CLI, Anthropic API |
 | `Storage` | `create_storage` | `ObsidianStorage` |
 
-`SourceRouter` supports the single explicit `yt_dlp` route. `SourceProbe`,
+`route_source()` supports the single explicit `yt_dlp` route. `SourceProbe`,
 `AcquisitionIntent`, and `AcquisitionPlan` are provider-neutral typed contracts;
 the pure planner owns fallback policy while `YtDlpSourceProvider` owns yt-dlp
 operations, cookies, and normalized operation failures.
@@ -173,9 +173,9 @@ orchestrator. It has no dependency on `Storage`.
 `SubtitlePackService` is the application orchestrator. It delegates cue recovery
 to `subtitle_pack.source`, bounded context/generation/QA calls to
 `SubtitleLLMWorkflow`, deterministic model-output checks to
-`subtitle_pack.validation`, and checkpoint/package serialization to
-`subtitle_pack.artifacts`. The workflow depends on `LLMCaller` and the profile
-recorder. `application.Yt2Notion` owns acquisition/transcription and passes their
+`subtitle_pack.validation`, shared checkpoint serialization to `runtime.py`, and
+package serialization to `subtitle_pack.artifacts`. The workflow depends on
+`LLMCaller` and `RuntimeObserver`. `application.Yt2Notion` owns acquisition/transcription and passes their
 local result to the service. The browser extension consumes only
 `bilingual_subtitles.json`; it does not call an LLM or local companion service.
 
@@ -183,14 +183,15 @@ To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a
 registry or expose provider details through `Yt2Notion`.
 
-`runtime.py` provides the shared `ExecutionRecorder`, `NodeExecutor`, typed
+`runtime.py` provides the shared `RuntimeObserver`, `NodeExecutor`, typed
 retry policy, checkpoint store, and passive provider-availability observations.
 The recorder models nested run/node/batch/provider-call/attempt/checkpoint
 observations and stores only redacted labels, counts, status, timing, and
 normalized failure categories. Whole-node retry is disabled by default;
 provider retry remains operation-local, and business fallback remains in the
-pipeline/acquisition plan. Existing subtitle profile JSON stays schema-compatible
-while being emitted through the shared recorder.
+pipeline/acquisition plan. Subtitle profiles use schema version 2's flat nested
+observation stream; subtitle checkpoint envelopes and translation candidate
+checkpoint schemas remain unchanged while using the shared store.
 
 ## Prompt bindings
 

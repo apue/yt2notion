@@ -28,10 +28,19 @@ def test_keyboard_interrupt_marks_run_stage_and_call_failed(tmp_path: Path) -> N
     profiles = list((transcription.workspace.dir / "profiles").glob("*.json"))
     assert len(profiles) == 1
     profile = json.loads(profiles[0].read_text(encoding="utf-8"))
-    assert profile["status"] == "failed"
+    assert profile["schema_version"] == 2
+    assert profile["status"] == "interrupted"
     assert profile["error_type"] == "KeyboardInterrupt"
-    assert profile["stages"][-1]["status"] == "failed"
-    assert profile["llm_calls"][-1]["status"] == "failed"
+    interrupted = [
+        observation
+        for observation in profile["observations"]
+        if observation["status"] == "interrupted"
+    ]
+    assert {observation["kind"] for observation in interrupted} == {
+        "provider_call",
+        "batch",
+        "node",
+    }
 
 
 def test_progress_reports_stage_and_timed_llm_events(tmp_path: Path) -> None:

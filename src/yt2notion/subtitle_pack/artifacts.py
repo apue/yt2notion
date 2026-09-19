@@ -25,25 +25,6 @@ def fingerprint(payload: object) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def load_checkpoint(path: Path, identity: dict[str, object]) -> object | None:
-    """Load a checkpoint only when its complete identity still matches."""
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict) or payload.get("identity") != identity:
-        return None
-    return payload.get("result")
-
-
-def save_checkpoint(path: Path, identity: dict[str, object], result: object) -> None:
-    """Persist a result together with the identity that makes it reusable."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, {"identity": identity, "result": result})
-
-
 def write_json(path: Path, payload: object) -> None:
     """Write a human-readable UTF-8 JSON artifact."""
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

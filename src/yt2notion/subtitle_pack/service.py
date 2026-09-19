@@ -6,9 +6,9 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
+from yt2notion.runtime import RuntimeObserver
 from yt2notion.subtitle_pack.artifacts import fingerprint, write_json, write_subtitle_artifacts
 from yt2notion.subtitle_pack.models import SubtitlePackResult
-from yt2notion.subtitle_pack.profile import ProfileRecorder
 from yt2notion.subtitle_pack.source import build_source_cues
 from yt2notion.subtitle_pack.validation import validate_bilingual, validate_source_cues
 from yt2notion.subtitle_pack.workflow import SubtitleLLMWorkflow
@@ -44,11 +44,15 @@ class SubtitlePackService:
     def run(self, transcription: MediaTranscribeResult) -> SubtitlePackResult:
         """Generate a browser-consumable bilingual package from local transcription artifacts."""
         ws = transcription.workspace
-        profile = ProfileRecorder(ws.dir, inherited_timings=transcription.timings_seconds)
+        profile = RuntimeObserver(
+            ws.dir,
+            run_name="subtitle_pack",
+            inherited_timings=transcription.timings_seconds,
+        )
         error: BaseException | None = None
         try:
             self._progress("Subtitle pack: building source cues")
-            with profile.stage("build_source_cues"):
+            with profile.span("node", "build_source_cues"):
                 source_kind, cues = build_source_cues(transcription)
                 validate_source_cues(cues)
                 write_json(ws.dir / "source_cues.json", [asdict(cue) for cue in cues])
@@ -56,7 +60,7 @@ class SubtitlePackService:
 
             source_fingerprint = fingerprint([asdict(cue) for cue in cues])
             self._progress("Subtitle pack: building bounded global context")
-            with profile.stage("build_context"):
+            with profile.span("node", "build_context"):
                 context = self.workflow.build_context(
                     transcription.metadata,
                     cues,
@@ -76,7 +80,7 @@ class SubtitlePackService:
                 )
 
             self._progress("Subtitle pack: correcting and translating cue batches")
-            with profile.stage("generate_batches"):
+            with profile.span("node", "generate_batches"):
                 generated = self.workflow.generate_all(
                     cues,
                     source_kind,
@@ -87,11 +91,11 @@ class SubtitlePackService:
                 )
 
             self._progress("Subtitle pack: running semantic quality checks")
-            with profile.stage("semantic_quality"):
+            with profile.span("node", "semantic_quality"):
                 semantic_issues = self.workflow.semantic_quality(generated, context, profile)
             if semantic_issues:
                 self._progress(f"Subtitle pack: repairing {len(semantic_issues)} semantic issue(s)")
-                with profile.stage("repair"):
+                with profile.span("node", "repair"):
                     generated = self.workflow.repair_issues(
                         generated,
                         semantic_issues,
@@ -99,7 +103,7 @@ class SubtitlePackService:
                         context,
                         profile,
                     )
-                with profile.stage("semantic_quality_after_repair"):
+                with profile.span("node", "semantic_quality_after_repair"):
                     semantic_issues = self.workflow.semantic_quality(
                         generated,
                         context,
@@ -108,7 +112,7 @@ class SubtitlePackService:
                     )
 
             self._progress("Subtitle pack: validating and writing artifacts")
-            with profile.stage("validate_and_write"):
+            with profile.span("node", "validate_and_write"):
                 report = validate_bilingual(
                     cues,
                     generated,

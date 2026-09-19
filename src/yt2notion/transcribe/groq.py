@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from yt2notion.process import SubtitleEntry
-from yt2notion.retry import RetryExhaustedError, retry
+from yt2notion.retry import RetryExhaustedError, retry, retry_for_exceptions
 from yt2notion.transcribe.errors import (
     TranscriptionDailyLimitError,
     TranscriptionError,
@@ -168,7 +168,7 @@ class GroqTranscriber:
                 _post,
                 max_retries=3,
                 base_delay=5.0,
-                retryable=(
+                classify=retry_for_exceptions(
                     httpx.ConnectError,
                     httpx.TimeoutException,
                     _RetryableServerError,

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from yt2notion.process import seconds_to_display
+from yt2notion.runtime import CheckpointStore
 from yt2notion.translation_experiment.models import (
     CandidateCheckpoint,
     CandidateIdentity,
@@ -61,7 +62,7 @@ def save_candidate_checkpoint(
     generation_seconds: float,
 ) -> None:
     """Persist one completed candidate immediately after provider success."""
-    _write_json(
+    CheckpointStore[object]().save_payload(
         path,
         {
             "schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -79,17 +80,8 @@ def load_candidate_checkpoint(
     expected_ids: list[str],
 ) -> CandidateCheckpoint | None:
     """Load only a complete checkpoint for the exact source and strategy."""
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    if payload.get("schema_version") != ARTIFACT_SCHEMA_VERSION or payload.get(
-        "identity"
-    ) != asdict(identity):
+    payload = CheckpointStore[object]().load_payload(path, identity=asdict(identity))
+    if payload is None or payload.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
         return None
     records = payload.get("items")
     generation_seconds = payload.get("generation_seconds")
