@@ -64,8 +64,12 @@ It never reaches storage or `PUBLISH`.
 
 ## Transcription state
 
-`TranscriptionEngine` owns audio planning, upload-size subdivision, checkpoint
-reconciliation, hourly waiting, daily fallback, and backend attribution.
+`TranscriptionEngine` owns top-level subtitle/audio orchestration and backend
+attribution. Within `transcribe/`, `audio_plan.py` owns deterministic chunk
+construction and upload-budget planning, `checkpoint.py` owns resumable state
+creation/reconciliation/transitions, and `chunk_executor.py` owns provider chunk
+execution, upload subdivision, hourly waiting, and daily fallback. Imports are
+one-way from the engine through those focused modules; none imports the engine.
 
 - Groq hourly quota: persist the retry time and retry the same chunk.
 - Groq daily quota: switch the failed and remaining pending chunks to
@@ -242,7 +246,8 @@ ContentPreparation -> review, topic_segment, note_bundle
 note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters
 transcribe composition factory -> TranscriptionEngine + lazy Transcriber adapter factories
-TranscriptionEngine -> Transcriber Protocol, Workspace
+TranscriptionEngine -> audio plan + checkpoint + chunk executor
+chunk executor -> audio plan + checkpoint + Transcriber Protocol + Workspace
 Storage -> ObsidianStorage
 subtitle-pack pipeline -> run-owned RuntimeObserver -> SubtitlePackService
 SubtitlePackService -> subtitle source, SubtitleLLMWorkflow, validation, artifacts

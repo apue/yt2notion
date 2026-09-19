@@ -85,7 +85,7 @@ def test_transcribe_workspace_preserves_saved_subtitle_source(
 
 @patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
 @patch("yt2notion.audio.split_audio")
-@patch("yt2notion.transcribe.engine.time.sleep", return_value=None)
+@patch("yt2notion.transcribe.chunk_executor.time.sleep", return_value=None)
 def test_hourly_limit_retries_same_chunk_and_records_checkpoint(
     _sleep: MagicMock,
     split_audio: MagicMock,
@@ -495,7 +495,7 @@ def test_oversized_segment_is_subdivided_before_upload(
     assert [call.args[0] for call in primary.transcribe.call_args_list] == children
 
 
-@patch("yt2notion.transcribe.engine._rebase_chunk_entries")
+@patch("yt2notion.transcribe.chunk_executor.rebase_chunk_entries")
 @patch("yt2notion.audio.split_audio")
 def test_segmented_audio_without_upload_limit_keeps_direct_timestamps(
     split_audio: MagicMock,
