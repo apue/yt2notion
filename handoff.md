@@ -3,11 +3,11 @@
 ## 当前任务卡
 
 - 任务：实现 Typed Pipeline 架构
-- 状态：`closeout_validated_pending_commit`
+- 状态：`ready_for_pr_review`
 - 当前 owner：Codex
 - 分支：`codex/typed-pipeline-refactor`
 - PR：[#34](https://github.com/apue/yt2notion/pull/34)
-- review 状态：typed architecture、review-fix 与 ownership 拆包已独立复核通过；本轮完成最终 dependency/ownership closeout，等待提交并更新 PR #34
+- review 状态：typed architecture、review-fix 与 ownership 拆包已独立复核通过；最终 dependency/ownership closeout 已提交，PR #34 更新后等待复核
 - 目标：
   - 按 `docs/typed-pipeline-architecture.md` 分四个可审查阶段落地 typed transcript spine、acquisition split、shared runtime/artifact mechanisms 和普通 Python pipelines
   - 保持 CLI 行为、artifact 文件名和既有 JSON schema
@@ -23,13 +23,13 @@
 - Phase 3（commit `2a3cd11`）：新增共享 `RuntimeObserver` / `CheckpointStore` 与 typed provider-operation retry；最终 closeout 删除 ceremonial `NodeExecutor`，pipeline 直接创建 node span；schema-v2 嵌套 observation stream 记录 interruption、passive availability、batch/provider-call/attempt/checkpoint parentage且拒绝正文/secret attributes；subtitle 与 translation checkpoint 保持既有 envelope/schema；ASR quota/fallback 仍由 transcription engine 所有
 - Phase 4（commit `567c71f`）：新增普通 typed Python composition；`application.py` 只组装依赖；resumable ASR plan/state/chunk artifact 改为 typed contract + codec，subtitle-pack 和 audio split 不再传播 transcript dict；同步 canonical map、架构状态与规则摘要
 - Review fix（commit `5d60f0a`）：所有产品 pipeline 在同一 run 下关联 meaningful node/provider-call/attempt/checkpoint observations，并在 success/failure/`KeyboardInterrupt` 收尾；process 是唯一接收 storage 的完整 pipeline，translation-experiment 与 subtitle-pack 各自内聚 transcribe→specialized-stage；删除未使用的 transcript contracts；文档不再宣称超出 `AcquiredMedia` 实际字段的 provenance
-- Structural cleanup（本次 focused commit）：`pipelines` 按 contracts/transcribe/notes/translation-experiment/subtitle-pack ownership 拆包；`runtime` 按 observer/context 与 checkpoint persistence 拆包，public imports 保持；pipeline integration tests 移至 `test_pipelines.py`，配置与 factory tests 回归所属 suite，`test_application.py` 只验证 facade/dependency composition；没有删除既有独立行为覆盖
-- Architecture closeout（待提交）：`TranscriptionEngine` 不再回调 composition package，fallback factory 必须注入；pipeline API 改为显式 typed 参数；subtitle service 必须使用产品 pipeline 已建立的 observer/run；删除 request/acquisition/executor wrappers 与 media-transcribe re-export；`AppConfig.to_legacy_mapping()` 集中旧 helper/provider config mapping；active docs 与历史 harness 状态已校正
+- Structural cleanup（commit `e724c26`）：`pipelines` 按 contracts/transcribe/notes/translation-experiment/subtitle-pack ownership 拆包；`runtime` 按 observer/context 与 checkpoint persistence 拆包，public imports 保持；pipeline integration tests 移至 `test_pipelines.py`，配置与 factory tests 回归所属 suite，`test_application.py` 只验证 facade/dependency composition；没有删除既有独立行为覆盖
+- Architecture closeout（commit `ec363e9`）：`TranscriptionEngine` 不再回调 composition package，fallback factory 必须注入；pipeline API 改为显式 typed 参数；subtitle service 必须使用产品 pipeline 已建立的 observer/run；删除 request/acquisition/executor wrappers 与 media-transcribe re-export；`AppConfig.to_legacy_mapping()` 集中旧 helper/provider config mapping；active docs 与历史 harness 状态已校正
 - 测试减法审计：仅删除两个只保护已删除 wrapper 的测试（source router provider 字段、`NodeExecutor` 单次调用）；新增 fallback-factory 注入与 legacy mapping contract 测试，因此总数保持不变。schema roundtrip、hard acquisition failure、checkpoint identity、retry attempt、interruption 和四条产品 pipeline 覆盖均保留
-- 验证结果：closeout targeted `77 passed, 11 warnings`；全量离线测试 `284 passed, 16 warnings`；`ruff check src/ tests/`、`ruff format --check src/ tests/`、`git diff --check` 通过；AST runtime dependency scan 检查 66 个 first-party modules（显式忽略 `TYPE_CHECKING` branches），0 cycles；`workspace/` 无 Git 变更且 153 个现有文件保留。browser-extension 验证待最终门禁执行
+- 验证结果：closeout targeted `77 passed, 11 warnings`；全量离线测试 `284 passed, 16 warnings`；`ruff check src/ tests/`、`ruff format --check src/ tests/`、`git diff --check`、browser-extension core 与全部 JS syntax 通过；AST runtime dependency scan 检查 66 个 first-party modules（显式忽略 `TYPE_CHECKING` branches），0 cycles；`workspace/` 无 Git 变更且 153 个现有文件保留
 - 最后一次自测命令：`uv run pytest tests/ -v`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`node browser-extension/tests/core.test.js`；browser-extension JS `node --check`；`git diff --check`
 - deliberate schema decision：所有 product-run profile 使用 schema v2；segments/transcripts/reviewed、resumable-ASR plan/state/chunks、subtitle/translation checkpoint 与 CLI output schema 保持兼容；raw mappings 只留在 JSON/provider/legacy config-model adapter 与 subtitle QA/workflow payload 边界
-- 下一步：执行 browser-extension 与最终 verbose pytest 门禁，提交/push closeout 到 PR #34，确认 PR head、mergeability 和 checks；不 merge
+- 下一步：等待 PR #34 最终 review；不 merge
 
 ## 上一任务卡（已合并至 main）
 
