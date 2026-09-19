@@ -38,9 +38,10 @@ pipeline, DAG engine, workflow registry, or local queue runtime.
    `ObsidianStorage`.
 
 `run_transcribe_pipeline()` stops after step 3. `run_note_pipeline()` stops after
-step 6. `process` explicitly publishes the prepared result after
-`run_note_pipeline()`; none of the four pipeline functions receives a storage
-dependency.
+step 6. `run_process_pipeline()` reuses the note pipeline under the same run
+profile and is the only pipeline that receives a storage factory. The
+translation-experiment and subtitle-pack pipelines each own their complete
+transcribe-then-specialized-stage composition and cannot reach storage.
 `translation-experiment` reuses `transcribe`, then makes one batched translation
 call per strategy and writes only local experiment artifacts. It never reaches
 storage or `PUBLISH`.
@@ -86,16 +87,16 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 | `bilingual_subtitles.json` | stable schema-v1 browser-extension input with original, source, and translated text |
 | `bilingual_subtitles.srt` | readable bilingual export generated from the stable JSON package |
 | `subtitle_quality_report.json` | deterministic coverage/timeline validation and semantic QA findings |
-| `profiles/<run-id>.json` | stage and LLM-batch timing, status, sizes, and checkpoint reuse without content or secrets |
+| `profiles/<run-id>.json` | schema-v2 product-run node/provider/attempt/checkpoint timing and status without content or secrets |
 
 Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
 
-`domain.py` owns `SegmentSpec`, immutable `TranscriptCue`,
-`TranscriptSegment`, and `TranscriptArtifact`. `artifact_codecs.py` is the only
+`domain.py` owns the two shared domain values actually passed by the core flows:
+`SegmentSpec` and immutable `TranscriptSegment`. `artifact_codecs.py` is the only
 JSON boundary for segment/transcript artifacts and rejects invalid ingress before
-domain objects enter a pipeline. Cue and segment contracts remain separate so
-text regrouping cannot mutate playback timing evidence.
+domain objects enter a pipeline. Cue-level playback evidence is owned by the
+subtitle-package contract (`SourceCue`) rather than a speculative shared type.
 `transcribe/contracts.py` similarly owns typed resumable-ASR plans, state, and
 chunk entries plus their unchanged JSON codecs; `Workspace` exposes only these
 typed values to the core pipeline.
@@ -172,15 +173,15 @@ operations, cookies, and normalized operation failures.
 `NoteComposer` is provider-independent and owns prompt payloads and parsing.
 `TranscriptionEngine` is provider-independent and owns ASR lifecycle.
 `TranslationExperimentRunner` depends on `LLMCaller`, typed canonical transcripts,
-and experiment artifact functions; `application.Yt2Notion` is its only CLI-facing
-orchestrator. It has no dependency on `Storage`.
-`SubtitlePackService` is the application orchestrator. It delegates cue recovery
+and experiment artifact functions; `run_translation_experiment_pipeline()` is its
+CLI-facing orchestrator. It has no dependency on `Storage`.
+`SubtitlePackService` delegates cue recovery
 to `subtitle_pack.source`, bounded context/generation/QA calls to
 `SubtitleLLMWorkflow`, deterministic model-output checks to
 `subtitle_pack.validation`, shared checkpoint serialization to `runtime.py`, and
 package serialization to `subtitle_pack.artifacts`. The workflow depends on
-`LLMCaller` and `RuntimeObserver`. `application.Yt2Notion` owns acquisition/transcription and passes their
-local result to the service. The browser extension consumes only
+`LLMCaller` and `RuntimeObserver`. `run_subtitle_pack_pipeline()` owns acquisition,
+transcription, and service invocation as one profiled product run. The browser extension consumes only
 `bilingual_subtitles.json`; it does not call an LLM or local companion service.
 
 To add an adapter, implement the relevant Protocol, extend its explicit
@@ -193,9 +194,10 @@ The recorder models nested run/node/batch/provider-call/attempt/checkpoint
 observations and stores only redacted labels, counts, status, timing, and
 normalized failure categories. Whole-node retry is disabled by default;
 provider retry remains operation-local, and business fallback remains in the
-pipeline/acquisition plan. Subtitle profiles use schema version 2's flat nested
-observation stream; subtitle checkpoint envelopes and translation candidate
-checkpoint schemas remain unchanged while using the shared store.
+pipeline/acquisition plan. Every product pipeline writes schema version 2's flat
+nested observation stream and finishes it on success, failure, or interruption;
+subtitle checkpoint envelopes and translation candidate checkpoint schemas remain
+unchanged while using the shared store.
 
 ## Prompt bindings
 
@@ -220,9 +222,9 @@ documentation.
 
 ```text
 cli -> application
-application -> pipelines and dependency factories
+application -> complete product pipelines and dependency factories
 pipelines -> acquisition planner/provider, TranscriptionEngine, ContentPreparation
-process -> run_note_pipeline result, then Storage
+run_process_pipeline -> run_note_pipeline result, then Storage
 ContentPreparation -> review, topic_segment, note_bundle
 note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters

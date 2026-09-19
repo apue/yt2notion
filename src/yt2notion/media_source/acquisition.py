@@ -16,6 +16,7 @@ from yt2notion.media_source.base import (
     SourceProvider,
     SourceRef,
 )
+from yt2notion.runtime import provider_call
 from yt2notion.workspace import Workspace
 
 
@@ -39,7 +40,8 @@ def plan_acquisition(probe: SourceProbe, intent: AcquisitionIntent) -> Acquisiti
 def acquire_media(provider: SourceProvider, request: AcquisitionRequest) -> AcquiredMedia:
     """Probe once and execute the pure acquisition plan until it is satisfied."""
     source = route_source(request.url)
-    probe = provider.probe(source)
+    with provider_call("source.probe"):
+        probe = provider.probe(source)
     workspace_id = probe.metadata.video_id or _stable_workspace_id(
         probe.metadata.url or request.url
     )
@@ -51,7 +53,8 @@ def acquire_media(provider: SourceProvider, request: AcquisitionRequest) -> Acqu
         unavailable: SourceOperationError | None = None
         for operation in plan.operations:
             try:
-                result = provider.execute(operation, probe, workspace)
+                with provider_call(f"source.{operation}"):
+                    result = provider.execute(operation, probe, workspace)
             except SourceOperationError as exc:
                 if exc.category != "unavailable":
                     raise

@@ -82,7 +82,6 @@ class RuntimeObserver:
         self.run_name = run_name
         self.run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         self.path = path if path.suffix == ".json" else path / "profiles" / f"{self.run_id}.json"
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._started = time.perf_counter()
         self._sequence = 0
         self._observations: list[Observation] = []
@@ -94,6 +93,42 @@ class RuntimeObserver:
                     attributes={"source": "transcribe_pipeline"},
                     elapsed_seconds=elapsed,
                 )
+
+    @contextmanager
+    def run(self) -> Iterator[RuntimeObserver]:
+        """Activate and finish one product run, including interruptions."""
+        error: BaseException | None = None
+        observer_token = _ACTIVE_OBSERVER.set(self)
+        parent_token = _ACTIVE_PARENT.set(self.run_id)
+        try:
+            yield self
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            _ACTIVE_PARENT.reset(parent_token)
+            _ACTIVE_OBSERVER.reset(observer_token)
+            self.finish(error=error)
+
+    def relocate(self, workspace_dir: Path) -> None:
+        """Move final profile output to a workspace once acquisition identifies it."""
+        self.path = workspace_dir / "profiles" / f"{self.run_id}.json"
+
+    def timing_summary(self, names: tuple[str, ...]) -> dict[str, float]:
+        """Return existing CLI stage timings from completed node observations."""
+        timings = {
+            name: round(
+                sum(
+                    observation.elapsed_seconds
+                    for observation in self._observations
+                    if observation.kind == "node" and observation.name == name
+                ),
+                3,
+            )
+            for name in names
+        }
+        timings["total"] = round(time.perf_counter() - self._started, 3)
+        return timings
 
     @contextmanager
     def span(
@@ -166,6 +201,7 @@ class RuntimeObserver:
             "elapsed_seconds": round(time.perf_counter() - self._started, 3),
             "observations": [observation.to_dict() for observation in self._observations],
         }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return self.path
 
@@ -203,7 +239,7 @@ class CheckpointStore(Generic[T]):
     """Persist and restore identity-bound JSON checkpoints."""
 
     def __init__(self, observer: RuntimeObserver | None = None) -> None:
-        self.observer = observer
+        self.observer = observer or active_observer()
 
     def load(self, path: Path, *, identity: dict[str, object]) -> T | None:
         """Load a checkpoint only when its complete identity matches."""
@@ -262,6 +298,21 @@ class CheckpointStore(Generic[T]):
 def active_observer() -> RuntimeObserver | None:
     """Return the observer scoped to the current provider operation, if any."""
     return _ACTIVE_OBSERVER.get()
+
+
+@contextmanager
+def provider_call(
+    name: str,
+    *,
+    attributes: dict[str, Scalar] | None = None,
+) -> Iterator[Observation | None]:
+    """Observe one provider operation when called inside an active product run."""
+    observer = active_observer()
+    if observer is None:
+        yield None
+        return
+    with observer.span("provider_call", name, attributes=attributes) as observation:
+        yield observation
 
 
 def _validate_attributes(attributes: dict[str, Scalar]) -> dict[str, Scalar]:

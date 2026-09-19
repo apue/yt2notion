@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from yt2notion.models.base import VideoMeta
 
 Seconds = int | float
 
@@ -36,20 +32,6 @@ class SegmentSpec:
 
 
 @dataclass(frozen=True)
-class TranscriptCue:
-    """Immutable timeline evidence retained independently from reading segments."""
-
-    id: str
-    start_seconds: Seconds
-    end_seconds: Seconds
-    text: str
-    source: str
-
-    def __post_init__(self) -> None:
-        _validate_timeline(self.start_seconds, self.end_seconds, "cue")
-
-
-@dataclass(frozen=True)
 class TranscriptSegment:
     """A reading/review unit which may aggregate one or more timeline cues."""
 
@@ -58,16 +40,6 @@ class TranscriptSegment:
     end_seconds: Seconds
     text: str
     source: str
-    cue_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_timeline(self.start_seconds, self.end_seconds, "transcript segment")
-
-
-@dataclass(frozen=True)
-class TranscriptArtifact:
-    """Validated transcript result passed between product pipelines."""
-
-    metadata: VideoMeta
-    segments: tuple[TranscriptSegment, ...]
-    cues: tuple[TranscriptCue, ...] = ()

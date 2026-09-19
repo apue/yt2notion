@@ -7,7 +7,7 @@
 - 当前 owner：Codex
 - 分支：`codex/typed-pipeline-refactor`
 - PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
-- review 状态：等待 parent thread 独立 review
+- review 状态：已修复 parent 独立 review 提出的 shared runtime、完整 product composition、dead contract 与文档准确性问题，等待复核
 - 目标：
   - 按 `docs/typed-pipeline-architecture.md` 分四个可审查阶段落地 typed transcript spine、acquisition split、shared runtime/artifact mechanisms 和普通 Python pipelines
   - 保持 CLI 行为、artifact 文件名和既有 JSON schema
@@ -18,14 +18,15 @@
   - 不改 prompt Markdown 结构，不自动发布，不改 main
   - 不 push、不创建 PR、不 merge、不修改 `main`
 - 起点：branch/HEAD/origin-main 均为 `2849205eac2c4c118866cf9e0b135f0e4af50d1b`；启动时 worktree 无 tracked changes
-- Phase 1（commit `075ef4b`）：新增 `SegmentSpec` / `TranscriptCue` / `TranscriptSegment` / `TranscriptArtifact` 和严格 JSON codecs；workspace、segmentation、transcription、review、note、subtitle-pack fallback 与 translation experiment 已使用 typed transcript spine；既有 segments/transcripts/reviewed JSON shape 保持；application cast 已删除
+- Phase 1（commit `075ef4b`）：新增 typed transcript spine 和严格 JSON codecs；workspace、segmentation、transcription、review、note、subtitle-pack fallback 与 translation experiment 已使用 typed transcript segment；既有 segments/transcripts/reviewed JSON shape 保持；application cast 已删除。后续 review fix 删除了未进入真实边界的 `TranscriptCue` / `TranscriptArtifact` 和 `cue_ids`，subtitle 播放时间轴继续由实际使用的 `SourceCue` 所有
 - Phase 2（commit `3f2b3d2`）：拆分 `SourceRef` 路由、轻量 `SourceProbe`、纯 `plan_acquisition`、`SourceProvider` operation adapter 和 plan executor；当前仅有显式 yt-dlp provider；字幕/webpage/audio/video fallback 由 planner 决定，adapter 保留 cookie、keep-video、workspace artifact 与 CLI verbose 行为；authentication/local-resource 不会被当成字幕缺失
-- Phase 3（commit `2a3cd11`）：新增共享 `RuntimeObserver` / `NodeExecutor` / `CheckpointStore` 与 typed provider-operation retry；subtitle-pack profile 明确升级为 schema v2 嵌套 observation stream，记录 interruption、passive availability、batch/provider-call/attempt/checkpoint parentage 且拒绝正文/secret attributes；subtitle 与 translation checkpoint 复用共享 store 并保持既有 envelope/schema；ASR quota/fallback 仍由 transcription engine 所有
-- Phase 4（本次提交）：新增 `pipelines.py` 的 `run_note_pipeline` / `run_transcribe_pipeline` / `run_translation_experiment_pipeline` / `run_subtitle_pack_pipeline` 普通 typed Python composition；`application.py` 只组装依赖并仅由显式 `process` 创建 storage；resumable ASR plan/state/chunk artifact 也改为 typed contract + codec，subtitle-pack 和 audio split 不再传播 transcript dict；同步 canonical map、架构状态与规则摘要
-- 验证结果：全量离线测试 `277 passed, 16 warnings`；Phase 4 targeted `73 passed, 7 warnings`；`ruff check src/ tests/`、`ruff format --check src/ tests/`、`git diff --check`、browser-extension core test 与全部 JS `node --check` 均通过；core typed-boundary 搜索只剩显式 JSON codecs / translation artifact serializer 的 `list[dict]`，translation experiment application/pipeline 无 `cast()`；`workspace/` 无 Git 变更且 153 个现有文件保留
+- Phase 3（commit `2a3cd11`）：新增共享 `RuntimeObserver` / `NodeExecutor` / `CheckpointStore` 与 typed provider-operation retry；schema-v2 嵌套 observation stream 记录 interruption、passive availability、batch/provider-call/attempt/checkpoint parentage 且拒绝正文/secret attributes；subtitle 与 translation checkpoint 复用共享 store 并保持既有 envelope/schema；ASR quota/fallback 仍由 transcription engine 所有
+- Phase 4（commit `567c71f`）：新增 `pipelines.py` 的普通 typed Python composition；`application.py` 只组装依赖；resumable ASR plan/state/chunk artifact 改为 typed contract + codec，subtitle-pack 和 audio split 不再传播 transcript dict；同步 canonical map、架构状态与规则摘要
+- Review fix（本次 focused commit）：所有产品 pipeline 现在在同一 run 下关联 meaningful node/provider-call/attempt/checkpoint observations，并在 success/failure/`KeyboardInterrupt` 收尾；process 是唯一接收 storage 的完整 pipeline，translation-experiment 与 subtitle-pack 各自内聚 transcribe→specialized-stage；删除未使用的 transcript contracts；文档不再宣称超出 `AcquiredMedia` 实际字段的 provenance
+- 验证结果：review-fix targeted `33 passed, 6 warnings`；全量离线测试 `279 passed, 16 warnings`；`ruff check src/ tests/`、`ruff format --check src/ tests/`、`git diff --check`、browser-extension core test 与全部 JS `node --check` 均通过；core typed-boundary 搜索只剩显式 JSON codecs、subtitle QA/workflow payload 与 translation artifact serializer 的 raw dict，translation experiment application/pipeline 无 `cast()`；`workspace/` 无 Git 变更且 153 个现有文件保留；`.amp-sync/typed-pipeline-refactor.bundle` 保留且仍验证为完整的 pre-review-fix Phase 4 bundle
 - 最后一次自测命令：`uv run pytest tests/ -v`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`node browser-extension/tests/core.test.js`；browser-extension JS `node --check`；`git diff --check`
-- deliberate schema decision：仅 subtitle profile 升级为 schema v2；segments/transcripts/reviewed、resumable-ASR plan/state/chunks、subtitle/translation checkpoint 与 CLI output schema 保持兼容；raw mappings 只留在 JSON/provider/legacy config-model adapter 边界
-- 下一步：parent thread 独立 review 本地四个 phase commits；不 push / PR / merge
+- deliberate schema decision：所有 product-run profile 使用 schema v2；segments/transcripts/reviewed、resumable-ASR plan/state/chunks、subtitle/translation checkpoint 与 CLI output schema 保持兼容；raw mappings 只留在 JSON/provider/legacy config-model adapter 与 subtitle QA/workflow payload 边界
+- 下一步：parent thread 复核本地四个 phase commits 与 focused review-fix commit；不 push / PR / merge
 
 ## 上一任务卡（已合并至 main）
 

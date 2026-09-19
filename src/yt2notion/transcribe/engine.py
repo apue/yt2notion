@@ -15,6 +15,7 @@ import typer
 from yt2notion.domain import SegmentSpec, TranscriptSegment
 from yt2notion.extract import ExtractionError
 from yt2notion.process import SubtitleEntry, parse_subtitle_file, seconds_to_display
+from yt2notion.runtime import provider_call
 from yt2notion.transcribe.base import Transcriber
 from yt2notion.transcribe.contracts import (
     ChunkTranscriptEntry,
@@ -1003,7 +1004,8 @@ def _transcribe_segment_entries_with_byte_budget(
             )
         return rebased_entries
 
-    entries = transcriber.transcribe(segment_file, language=language)
+    with provider_call("asr.transcribe"):
+        entries = transcriber.transcribe(segment_file, language=language)
     if should_rebase:
         return _rebase_chunk_entries(entries, segment)
     return entries
@@ -1031,7 +1033,8 @@ def _transcribe_full_audio_entries(
 
     if max_upload_bytes is not None:
         if file_size <= max_upload_bytes:
-            return transcriber.transcribe(audio_path, language=language)
+            with provider_call("asr.transcribe"):
+                return transcriber.transcribe(audio_path, language=language)
         oversize_full_audio = True
         chunk_seconds = _resolve_upload_budget_chunk_seconds(
             duration_seconds,
@@ -1047,7 +1050,8 @@ def _transcribe_full_audio_entries(
                 f"max_upload_bytes ({max_upload_bytes}) at minimum chunk size "
                 f"({MIN_ASR_UPLOAD_CHUNK_SECONDS}s)"
             )
-        return transcriber.transcribe(audio_path, language=language)
+        with provider_call("asr.transcribe"):
+            return transcriber.transcribe(audio_path, language=language)
 
     chunk_specs = _build_full_audio_chunk_specs(duration_seconds, chunk_seconds)
     chunk_dir = audio_path.parent / "full_audio_chunks"

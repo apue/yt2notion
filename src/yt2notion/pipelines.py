@@ -11,7 +11,7 @@ import typer
 
 from yt2notion.content_preparation import is_retries_exhausted
 from yt2notion.media_source import AcquisitionError, AcquisitionRequest, acquire_media
-from yt2notion.timing import StageTimer
+from yt2notion.runtime import NodeExecutor, RuntimeObserver, provider_call
 from yt2notion.transcript_artifacts import (
     MediaTranscribeResult,
     render_media_transcript_markdown,
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from yt2notion.content_preparation import ContentPreparation
     from yt2notion.media_source import SourceProvider
     from yt2notion.models.base import NoteBundle, VideoMeta
+    from yt2notion.storage.base import Storage
     from yt2notion.subtitle_pack import SubtitlePackResult, SubtitlePackService
     from yt2notion.transcribe.engine import TranscriptionEngine
     from yt2notion.translation_experiment import (
@@ -42,6 +43,7 @@ ProgressEvent: TypeAlias = Literal[
     "daily_fallback_switch",
 ]
 ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
+StorageFactory: TypeAlias = Callable[[dict], "Storage"]
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,13 @@ class TranscribePipelineRequest:
     workspace_dir: str | None = None
     keep_video: bool = True
     verbose: bool = False
+
+
+@dataclass(frozen=True)
+class ProcessPipelineRequest(NotePipelineRequest):
+    """Inputs controlling note preparation and explicit publication."""
+
+    dry_run: bool = False
 
 
 @dataclass
@@ -94,8 +103,45 @@ def run_note_pipeline(
     transcription_engine: TranscriptionEngine,
     preparation: ContentPreparation,
     progress_callback: ProgressCallback | None = None,
+    observer: RuntimeObserver | None = None,
 ) -> PreparedContent:
     """Acquire, transcribe, review, and compose a local source/A/B note bundle."""
+    runtime = observer or RuntimeObserver(
+        _workspace_base(config, request.workspace_dir),
+        run_name="note_prepare",
+    )
+    if observer is not None:
+        return _run_note_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            progress_callback=progress_callback,
+            observer=runtime,
+        )
+    with runtime.run():
+        return _run_note_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            progress_callback=progress_callback,
+            observer=runtime,
+        )
+
+
+def _run_note_pipeline(
+    request: NotePipelineRequest,
+    *,
+    config: AppConfig,
+    source_provider: SourceProvider,
+    transcription_engine: TranscriptionEngine,
+    preparation: ContentPreparation,
+    progress_callback: ProgressCallback | None,
+    observer: RuntimeObserver,
+) -> PreparedContent:
     if request.mode not in {None, "summary"}:
         raise ValueError("source/A/B bundle output supports summary mode only")
 
@@ -106,32 +152,38 @@ def run_note_pipeline(
         if start_idx <= 0:
             emit_progress(progress_callback, "download", "started")
             try:
-                acquired = acquire_media(
-                    source_provider,
-                    AcquisitionRequest(
-                        request.url,
-                        _workspace_base(config, request.workspace_dir),
-                    ),
-                )
+                with observer.span("node", "acquire"):
+                    acquired = acquire_media(
+                        source_provider,
+                        AcquisitionRequest(
+                            request.url,
+                            _workspace_base(config, request.workspace_dir),
+                        ),
+                    )
             except AcquisitionError as failure:
                 workspace = failure.workspace
+                observer.relocate(workspace.dir)
                 raise failure.cause from failure
             metadata = acquired.metadata
             workspace = acquired.workspace
+            observer.relocate(workspace.dir)
             emit_progress(progress_callback, "download", "completed")
         else:
-            workspace, metadata = _resume_workspace(
-                request.url,
-                request.workspace_dir,
-                config=config,
-                verbose=request.verbose,
-            )
+            with observer.span("node", "resume"):
+                workspace, metadata = _resume_workspace(
+                    request.url,
+                    request.workspace_dir,
+                    config=config,
+                    verbose=request.verbose,
+                )
+            observer.relocate(workspace.dir)
 
         current_step = "segment"
         if start_idx <= 1:
             emit_progress(progress_callback, "segment", "started")
-            segments = preparation.segment(metadata, config, request.verbose)
-            workspace.save_segments(segments)
+            with observer.span("node", "segment"):
+                segments = preparation.segment(metadata, config, request.verbose)
+                workspace.save_segments(segments)
             emit_progress(progress_callback, "segment", "completed")
         else:
             segments = workspace.load_segments()
@@ -150,14 +202,15 @@ def run_note_pipeline(
             ):
                 workspace.clear_asr_fallback_used()
             emit_progress(progress_callback, "transcribe", "started")
-            transcripts = transcription_engine.transcribe_workspace(
-                workspace,
-                metadata,
-                segments,
-                verbose=request.verbose,
-                progress_callback=progress_callback,
-            )
-            workspace.save_transcripts(transcripts)
+            with observer.span("node", "transcribe"):
+                transcripts = transcription_engine.transcribe_workspace(
+                    workspace,
+                    metadata,
+                    segments,
+                    verbose=request.verbose,
+                    progress_callback=progress_callback,
+                )
+                workspace.save_transcripts(transcripts)
             emit_progress(progress_callback, "transcribe", "completed")
         else:
             transcripts = workspace.load_transcripts()
@@ -167,12 +220,13 @@ def run_note_pipeline(
         if start_idx <= 2 and preparation.should_topic_segment(transcripts):
             max_segment_seconds = config.output.get("max_segment_seconds", 600)
             original_count = len(transcripts)
-            transcripts = preparation.topic_segment(
-                transcripts,
-                metadata,
-                config,
-                max_segment_seconds,
-            )
+            with observer.span("node", "topic_segment"):
+                transcripts = preparation.topic_segment(
+                    transcripts,
+                    metadata,
+                    config,
+                    max_segment_seconds,
+                )
             if len(transcripts) != original_count:
                 workspace.save_transcripts(transcripts)
                 if request.verbose:
@@ -186,14 +240,15 @@ def run_note_pipeline(
         if preparation.should_cleanup(transcripts):
             if start_idx <= 3:
                 emit_progress(progress_callback, "review", "started")
-                reviewed = preparation.review(
-                    transcripts,
-                    metadata,
-                    config,
-                    workspace,
-                    request.verbose,
-                )
-                workspace.save_reviewed(reviewed)
+                with observer.span("node", "review"):
+                    reviewed = preparation.review(
+                        transcripts,
+                        metadata,
+                        config,
+                        workspace,
+                        request.verbose,
+                    )
+                    workspace.save_reviewed(reviewed)
                 emit_progress(progress_callback, "review", "completed")
             else:
                 reviewed = workspace.load_reviewed()
@@ -208,8 +263,9 @@ def run_note_pipeline(
         emit_progress(progress_callback, "summarize", "started")
         if request.verbose:
             typer.echo("Summarizing source/A/B note bundle...")
-        note_bundle = preparation.summarize(reviewed, metadata, config)
-        workspace.save_note_bundle(note_bundle)
+        with observer.span("node", "summarize"):
+            note_bundle = preparation.summarize(reviewed, metadata, config)
+            workspace.save_note_bundle(note_bundle)
         workspace.clear_failure()
         emit_progress(progress_callback, "summarize", "completed")
         return PreparedContent(
@@ -236,13 +292,46 @@ def run_transcribe_pipeline(
     source_provider: SourceProvider,
     transcription_engine: TranscriptionEngine,
     preparation: ContentPreparation,
+    observer: RuntimeObserver | None = None,
 ) -> MediaTranscribeResult:
     """Acquire captions or media and stop after local transcript artifacts."""
-    timer = StageTimer()
+    runtime = observer or RuntimeObserver(
+        _workspace_base(config, request.workspace_dir),
+        run_name="transcribe",
+    )
+    if observer is not None:
+        return _run_transcribe_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            observer=runtime,
+        )
+    with runtime.run():
+        return _run_transcribe_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            observer=runtime,
+        )
+
+
+def _run_transcribe_pipeline(
+    request: TranscribePipelineRequest,
+    *,
+    config: AppConfig,
+    source_provider: SourceProvider,
+    transcription_engine: TranscriptionEngine,
+    preparation: ContentPreparation,
+    observer: RuntimeObserver,
+) -> MediaTranscribeResult:
     workspace: Workspace | None = None
     current_step = "download"
     try:
-        with timer.measure("acquire"):
+        with observer.span("node", "acquire"):
             try:
                 acquired = acquire_media(
                     source_provider,
@@ -254,8 +343,10 @@ def run_transcribe_pipeline(
                 )
             except AcquisitionError as failure:
                 workspace = failure.workspace
+                observer.relocate(workspace.dir)
                 raise failure.cause from failure
         workspace = acquired.workspace
+        observer.relocate(workspace.dir)
         metadata = acquired.metadata
         if not request.keep_video:
             workspace.discard_video_artifacts()
@@ -263,12 +354,12 @@ def run_transcribe_pipeline(
         workspace.clear_asr_fallback_used()
 
         current_step = "segment"
-        with timer.measure("segment"):
+        with observer.span("node", "segment"):
             segments = preparation.segment(metadata, config, request.verbose)
             workspace.save_segments(segments)
 
         current_step = "transcribe"
-        with timer.measure("transcribe"):
+        with observer.span("node", "transcribe"):
             transcripts = transcription_engine.transcribe_workspace(
                 workspace,
                 metadata,
@@ -292,7 +383,7 @@ def run_transcribe_pipeline(
             audio_path=acquired.audio_path,
             transcripts_path=workspace.dir / "transcripts.json",
             transcript_markdown_path=markdown_path,
-            timings_seconds=timer.finish(),
+            timings_seconds=observer.timing_summary(("acquire", "segment", "transcribe")),
         )
     except Exception as exc:
         if workspace is not None:
@@ -305,23 +396,118 @@ def run_transcribe_pipeline(
         raise
 
 
+def run_process_pipeline(
+    request: ProcessPipelineRequest,
+    *,
+    config: AppConfig,
+    source_provider: SourceProvider,
+    transcription_engine: TranscriptionEngine,
+    preparation: ContentPreparation,
+    storage_factory: StorageFactory,
+    progress_callback: ProgressCallback | None = None,
+) -> str:
+    """Prepare and explicitly publish one note bundle under a shared run profile."""
+    observer = RuntimeObserver(
+        _workspace_base(config, request.workspace_dir),
+        run_name="process",
+    )
+    with observer.run():
+        prepared = run_note_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            progress_callback=progress_callback,
+            observer=observer,
+        )
+        if request.dry_run:
+            from yt2notion.content_preparation import render_prepared_output
+
+            output = render_prepared_output(prepared, config)
+            typer.echo(output)
+            return output
+
+        if request.verbose:
+            typer.echo("Publishing to Obsidian...")
+
+        def publish() -> str:
+            storage = storage_factory(_config_mapping(config))
+            with provider_call("storage.save_note_bundle"):
+                return storage.save_note_bundle(prepared.note_bundle, prepared.metadata)
+
+        emit_progress(progress_callback, "publish", "started")
+        result_url = NodeExecutor(observer).run("publish", publish)
+        emit_progress(progress_callback, "publish", "completed")
+        if request.verbose:
+            typer.echo(f"  Published: {result_url}")
+        prepared.workspace.clear_failure()
+        return result_url
+
+
 def run_translation_experiment_pipeline(
-    transcription: MediaTranscribeResult,
+    request: TranscribePipelineRequest,
+    *,
+    config: AppConfig,
+    source_provider: SourceProvider,
+    transcription_engine: TranscriptionEngine,
+    preparation: ContentPreparation,
     runner: TranslationExperimentRunner,
 ) -> TranslationExperimentResult:
-    """Build a local translation experiment from the typed transcript artifact."""
-    transcripts = transcription.workspace.load_transcripts()
-    if transcripts is None:
-        raise ValueError("translation experiment requires transcripts.json")
-    return runner.run(transcription.metadata, transcripts, transcription.workspace)
+    """Transcribe and build a local translation experiment as one product run."""
+    observer = RuntimeObserver(
+        _workspace_base(config, request.workspace_dir),
+        run_name="translation_experiment",
+    )
+    with observer.run():
+        transcription = run_transcribe_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            observer=observer,
+        )
+        transcripts = transcription.workspace.load_transcripts()
+        if transcripts is None:
+            raise ValueError("translation experiment requires transcripts.json")
+        return NodeExecutor(observer).run(
+            "translation_experiment",
+            lambda: runner.run(
+                transcription.metadata,
+                transcripts,
+                transcription.workspace,
+            ),
+        )
 
 
 def run_subtitle_pack_pipeline(
-    transcription: MediaTranscribeResult,
+    request: TranscribePipelineRequest,
+    *,
+    config: AppConfig,
+    source_provider: SourceProvider,
+    transcription_engine: TranscriptionEngine,
+    preparation: ContentPreparation,
     service: SubtitlePackService,
 ) -> SubtitlePackResult:
-    """Build a local bilingual subtitle package without a storage dependency."""
-    return service.run(transcription)
+    """Transcribe and build a local subtitle package as one product run."""
+    observer = RuntimeObserver(
+        _workspace_base(config, request.workspace_dir),
+        run_name="subtitle_pack",
+    )
+    with observer.run():
+        transcription = run_transcribe_pipeline(
+            request,
+            config=config,
+            source_provider=source_provider,
+            transcription_engine=transcription_engine,
+            preparation=preparation,
+            observer=observer,
+        )
+        return NodeExecutor(observer).run(
+            "subtitle_pack",
+            lambda: service.run(transcription, observer=observer),
+        )
 
 
 def _resume_index(resume_from: str | None) -> int:
@@ -335,6 +521,16 @@ def _resume_index(resume_from: str | None) -> int:
 def _workspace_base(config: AppConfig, workspace_dir: str | None) -> Path:
     workspace_base = workspace_dir or config.workspace.get("base_dir", "./workspace")
     return Path(workspace_base).expanduser()
+
+
+def _config_mapping(config: AppConfig) -> dict:
+    return {
+        "extract": config.extract,
+        "model": config.model,
+        "storage": config.storage,
+        "credit": config.credit,
+        "output": config.output,
+    }
 
 
 def _resume_workspace(

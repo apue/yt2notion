@@ -41,10 +41,15 @@ class SubtitlePackService:
             progress_callback=progress_callback,
         )
 
-    def run(self, transcription: MediaTranscribeResult) -> SubtitlePackResult:
+    def run(
+        self,
+        transcription: MediaTranscribeResult,
+        *,
+        observer: RuntimeObserver | None = None,
+    ) -> SubtitlePackResult:
         """Generate a browser-consumable bilingual package from local transcription artifacts."""
         ws = transcription.workspace
-        profile = RuntimeObserver(
+        profile = observer or RuntimeObserver(
             ws.dir,
             run_name="subtitle_pack",
             inherited_timings=transcription.timings_seconds,
@@ -158,7 +163,7 @@ class SubtitlePackService:
             error = exc
             raise
         finally:
-            profile_path = profile.finish(error=error)
+            profile_path = profile.path if observer is not None else profile.finish(error=error)
 
         return SubtitlePackResult(
             workspace_dir=ws.dir,

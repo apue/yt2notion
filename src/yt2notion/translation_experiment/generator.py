@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from yt2notion.models._parsers import extract_json_array
 from yt2notion.prompts import load_prompt, render_prompt
+from yt2notion.runtime import provider_call
 from yt2notion.translation_experiment.models import (
     SourceChapter,
     TranslationItem,
@@ -45,7 +46,8 @@ class TranslationGenerator:
             "translation_experiment_whole",
             source_json=json.dumps(source, ensure_ascii=False, indent=2),
         )
-        raw = self.caller.call(self.system_prompt, prompt, max_tokens=16_000)
+        with provider_call("llm.translation_whole"):
+            raw = self.caller.call(self.system_prompt, prompt, max_tokens=16_000)
         return _parse_translations(
             raw,
             expected_ids=[chapter.chapter_id for chapter in chapters],
@@ -71,7 +73,8 @@ class TranslationGenerator:
             "translation_experiment_blocks",
             source_json=json.dumps(source, ensure_ascii=False, indent=2),
         )
-        raw = self.caller.call(self.system_prompt, prompt, max_tokens=16_000)
+        with provider_call("llm.translation_blocks"):
+            raw = self.caller.call(self.system_prompt, prompt, max_tokens=16_000)
         return _parse_translations(
             raw,
             expected_ids=[block.block_id for chapter in chapters for block in chapter.blocks],

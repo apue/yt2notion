@@ -251,7 +251,6 @@ def review_transcripts(
                 end_seconds=segment.end_seconds,
                 text=cleaned_text,
                 source=segment.source,
-                cue_ids=segment.cue_ids,
             )
         )
         workspace.save_reviewed(reviewed)

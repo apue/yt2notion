@@ -7,15 +7,16 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from yt2notion.content_preparation import ContentPreparation, render_prepared_output
+from yt2notion.content_preparation import ContentPreparation
 from yt2notion.media_source import SourceProvider, create_source_provider
 from yt2notion.pipelines import (
     NotePipelineRequest,
     PreparedContent,
+    ProcessPipelineRequest,
     ProgressCallback,
     TranscribePipelineRequest,
-    emit_progress,
     run_note_pipeline,
+    run_process_pipeline,
     run_subtitle_pack_pipeline,
     run_transcribe_pipeline,
     run_translation_experiment_pipeline,
@@ -104,29 +105,22 @@ class Yt2Notion:
         progress_callback: ProgressCallback | None = None,
     ) -> str:
         """Prepare and explicitly publish through the configured storage backend."""
-        prepared = self.prepare(
-            url,
-            verbose=verbose,
-            resume_from=resume_from,
-            workspace_dir=workspace_dir,
-            mode=mode,
+        return run_process_pipeline(
+            ProcessPipelineRequest(
+                url=url,
+                workspace_dir=workspace_dir,
+                resume_from=resume_from,
+                mode=mode,
+                verbose=verbose,
+                dry_run=dry_run,
+            ),
+            config=self.config,
+            source_provider=self._source_provider(verbose=verbose),
+            transcription_engine=self.transcription_engine,
+            preparation=self.content_preparation,
+            storage_factory=self.storage_factory,
             progress_callback=progress_callback,
         )
-        if dry_run:
-            output = render_prepared_output(prepared, self.config)
-            typer.echo(output)
-            return output
-
-        if verbose:
-            typer.echo("Publishing to Obsidian...")
-        storage = self.storage_factory(self.raw_config)
-        emit_progress(progress_callback, "publish", "started")
-        result_url = storage.save_note_bundle(prepared.note_bundle, prepared.metadata)
-        emit_progress(progress_callback, "publish", "completed")
-        if verbose:
-            typer.echo(f"  Published: {result_url}")
-        prepared.workspace.clear_failure()
-        return result_url
 
     def transcribe(
         self,
@@ -159,18 +153,24 @@ class Yt2Notion:
         verbose: bool = False,
     ) -> TranslationExperimentResult:
         """Transcribe and build a local blind translation experiment."""
-        transcription = self.transcribe(
-            url,
-            workspace_dir=workspace_dir,
-            keep_video=keep_video,
-            verbose=verbose,
-        )
         runner = self.translation_experiment_runner
         if runner is None:
             from yt2notion.translation_experiment import create_translation_experiment_runner
 
             runner = create_translation_experiment_runner(self.config)
-        return run_translation_experiment_pipeline(transcription, runner)
+        return run_translation_experiment_pipeline(
+            TranscribePipelineRequest(
+                url=url,
+                workspace_dir=workspace_dir,
+                keep_video=keep_video,
+                verbose=verbose,
+            ),
+            config=self.config,
+            source_provider=self._source_provider(verbose=verbose),
+            transcription_engine=self.transcription_engine,
+            preparation=self.content_preparation,
+            runner=runner,
+        )
 
     def create_subtitle_pack(
         self,
@@ -181,14 +181,20 @@ class Yt2Notion:
         verbose: bool = False,
     ) -> SubtitlePackResult:
         """Transcribe and build a local cue-timed bilingual package."""
-        transcription = self.transcribe(
-            url,
-            workspace_dir=workspace_dir,
-            keep_video=keep_video,
-            verbose=verbose,
-        )
         service = self.subtitle_pack_service or self._create_subtitle_pack_service(verbose=verbose)
-        return run_subtitle_pack_pipeline(transcription, service)
+        return run_subtitle_pack_pipeline(
+            TranscribePipelineRequest(
+                url=url,
+                workspace_dir=workspace_dir,
+                keep_video=keep_video,
+                verbose=verbose,
+            ),
+            config=self.config,
+            source_provider=self._source_provider(verbose=verbose),
+            transcription_engine=self.transcription_engine,
+            preparation=self.content_preparation,
+            service=service,
+        )
 
     def _source_provider(self, *, verbose: bool) -> SourceProvider:
         if self.source_provider is not None:

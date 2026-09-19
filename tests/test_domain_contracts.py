@@ -10,7 +10,7 @@ from yt2notion.artifact_codecs import (
     encode_segment_specs,
     encode_transcript_segments,
 )
-from yt2notion.domain import SegmentSpec, TranscriptCue, TranscriptSegment
+from yt2notion.domain import SegmentSpec, TranscriptSegment
 
 
 def test_segment_codec_preserves_existing_json_shape() -> None:
@@ -90,24 +90,3 @@ def test_transcript_codec_rejects_non_text_required_field() -> None:
                 }
             ]
         )
-
-
-def test_cue_and_segment_are_distinct_timeline_and_reading_contracts() -> None:
-    cue = TranscriptCue(
-        id="cue-000001",
-        start_seconds=1.25,
-        end_seconds=2.5,
-        text="timeline evidence",
-        source="manual_subtitle",
-    )
-    segment = TranscriptSegment(
-        title="Reading unit",
-        start_seconds=1.25,
-        end_seconds=9,
-        text="regrouped text",
-        source="manual_subtitle",
-        cue_ids=(cue.id,),
-    )
-
-    assert cue.id == segment.cue_ids[0]
-    assert cue.end_seconds != segment.end_seconds

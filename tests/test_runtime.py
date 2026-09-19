@@ -81,6 +81,22 @@ def test_checkpoint_identity_invalidates_and_records_reuse(tmp_path: Path) -> No
     ]
 
 
+def test_implicit_checkpoint_observer_uses_active_node_parent(tmp_path: Path) -> None:
+    observer = RuntimeObserver(tmp_path / "profile.json", run_name="translation_experiment")
+    checkpoint = tmp_path / "candidate.json"
+
+    with observer.run(), observer.span("node", "translation_experiment") as node:
+        CheckpointStore[object]().save(
+            checkpoint,
+            identity={"source": "one"},
+            result={"candidate": "A"},
+        )
+
+    payload = json.loads((tmp_path / "profile.json").read_text(encoding="utf-8"))
+    saved = next(item for item in payload["observations"] if item["kind"] == "checkpoint")
+    assert saved["parent_id"] == node.id
+
+
 def test_node_executor_runs_once_without_implicit_retry(tmp_path: Path) -> None:
     observer = RuntimeObserver(tmp_path / "profile.json", run_name="test")
     calls = 0

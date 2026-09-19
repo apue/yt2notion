@@ -15,6 +15,7 @@ from yt2notion.domain import TranscriptSegment
 from yt2notion.models._parsers import extract_json_array
 from yt2notion.models.llm import create_llm_caller
 from yt2notion.prompts import render_prompt
+from yt2notion.runtime import provider_call
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
@@ -91,7 +92,8 @@ def _split_segment(
     )
 
     caller = create_llm_caller(config)
-    raw = caller.call(system_prompt, text)
+    with provider_call("llm.topic_segment"):
+        raw = caller.call(system_prompt, text)
 
     boundaries = _parse_boundaries(raw, len(text))
     if not boundaries or len(boundaries) < 2:
@@ -158,7 +160,6 @@ def _apply_boundaries(
                 end_seconds=round(time_end),
                 text=chunk_text,
                 source=orig_seg.source,
-                cue_ids=orig_seg.cue_ids,
             )
         )
 

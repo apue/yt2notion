@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,7 @@ from yt2notion.media_source import (
     create_source_provider,
 )
 from yt2notion.models.base import NoteDocument, NoteMetadata, VideoMeta
-from yt2notion.pipelines import (
-    run_subtitle_pack_pipeline,
-    run_translation_experiment_pipeline,
-)
+from yt2notion.retry import retry, retry_for_exceptions
 from yt2notion.transcribe import create_transcription_engine
 from yt2notion.workspace import Workspace
 
@@ -253,6 +251,13 @@ def test_application_records_transcription_failure(tmp_path: Path) -> None:
 
     ws = Workspace(tmp_path, "video-1")
     assert ws.load_failure()["step"] == "transcribe"
+    profile_path = next((ws.dir / "profiles").glob("*.json"))
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    assert profile["run_name"] == "transcribe"
+    assert profile["status"] == "failed"
+    transcribe = next(item for item in profile["observations"] if item["name"] == "transcribe")
+    assert transcribe["status"] == "failed"
+    assert transcribe["parent_id"] == profile["run_id"]
 
 
 def test_application_transcribe_clears_stale_failure_on_success(tmp_path: Path) -> None:
@@ -293,6 +298,96 @@ def test_application_process_uses_injected_storage_adapter(tmp_path: Path) -> No
 
     assert result == "obsidian://source-note"
     assert len(storage.saved) == 1
+    profiles = list((tmp_path / "video-1" / "profiles").glob("*.json"))
+    assert len(profiles) == 1
+    profile = json.loads(profiles[0].read_text(encoding="utf-8"))
+    assert profile["run_name"] == "process"
+    publish = next(item for item in profile["observations"] if item["name"] == "publish")
+    storage_call = next(
+        item for item in profile["observations"] if item["name"] == "storage.save_note_bundle"
+    )
+    assert storage_call["parent_id"] == publish["id"]
+
+
+def test_note_profile_nests_provider_retry_attempts(tmp_path: Path) -> None:
+    cfg = AppConfig()
+    cfg.workspace = {"base_dir": str(tmp_path)}
+
+    class RetryingSourceProvider(FakeSourceProvider):
+        def __init__(self) -> None:
+            super().__init__(tmp_path)
+            self.audio_attempts = 0
+
+        def execute(
+            self, operation: str, probe: SourceProbe, workspace: Workspace
+        ) -> OperationResult:
+            if operation != "audio":
+                return super().execute(operation, probe, workspace)
+
+            def download() -> OperationResult:
+                self.audio_attempts += 1
+                if self.audio_attempts == 1:
+                    raise TimeoutError("sensitive provider detail")
+                return super(RetryingSourceProvider, self).execute(operation, probe, workspace)
+
+            return retry(
+                download,
+                classify=retry_for_exceptions(TimeoutError),
+                max_retries=2,
+                base_delay=0,
+            )
+
+    Yt2Notion(
+        cfg,
+        source_provider=RetryingSourceProvider(),
+        transcription_engine=FakeEngine(),
+        content_preparation=ContentPreparation(summarizer_factory=lambda config: FakeSummarizer()),
+    ).prepare("https://example.com/video")
+
+    profile_path = next((tmp_path / "video-1" / "profiles").glob("*.json"))
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    assert profile["run_name"] == "note_prepare"
+    by_name = {item["name"]: item for item in profile["observations"]}
+    attempts = [item for item in profile["observations"] if item["kind"] == "attempt"]
+    assert [item["status"] for item in attempts] == ["failed", "completed"]
+    assert all(item["parent_id"] == by_name["source.audio"]["id"] for item in attempts)
+    assert by_name["source.audio"]["parent_id"] == by_name["acquire"]["id"]
+    assert "sensitive provider detail" not in json.dumps(profile)
+
+
+def test_translation_pipeline_composes_transcription_and_profiles_interruption(
+    tmp_path: Path,
+) -> None:
+    cfg = AppConfig()
+    cfg.workspace = {"base_dir": str(tmp_path)}
+    engine = FakeEngine()
+
+    class InterruptingRunner:
+        def run(self, metadata, transcripts, workspace):
+            raise KeyboardInterrupt("sensitive translation content")
+
+    app = Yt2Notion(
+        cfg,
+        source_provider=FakeSourceProvider(tmp_path),
+        transcription_engine=engine,
+        translation_experiment_runner=InterruptingRunner(),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        app.run_translation_experiment("https://example.com/video")
+
+    assert engine.workspace_calls == 1
+    profiles = list((tmp_path / "video-1" / "profiles").glob("*.json"))
+    assert len(profiles) == 1
+    profile = json.loads(profiles[0].read_text(encoding="utf-8"))
+    assert profile["run_name"] == "translation_experiment"
+    assert profile["status"] == "interrupted"
+    translation = next(
+        item for item in profile["observations"] if item["name"] == "translation_experiment"
+    )
+    assert translation["status"] == "interrupted"
+    assert translation["parent_id"] == profile["run_id"]
+    assert "sensitive translation content" not in json.dumps(profile)
 
 
 def test_non_publish_pipelines_do_not_construct_storage(tmp_path: Path) -> None:
@@ -313,7 +408,6 @@ def test_non_publish_pipelines_do_not_construct_storage(tmp_path: Path) -> None:
         storage_factory=forbidden_storage,
     )
     app.prepare("https://example.com/video")
-    transcription = app.transcribe("https://example.com/video", keep_video=False)
 
     class FakeExperimentRunner:
         def run(self, metadata, transcripts, workspace):
@@ -321,15 +415,26 @@ def test_non_publish_pipelines_do_not_construct_storage(tmp_path: Path) -> None:
             return "experiment"
 
     class FakeSubtitleService:
-        def run(self, result):
-            assert result is transcription
+        def run(self, result, *, observer=None):
+            assert result.workspace.load_transcripts() == _transcript("manual_subtitle")
+            assert observer is not None
             return "subtitle"
 
-    assert (
-        run_translation_experiment_pipeline(transcription, FakeExperimentRunner()) == "experiment"
-    )
-    assert run_subtitle_pack_pipeline(transcription, FakeSubtitleService()) == "subtitle"
+    app.translation_experiment_runner = FakeExperimentRunner()
+    app.subtitle_pack_service = FakeSubtitleService()
+    assert app.run_translation_experiment("https://example.com/video") == "experiment"
+    assert app.create_subtitle_pack("https://example.com/video") == "subtitle"
+    assert app.transcription_engine.workspace_calls == 3
     assert storage_calls == 0
+    profiles = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (tmp_path / "video-1" / "profiles").glob("*.json")
+    ]
+    assert {profile["run_name"] for profile in profiles} == {
+        "note_prepare",
+        "translation_experiment",
+        "subtitle_pack",
+    }
 
 
 def test_unknown_media_source_backend_raises_config_error(tmp_path: Path) -> None:
