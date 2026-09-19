@@ -12,11 +12,16 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import typer
 
-from yt2notion.artifact_codecs import encode_segment_specs
 from yt2notion.domain import SegmentSpec, TranscriptSegment
 from yt2notion.extract import ExtractionError
 from yt2notion.process import SubtitleEntry, parse_subtitle_file, seconds_to_display
 from yt2notion.transcribe.base import Transcriber
+from yt2notion.transcribe.contracts import (
+    ChunkTranscriptEntry,
+    TranscribeChunk,
+    TranscribeChunkState,
+    TranscribeState,
+)
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
@@ -36,7 +41,6 @@ ProgressEvent: TypeAlias = Literal[
     "daily_fallback_switch",
 ]
 ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
-ChunkResultPayload: TypeAlias = list[dict[str, object]]
 TranscriberFactory: TypeAlias = Callable[[], Transcriber | None]
 PrimaryTranscriberFactory: TypeAlias = Callable[[], Transcriber]
 
@@ -186,24 +190,23 @@ def _wait_until_retryable_time(next_attempt_at: str | None, *, verbose: bool) ->
         time.sleep(min(remaining, 60.0))
 
 
-def _chunk_payload_from_entries(entries: list[SubtitleEntry]) -> ChunkResultPayload:
+def _chunk_payload_from_entries(entries: list[SubtitleEntry]) -> list[ChunkTranscriptEntry]:
     return [
-        {
-            "start_seconds": entry.start_seconds,
-            "end_seconds": entry.end_seconds,
-            "text": entry.text,
-            "source": "asr",
-        }
+        ChunkTranscriptEntry(
+            start_seconds=entry.start_seconds,
+            end_seconds=entry.end_seconds,
+            text=entry.text,
+        )
         for entry in entries
     ]
 
 
-def _entries_from_chunk_payload(payload: ChunkResultPayload) -> list[SubtitleEntry]:
+def _entries_from_chunk_payload(payload: list[ChunkTranscriptEntry]) -> list[SubtitleEntry]:
     return [
         SubtitleEntry(
-            start_seconds=float(entry["start_seconds"]),
-            end_seconds=float(entry["end_seconds"]),
-            text=str(entry["text"]),
+            start_seconds=entry.start_seconds,
+            end_seconds=entry.end_seconds,
+            text=entry.text,
         )
         for entry in payload
     ]
@@ -224,7 +227,7 @@ def _resolve_chunk_audio_path(ws: Workspace, audio_ref: str) -> Path:
 
 
 def _transcribe_progress_message(
-    chunk: dict,
+    chunk: TranscribeChunk,
     *,
     index: int,
     total: int,
@@ -232,45 +235,54 @@ def _transcribe_progress_message(
     **extra: object,
 ) -> str:
     payload: dict[str, object] = {
-        "chunk_id": str(chunk["chunk_id"]),
+        "chunk_id": chunk.chunk_id,
         "chunk_index": index + 1,
         "chunk_total": total,
-        "title": str(chunk.get("title", "")),
-        "start_seconds": float(chunk["start_seconds"]),
-        "end_seconds": float(chunk["end_seconds"]),
-        "start_label": seconds_to_display(float(chunk["start_seconds"])),
-        "end_label": seconds_to_display(float(chunk["end_seconds"])),
+        "title": chunk.title,
+        "start_seconds": chunk.start_seconds,
+        "end_seconds": chunk.end_seconds,
+        "start_label": seconds_to_display(chunk.start_seconds),
+        "end_label": seconds_to_display(chunk.end_seconds),
         "backend": backend,
     }
     payload.update(extra)
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
-def _initial_transcribe_state(plan: list[dict], *, job_mode: str) -> dict:
+def _initial_transcribe_state(
+    plan: list[TranscribeChunk],
+    *,
+    job_mode: str,
+) -> TranscribeState:
     timestamp = _now().isoformat(timespec="seconds")
-    return {
-        "version": 1,
-        "job_mode": job_mode,
-        "status": "running",
-        "next_attempt_at": None,
-        "last_error": None,
-        "defer_reason": None,
-        "ash_defer_count": 0,
-        "chunks": [
-            {
-                "chunk_id": chunk["chunk_id"],
-                "status": "pending",
-                "backend_used": None,
-                "result_relpath": None,
-                "attempts": 0,
-                "updated_at": timestamp,
-            }
+    return TranscribeState(
+        version=1,
+        job_mode=job_mode,
+        status="running",
+        next_attempt_at=None,
+        last_error=None,
+        defer_reason=None,
+        ash_defer_count=0,
+        chunks=[
+            TranscribeChunkState(
+                chunk_id=chunk.chunk_id,
+                status="pending",
+                backend_used=None,
+                result_relpath=None,
+                attempts=0,
+                updated_at=timestamp,
+            )
             for chunk in plan
         ],
-    }
+    )
 
 
-def _load_or_create_transcribe_state(ws: Workspace, plan: list[dict], *, job_mode: str) -> dict:
+def _load_or_create_transcribe_state(
+    ws: Workspace,
+    plan: list[TranscribeChunk],
+    *,
+    job_mode: str,
+) -> TranscribeState:
     state = ws.load_transcribe_state()
     if state is None or not _transcribe_state_matches_plan(state, plan):
         state = _initial_transcribe_state(plan, job_mode=job_mode)
@@ -279,79 +291,82 @@ def _load_or_create_transcribe_state(ws: Workspace, plan: list[dict], *, job_mod
     return state
 
 
-def _chunk_state(state: dict, chunk_id: str) -> dict:
-    for chunk in state.get("chunks", []):
-        if chunk.get("chunk_id") == chunk_id:
+def _chunk_state(state: TranscribeState, chunk_id: str) -> TranscribeChunkState:
+    for chunk in state.chunks:
+        if chunk.chunk_id == chunk_id:
             return chunk
     raise ValueError(f"Missing transcribe state for chunk {chunk_id!r}")
 
 
-def _transcribe_state_matches_plan(state: dict, plan: list[dict]) -> bool:
-    if not isinstance(state, dict):
+def _transcribe_state_matches_plan(
+    state: TranscribeState,
+    plan: list[TranscribeChunk],
+) -> bool:
+    if state.version != 1:
         return False
-    if state.get("version") != 1:
-        return False
-    state_chunk_ids = [chunk.get("chunk_id") for chunk in state.get("chunks", [])]
-    plan_chunk_ids = [chunk.get("chunk_id") for chunk in plan]
+    state_chunk_ids = [chunk.chunk_id for chunk in state.chunks]
+    plan_chunk_ids = [chunk.chunk_id for chunk in plan]
     return state_chunk_ids == plan_chunk_ids
 
 
 def _reconcile_transcribe_state_from_chunk_results(
-    ws: Workspace, plan: list[dict], state: dict
+    ws: Workspace,
+    plan: list[TranscribeChunk],
+    state: TranscribeState,
 ) -> bool:
     changed = False
     for chunk in plan:
-        chunk_id = str(chunk["chunk_id"])
+        chunk_id = chunk.chunk_id
         chunk_state = _chunk_state(state, chunk_id)
         payload = ws.load_transcribe_chunk_result(chunk_id)
         if payload is None:
-            if str(chunk_state.get("status", "")).startswith("completed_"):
+            if chunk_state.status.startswith("completed_"):
                 _mark_chunk_payload_missing(state, chunk_id)
                 changed = True
             continue
-        if str(chunk_state.get("status", "")).startswith("completed_"):
+        if chunk_state.status.startswith("completed_"):
             continue
-        backend_used = str(chunk_state.get("backend_used") or chunk.get("preferred_backend", "asr"))
-        chunk_state["backend_used"] = backend_used
-        chunk_state["result_relpath"] = str(Path("transcribe_chunks") / f"{chunk_id}.json")
-        chunk_state["status"] = f"completed_{backend_used}"
-        chunk_state["updated_at"] = _now().isoformat(timespec="seconds")
+        backend_used = chunk_state.backend_used or chunk.preferred_backend or "asr"
+        chunk_state.backend_used = backend_used
+        chunk_state.result_relpath = str(Path("transcribe_chunks") / f"{chunk_id}.json")
+        chunk_state.status = f"completed_{backend_used}"
+        chunk_state.updated_at = _now().isoformat(timespec="seconds")
         changed = True
     return changed
 
 
-def _clear_wait_state(state: dict) -> None:
-    state["status"] = "running"
-    state["next_attempt_at"] = None
-    state["defer_reason"] = None
-    state["last_error"] = None
+def _clear_wait_state(state: TranscribeState) -> None:
+    state.status = "running"
+    state.next_attempt_at = None
+    state.defer_reason = None
+    state.last_error = None
 
 
-def _mark_hourly_wait(state: dict, chunk_id: str, error) -> None:
+def _mark_hourly_wait(state: TranscribeState, chunk_id: str, error: Exception) -> None:
     chunk = _chunk_state(state, chunk_id)
-    chunk["attempts"] = int(chunk.get("attempts", 0)) + 1
-    chunk["updated_at"] = _now().isoformat(timespec="seconds")
-    state["status"] = "waiting_ash"
-    state["next_attempt_at"] = _iso_after_retry(error.retry_after_seconds)
-    state["defer_reason"] = "ash"
-    state["last_error"] = str(error)
-    state["ash_defer_count"] = int(state.get("ash_defer_count", 0)) + 1
+    chunk.attempts += 1
+    chunk.updated_at = _now().isoformat(timespec="seconds")
+    state.status = "waiting_ash"
+    state.next_attempt_at = _iso_after_retry(getattr(error, "retry_after_seconds", 0))
+    state.defer_reason = "ash"
+    state.last_error = str(error)
+    state.ash_defer_count += 1
 
 
-def _mark_chunk_payload_missing(state: dict, chunk_id: str) -> None:
+def _mark_chunk_payload_missing(state: TranscribeState, chunk_id: str) -> None:
     chunk = _chunk_state(state, chunk_id)
-    state["status"] = "running"
-    state["next_attempt_at"] = None
-    state["defer_reason"] = None
-    chunk["status"] = "pending"
-    chunk["backend_used"] = None
-    chunk["result_relpath"] = None
-    chunk["updated_at"] = _now().isoformat(timespec="seconds")
+    state.status = "running"
+    state.next_attempt_at = None
+    state.defer_reason = None
+    chunk.status = "pending"
+    chunk.backend_used = None
+    chunk.result_relpath = None
+    chunk.updated_at = _now().isoformat(timespec="seconds")
 
 
 def _mark_chunk_completed(
     ws: Workspace,
-    state: dict,
+    state: TranscribeState,
     chunk_id: str,
     *,
     backend_used: str,
@@ -359,33 +374,33 @@ def _mark_chunk_completed(
 ) -> None:
     ws.save_transcribe_chunk_result(chunk_id, _chunk_payload_from_entries(entries))
     chunk = _chunk_state(state, chunk_id)
-    chunk["attempts"] = int(chunk.get("attempts", 0)) + 1
-    chunk["backend_used"] = backend_used
-    chunk["result_relpath"] = str(Path("transcribe_chunks") / f"{chunk_id}.json")
-    chunk["status"] = f"completed_{backend_used}"
-    chunk["updated_at"] = _now().isoformat(timespec="seconds")
+    chunk.attempts += 1
+    chunk.backend_used = backend_used
+    chunk.result_relpath = str(Path("transcribe_chunks") / f"{chunk_id}.json")
+    chunk.status = f"completed_{backend_used}"
+    chunk.updated_at = _now().isoformat(timespec="seconds")
     _clear_wait_state(state)
     ws.save_transcribe_state(state)
 
 
 def _switch_remaining_chunks_to_backend(
     ws: Workspace,
-    plan: list[dict],
-    state: dict,
+    plan: list[TranscribeChunk],
+    state: TranscribeState,
     *,
     start_index: int,
     backend: str,
     error: Exception,
 ) -> None:
     for chunk in plan[start_index:]:
-        chunk_state = _chunk_state(state, str(chunk["chunk_id"]))
-        if chunk_state.get("status") == "pending":
-            chunk["preferred_backend"] = backend
-    state["job_mode"] = "remote_remaining"
-    state["status"] = "running"
-    state["next_attempt_at"] = None
-    state["defer_reason"] = None
-    state["last_error"] = str(error)
+        chunk_state = _chunk_state(state, chunk.chunk_id)
+        if chunk_state.status == "pending":
+            chunk.preferred_backend = backend
+    state.job_mode = "remote_remaining"
+    state.status = "running"
+    state.next_attempt_at = None
+    state.defer_reason = None
+    state.last_error = str(error)
     ws.save_transcribe_plan(plan)
     ws.save_transcribe_state(state)
 
@@ -458,17 +473,13 @@ def _build_segment_transcribe_plan(
     audio_path: Path,
     segments: Sequence[SegmentSpec],
     preferred_backend: str,
-) -> list[dict]:
+) -> list[TranscribeChunk]:
     existing = ws.load_transcribe_plan()
     if (
-        isinstance(existing, list)
-        and existing
+        existing
         and len(existing) == len(segments)
         and all(
-            isinstance(chunk, dict)
-            and chunk.get("segment_index") == index
-            and "audio_relpath" in chunk
-            and "preferred_backend" in chunk
+            chunk.segment_index == index and bool(chunk.audio_relpath)
             for index, chunk in enumerate(existing)
         )
     ):
@@ -477,17 +488,17 @@ def _build_segment_transcribe_plan(
     from yt2notion.audio import split_audio
 
     seg_dir = audio_path.parent / "segments"
-    seg_files = split_audio(audio_path, encode_segment_specs(segments), seg_dir)
+    seg_files = split_audio(audio_path, segments, seg_dir)
     plan = [
-        {
-            "chunk_id": f"segment-{index + 1:03d}",
-            "segment_index": index,
-            "title": seg.title or f"Part {index + 1}",
-            "start_seconds": seg.start_seconds,
-            "end_seconds": seg.end_seconds,
-            "audio_relpath": _chunk_audio_ref(ws, seg_file),
-            "preferred_backend": preferred_backend,
-        }
+        TranscribeChunk(
+            chunk_id=f"segment-{index + 1:03d}",
+            title=seg.title or f"Part {index + 1}",
+            start_seconds=seg.start_seconds,
+            end_seconds=seg.end_seconds,
+            audio_relpath=_chunk_audio_ref(ws, seg_file),
+            preferred_backend=preferred_backend,
+            segment_index=index,
+        )
         for index, (seg, seg_file) in enumerate(zip(segments, seg_files, strict=True))
     ]
     ws.save_transcribe_plan(plan)
@@ -502,18 +513,10 @@ def _build_full_audio_transcribe_plan(
     config: dict,
     transcriber: Transcriber,
     preferred_backend: str,
-) -> list[dict]:
+) -> list[TranscribeChunk]:
     existing = ws.load_transcribe_plan()
-    if (
-        isinstance(existing, list)
-        and existing
-        and all(
-            isinstance(chunk, dict)
-            and "segment_index" not in chunk
-            and "audio_relpath" in chunk
-            and "preferred_backend" in chunk
-            for chunk in existing
-        )
+    if existing and all(
+        chunk.segment_index is None and bool(chunk.audio_relpath) for chunk in existing
     ):
         return existing
 
@@ -544,28 +547,28 @@ def _build_full_audio_transcribe_plan(
                 f"({MIN_ASR_UPLOAD_CHUNK_SECONDS}s)"
             )
         plan = [
-            {
-                "chunk_id": "chunk-001",
-                "title": "Chunk 1",
-                "start_seconds": 0.0,
-                "end_seconds": duration_seconds,
-                "audio_relpath": _chunk_audio_ref(ws, audio_path),
-                "preferred_backend": preferred_backend,
-            }
+            TranscribeChunk(
+                chunk_id="chunk-001",
+                title="Chunk 1",
+                start_seconds=0.0,
+                end_seconds=duration_seconds,
+                audio_relpath=_chunk_audio_ref(ws, audio_path),
+                preferred_backend=preferred_backend,
+            )
         ]
     else:
         chunk_specs = _build_full_audio_chunk_specs(duration_seconds, chunk_seconds)
         chunk_dir = audio_path.parent / "full_audio_chunks"
         chunk_files = split_audio(audio_path, chunk_specs, chunk_dir)
         plan = [
-            {
-                "chunk_id": f"chunk-{index + 1:03d}",
-                "title": chunk_spec["title"],
-                "start_seconds": chunk_spec["start_seconds"],
-                "end_seconds": chunk_spec["end_seconds"],
-                "audio_relpath": _chunk_audio_ref(ws, chunk_file),
-                "preferred_backend": preferred_backend,
-            }
+            TranscribeChunk(
+                chunk_id=f"chunk-{index + 1:03d}",
+                title=chunk_spec.title,
+                start_seconds=chunk_spec.start_seconds,
+                end_seconds=chunk_spec.end_seconds,
+                audio_relpath=_chunk_audio_ref(ws, chunk_file),
+                preferred_backend=preferred_backend,
+            )
             for index, (chunk_spec, chunk_file) in enumerate(
                 zip(chunk_specs, chunk_files, strict=True)
             )
@@ -575,7 +578,10 @@ def _build_full_audio_transcribe_plan(
     return plan
 
 
-def _load_required_chunk_payload(ws: Workspace, chunk_id: str) -> ChunkResultPayload:
+def _load_required_chunk_payload(
+    ws: Workspace,
+    chunk_id: str,
+) -> list[ChunkTranscriptEntry]:
     from yt2notion.transcribe.errors import TranscriptionError
 
     payload = ws.load_transcribe_chunk_result(chunk_id)
@@ -585,17 +591,18 @@ def _load_required_chunk_payload(ws: Workspace, chunk_id: str) -> ChunkResultPay
 
 
 def _segment_transcripts_from_plan(
-    ws: Workspace, plan: list[dict]
+    ws: Workspace,
+    plan: list[TranscribeChunk],
 ) -> tuple[TranscriptSegment, ...]:
     result: list[TranscriptSegment] = []
     for chunk in plan:
-        payload = _load_required_chunk_payload(ws, str(chunk["chunk_id"]))
+        payload = _load_required_chunk_payload(ws, chunk.chunk_id)
         entries = _entries_from_chunk_payload(payload)
         result.append(
             TranscriptSegment(
-                title=str(chunk["title"]),
-                start_seconds=float(chunk["start_seconds"]),
-                end_seconds=float(chunk["end_seconds"]),
+                title=chunk.title,
+                start_seconds=chunk.start_seconds,
+                end_seconds=chunk.end_seconds,
                 text=" ".join(entry.text for entry in entries).strip(),
                 source="asr",
             )
@@ -603,10 +610,10 @@ def _segment_transcripts_from_plan(
     return tuple(result)
 
 
-def _merged_chunk_entries(ws: Workspace, plan: list[dict]) -> list[SubtitleEntry]:
+def _merged_chunk_entries(ws: Workspace, plan: list[TranscribeChunk]) -> list[SubtitleEntry]:
     merged: list[SubtitleEntry] = []
     for chunk in plan:
-        payload = _load_required_chunk_payload(ws, str(chunk["chunk_id"]))
+        payload = _load_required_chunk_payload(ws, chunk.chunk_id)
         merged.extend(_entries_from_chunk_payload(payload))
     return merged
 
@@ -634,8 +641,8 @@ def _execute_chunk_plan(
     *,
     ws: Workspace,
     audio_path: Path,
-    plan: list[dict],
-    state: dict,
+    plan: list[TranscribeChunk],
+    state: TranscribeState,
     config: dict,
     primary_backend: str,
     transcriber: Transcriber,
@@ -652,17 +659,17 @@ def _execute_chunk_plan(
 
     configured_chunk_seconds = _resolve_full_audio_asr_chunk_seconds(config)
     for index, chunk in enumerate(plan):
-        chunk_id = str(chunk["chunk_id"])
+        chunk_id = chunk.chunk_id
         chunk_state = _chunk_state(state, chunk_id)
-        if chunk_state.get("status", "").startswith("completed_"):
+        if chunk_state.status.startswith("completed_"):
             if ws.load_transcribe_chunk_result(chunk_id) is None:
                 _mark_chunk_payload_missing(state, chunk_id)
                 ws.save_transcribe_state(state)
             else:
                 continue
 
-        if state.get("status") == "waiting_ash" and state.get("next_attempt_at"):
-            wait_target = str(state["next_attempt_at"])
+        if state.status == "waiting_ash" and state.next_attempt_at:
+            wait_target = state.next_attempt_at
             retry_after_seconds = max(
                 0.0, (datetime.fromisoformat(wait_target) - _now()).total_seconds()
             )
@@ -674,19 +681,19 @@ def _execute_chunk_plan(
                     chunk,
                     index=index,
                     total=len(plan),
-                    backend=str(chunk.get("preferred_backend", primary_backend)),
+                    backend=chunk.preferred_backend or primary_backend,
                     retry_after_seconds=round(retry_after_seconds, 3),
                     next_attempt_at=wait_target,
                     resumed_from_state=True,
-                    ash_defer_count=int(state.get("ash_defer_count", 0)),
+                    ash_defer_count=state.ash_defer_count,
                 ),
             )
-            _wait_until_retryable_time(state.get("next_attempt_at"), verbose=verbose)
+            _wait_until_retryable_time(state.next_attempt_at, verbose=verbose)
             _clear_wait_state(state)
             ws.save_transcribe_state(state)
 
         while True:
-            backend = str(chunk.get("preferred_backend", primary_backend))
+            backend = chunk.preferred_backend or primary_backend
             _emit_progress(
                 progress_callback,
                 "transcribe",
@@ -696,7 +703,7 @@ def _execute_chunk_plan(
                     index=index,
                     total=len(plan),
                     backend=backend,
-                    attempt=int(chunk_state.get("attempts", 0)) + 1,
+                    attempt=chunk_state.attempts + 1,
                 ),
             )
             active_transcriber = _resolve_chunk_transcriber(
@@ -706,8 +713,8 @@ def _execute_chunk_plan(
                 fallback_backend=fallback_backend,
                 fallback_transcriber_factory=fallback_transcriber_factory,
             )
-            chunk_file = _resolve_chunk_audio_path(ws, str(chunk["audio_relpath"]))
-            should_rebase = "segment_index" not in chunk
+            chunk_file = _resolve_chunk_audio_path(ws, chunk.audio_relpath)
+            should_rebase = chunk.segment_index is None
             try:
                 entries = _transcribe_segment_entries_with_byte_budget(
                     audio_path=audio_path,
@@ -732,12 +739,12 @@ def _execute_chunk_plan(
                         total=len(plan),
                         backend=backend,
                         retry_after_seconds=round(float(exc.retry_after_seconds), 3),
-                        next_attempt_at=state.get("next_attempt_at"),
+                        next_attempt_at=state.next_attempt_at,
                         resumed_from_state=False,
-                        ash_defer_count=int(state.get("ash_defer_count", 0)),
+                        ash_defer_count=state.ash_defer_count,
                     ),
                 )
-                _wait_until_retryable_time(state.get("next_attempt_at"), verbose=verbose)
+                _wait_until_retryable_time(state.next_attempt_at, verbose=verbose)
                 continue
             except TranscriptionDailyLimitError as exc:
                 if backend != primary_backend:
@@ -751,10 +758,9 @@ def _execute_chunk_plan(
                     raise
                 ws.mark_asr_fallback_used()
                 affected_chunk_ids = [
-                    str(pending_chunk["chunk_id"])
+                    pending_chunk.chunk_id
                     for pending_chunk in plan[index:]
-                    if _chunk_state(state, str(pending_chunk["chunk_id"])).get("status")
-                    == "pending"
+                    if _chunk_state(state, pending_chunk.chunk_id).status == "pending"
                 ]
                 _switch_remaining_chunks_to_backend(
                     ws,
@@ -791,15 +797,15 @@ def _execute_chunk_plan(
                     total=len(plan),
                     backend=backend,
                     entries_count=len(entries),
-                    attempts=int(_chunk_state(state, chunk_id).get("attempts", 0)),
+                    attempts=_chunk_state(state, chunk_id).attempts,
                 ),
             )
             break
 
-    state["status"] = "completed"
-    state["next_attempt_at"] = None
-    state["defer_reason"] = None
-    state["last_error"] = None
+    state.status = "completed"
+    state.next_attempt_at = None
+    state.defer_reason = None
+    state.last_error = None
     ws.save_transcribe_state(state)
 
 
@@ -913,21 +919,24 @@ def _resolve_upload_budget_chunk_seconds(
     return max(MIN_ASR_UPLOAD_CHUNK_SECONDS, min(configured, budget_chunk))
 
 
-def _build_segment_subchunks(segment: dict, chunk_seconds: int) -> list[dict]:
-    start = float(segment["start_seconds"])
-    end = float(segment["end_seconds"])
+def _build_segment_subchunks(
+    segment: SegmentSpec | TranscribeChunk,
+    chunk_seconds: int,
+) -> list[SegmentSpec]:
+    start = segment.start_seconds
+    end = segment.end_seconds
     chunk = max(1.0, float(chunk_seconds))
-    chunks: list[dict] = []
+    chunks: list[SegmentSpec] = []
     index = 1
     cursor = start
     while cursor < end:
         chunk_end = min(cursor + chunk, end)
         chunks.append(
-            {
-                "title": f"{segment.get('title', 'Segment')} chunk {index}",
-                "start_seconds": cursor,
-                "end_seconds": chunk_end,
-            }
+            SegmentSpec(
+                title=f"{segment.title or 'Segment'} chunk {index}",
+                start_seconds=cursor,
+                end_seconds=chunk_end,
+            )
         )
         cursor = chunk_end
         index += 1
@@ -937,7 +946,7 @@ def _build_segment_subchunks(segment: dict, chunk_seconds: int) -> list[dict]:
 def _transcribe_segment_entries_with_byte_budget(
     *,
     audio_path: Path,
-    segment: dict,
+    segment: SegmentSpec | TranscribeChunk,
     segment_file: Path,
     transcriber: Transcriber,
     language: str | None,
@@ -949,7 +958,7 @@ def _transcribe_segment_entries_with_byte_budget(
     from yt2notion.transcribe.errors import TranscriptionError
 
     max_upload_bytes = _transcriber_max_upload_bytes(transcriber)
-    segment_duration = float(segment["end_seconds"] - segment["start_seconds"])
+    segment_duration = segment.end_seconds - segment.start_seconds
     segment_size = segment_file.stat().st_size if segment_file.exists() else 0
     if max_upload_bytes is not None and segment_file.exists() and segment_size > max_upload_bytes:
         if segment_duration <= MIN_ASR_UPLOAD_CHUNK_SECONDS:
@@ -1047,8 +1056,8 @@ def _transcribe_full_audio_entries(
     all_entries: list[SubtitleEntry] = []
     for index, (chunk_spec, chunk_file) in enumerate(zip(chunk_specs, chunk_files, strict=True)):
         if verbose:
-            start_label = seconds_to_display(chunk_spec["start_seconds"])
-            end_label = seconds_to_display(chunk_spec["end_seconds"])
+            start_label = seconds_to_display(chunk_spec.start_seconds)
+            end_label = seconds_to_display(chunk_spec.end_seconds)
             typer.echo(f"  ASR chunk [{index + 1}/{len(chunk_specs)}] {start_label}-{end_label}")
 
         chunk_entries = _transcribe_segment_entries_with_byte_budget(
@@ -1077,29 +1086,35 @@ def _resolve_full_audio_asr_chunk_seconds(config: dict) -> int:
     return max(1, min(int(max_segment), FULL_AUDIO_ASR_CHUNK_SECONDS))
 
 
-def _build_full_audio_chunk_specs(duration_seconds: float, chunk_seconds: int) -> list[dict]:
+def _build_full_audio_chunk_specs(
+    duration_seconds: float,
+    chunk_seconds: int,
+) -> list[SegmentSpec]:
     """Create synthetic contiguous segments for chunked full-audio ASR."""
-    chunks: list[dict] = []
+    chunks: list[SegmentSpec] = []
     start = 0.0
     index = 1
     while start < duration_seconds:
         end = min(start + chunk_seconds, duration_seconds)
         chunks.append(
-            {
-                "title": f"Chunk {index}",
-                "start_seconds": start,
-                "end_seconds": end,
-            }
+            SegmentSpec(
+                title=f"Chunk {index}",
+                start_seconds=start,
+                end_seconds=end,
+            )
         )
         start = end
         index += 1
     return chunks
 
 
-def _rebase_chunk_entries(entries: list[SubtitleEntry], chunk_spec: dict) -> list[SubtitleEntry]:
+def _rebase_chunk_entries(
+    entries: list[SubtitleEntry],
+    chunk_spec: SegmentSpec | TranscribeChunk,
+) -> list[SubtitleEntry]:
     """Map chunk-local ASR timestamps back to the original timeline and drop overlap duplicates."""
-    chunk_start = float(chunk_spec["start_seconds"])
-    chunk_end = float(chunk_spec["end_seconds"])
+    chunk_start = chunk_spec.start_seconds
+    chunk_end = chunk_spec.end_seconds
     clip_start = max(0.0, chunk_start - ASR_CHUNK_PADDING_SECONDS)
 
     rebased: list[SubtitleEntry] = []
@@ -1124,14 +1139,10 @@ def _rebase_chunk_entries(entries: list[SubtitleEntry], chunk_spec: dict) -> lis
 def describe_backend_outcome(ws: Workspace, *, default_backend: str) -> str:
     """Describe actual backend use from transcribe checkpoint state."""
     state = ws.load_transcribe_state()
-    if not isinstance(state, dict):
+    if state is None:
         return default_backend
 
-    backends = [
-        str(chunk.get("backend_used"))
-        for chunk in state.get("chunks", [])
-        if isinstance(chunk, dict) and chunk.get("backend_used")
-    ]
+    backends = [chunk.backend_used for chunk in state.chunks if chunk.backend_used is not None]
     if not backends:
         return default_backend
 

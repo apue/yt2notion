@@ -8,6 +8,12 @@ import pytest
 
 from yt2notion.domain import SegmentSpec, TranscriptSegment
 from yt2notion.models.base import NoteBundle, NoteDocument, VideoMeta
+from yt2notion.transcribe.contracts import (
+    ChunkTranscriptEntry,
+    TranscribeChunk,
+    TranscribeChunkState,
+    TranscribeState,
+)
 from yt2notion.workspace import STEPS, Workspace
 
 
@@ -181,47 +187,37 @@ def test_discard_transcribe_artifacts_removes_transcripts_and_chunk_dirs(tmp_pat
 def test_transcribe_plan_state_and_chunk_roundtrip(tmp_path):
     ws = Workspace(tmp_path, "test123")
     plan = [
-        {
-            "chunk_id": "chunk-001",
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 120,
-            "audio_relpath": "full_audio_chunks/chunk_001.mp3",
-            "preferred_backend": "groq",
-        }
+        TranscribeChunk(
+            chunk_id="chunk-001",
+            title="Part 1",
+            start_seconds=0,
+            end_seconds=120,
+            audio_relpath="full_audio_chunks/chunk_001.mp3",
+            preferred_backend="groq",
+        )
     ]
-    state = {
-        "version": 1,
-        "job_mode": "groq",
-        "status": "running",
-        "next_attempt_at": None,
-        "last_error": None,
-        "defer_reason": None,
-        "ash_defer_count": 0,
-        "chunks": [
-            {
-                "chunk_id": "chunk-001",
-                "status": "pending",
-                "backend_used": None,
-                "result_relpath": None,
-                "attempts": 0,
-                "updated_at": "2026-04-19T12:00:00+08:00",
-            }
+    state = TranscribeState(
+        version=1,
+        job_mode="groq",
+        status="running",
+        next_attempt_at=None,
+        last_error=None,
+        defer_reason=None,
+        ash_defer_count=0,
+        chunks=[
+            TranscribeChunkState(
+                chunk_id="chunk-001",
+                status="pending",
+                backend_used=None,
+                result_relpath=None,
+                attempts=0,
+                updated_at="2026-04-19T12:00:00+08:00",
+            )
         ],
-    }
+    )
     chunk_entries = [
-        {
-            "start_seconds": 0,
-            "end_seconds": 30,
-            "text": "chunk one",
-            "source": "groq",
-        },
-        {
-            "start_seconds": 30,
-            "end_seconds": 60,
-            "text": "chunk two",
-            "source": "groq",
-        },
+        ChunkTranscriptEntry(start_seconds=0, end_seconds=30, text="chunk one", source="groq"),
+        ChunkTranscriptEntry(start_seconds=30, end_seconds=60, text="chunk two", source="groq"),
     ]
 
     ws.save_transcribe_plan(plan)
@@ -234,6 +230,16 @@ def test_transcribe_plan_state_and_chunk_roundtrip(tmp_path):
     assert (ws.dir / "transcribe_plan.json").exists()
     assert (ws.dir / "transcribe_state.json").exists()
     assert (ws.dir / "transcribe_chunks" / "chunk-001.json").exists()
+    assert json.loads((ws.dir / "transcribe_plan.json").read_text()) == [
+        {
+            "chunk_id": "chunk-001",
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 120,
+            "audio_relpath": "full_audio_chunks/chunk_001.mp3",
+            "preferred_backend": "groq",
+        }
+    ]
 
 
 def test_asr_fallback_marker_roundtrip(tmp_path):
@@ -383,31 +389,31 @@ def test_discard_transcribe_artifacts_removes_checkpoint_files(tmp_path):
     ws = Workspace(tmp_path, "test123")
     ws.save_transcribe_plan(
         [
-            {
-                "chunk_id": "chunk-001",
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 120,
-                "audio_relpath": "full_audio_chunks/chunk_001.mp3",
-                "preferred_backend": "groq",
-            }
+            TranscribeChunk(
+                chunk_id="chunk-001",
+                title="Part 1",
+                start_seconds=0,
+                end_seconds=120,
+                audio_relpath="full_audio_chunks/chunk_001.mp3",
+                preferred_backend="groq",
+            )
         ]
     )
     ws.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "groq",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [],
-        }
+        TranscribeState(
+            version=1,
+            job_mode="groq",
+            status="running",
+            next_attempt_at=None,
+            last_error=None,
+            defer_reason=None,
+            ash_defer_count=0,
+            chunks=[],
+        )
     )
     ws.save_transcribe_chunk_result(
         "chunk-001",
-        [{"start_seconds": 0, "end_seconds": 30, "text": "chunk one", "source": "groq"}],
+        [ChunkTranscriptEntry(start_seconds=0, end_seconds=30, text="chunk one", source="groq")],
     )
     (ws.dir / "segments").mkdir(parents=True, exist_ok=True)
     (ws.dir / "segments" / "segment_001.mp3").write_bytes(b"fake")
@@ -431,31 +437,31 @@ def test_discard_transcribe_artifacts_with_audio_path_removes_audio_relative_dir
 
     ws.save_transcribe_plan(
         [
-            {
-                "chunk_id": "chunk-001",
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 120,
-                "audio_relpath": "full_audio_chunks/chunk_001.mp3",
-                "preferred_backend": "groq",
-            }
+            TranscribeChunk(
+                chunk_id="chunk-001",
+                title="Part 1",
+                start_seconds=0,
+                end_seconds=120,
+                audio_relpath="full_audio_chunks/chunk_001.mp3",
+                preferred_backend="groq",
+            )
         ]
     )
     ws.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "groq",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [],
-        }
+        TranscribeState(
+            version=1,
+            job_mode="groq",
+            status="running",
+            next_attempt_at=None,
+            last_error=None,
+            defer_reason=None,
+            ash_defer_count=0,
+            chunks=[],
+        )
     )
     ws.save_transcribe_chunk_result(
         "chunk-001",
-        [{"start_seconds": 0, "end_seconds": 30, "text": "chunk one", "source": "groq"}],
+        [ChunkTranscriptEntry(start_seconds=0, end_seconds=30, text="chunk one", source="groq")],
     )
     (saved_audio.parent / "segments").mkdir(parents=True, exist_ok=True)
     (saved_audio.parent / "segments" / "segment_001.mp3").write_bytes(b"fake")

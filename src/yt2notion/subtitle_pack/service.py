@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
-from yt2notion.runtime import RuntimeObserver
+from yt2notion.runtime import NodeExecutor, RuntimeObserver
 from yt2notion.subtitle_pack.artifacts import fingerprint, write_json, write_subtitle_artifacts
 from yt2notion.subtitle_pack.models import SubtitlePackResult
 from yt2notion.subtitle_pack.source import build_source_cues
@@ -49,6 +49,7 @@ class SubtitlePackService:
             run_name="subtitle_pack",
             inherited_timings=transcription.timings_seconds,
         )
+        nodes = NodeExecutor(profile)
         error: BaseException | None = None
         try:
             self._progress("Subtitle pack: building source cues")
@@ -80,19 +81,23 @@ class SubtitlePackService:
                 )
 
             self._progress("Subtitle pack: correcting and translating cue batches")
-            with profile.span("node", "generate_batches"):
-                generated = self.workflow.generate_all(
+            generated = nodes.run(
+                "generate_batches",
+                lambda: self.workflow.generate_all(
                     cues,
                     source_kind,
                     context,
                     context_fingerprint,
                     ws.dir,
                     profile,
-                )
+                ),
+            )
 
             self._progress("Subtitle pack: running semantic quality checks")
-            with profile.span("node", "semantic_quality"):
-                semantic_issues = self.workflow.semantic_quality(generated, context, profile)
+            semantic_issues = nodes.run(
+                "semantic_quality",
+                lambda: self.workflow.semantic_quality(generated, context, profile),
+            )
             if semantic_issues:
                 self._progress(f"Subtitle pack: repairing {len(semantic_issues)} semantic issue(s)")
                 with profile.span("node", "repair"):

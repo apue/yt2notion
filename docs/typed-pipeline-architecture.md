@@ -1,6 +1,6 @@
 # yt2notion Typed Pipeline 目标架构
 
-> **文档性质：目标架构提案。** 本文不描述已经落地的事实。当前 pipeline、artifact、配置与扩展点仍以 [`PROJECT_MAP.md`](../PROJECT_MAP.md) 为唯一事实锚点；只有完成迁移的行为才能回写其中。
+> **文档性质：已批准的目标架构与边界说明。** 当前 pipeline、artifact、配置与扩展点以 [`PROJECT_MAP.md`](../PROJECT_MAP.md) 为唯一事实锚点；本文不替代实现目录或逐函数清单。
 
 ## 1. 要解决的架构问题
 
@@ -14,7 +14,7 @@ yt2notion 已经从单一路径发展出转录、笔记、双语字幕包和翻�
 
 因此，本设计只解决一个核心问题：**把稳定的业务能力做成 typed nodes，由几条普通 Python pipeline 按用例组合；provider adapter 位于其下，执行、观测和恢复机制位于其侧。**
 
-> 实现状态（2026-09-19）：Phase 1–3 已落地 typed transcript spine、acquisition split 与共享 runtime/checkpoint/retry 边界。为表达嵌套 parentage 和 interruption，subtitle profile 已明确升级为 schema v2；业务 artifact 与 checkpoint schema 保持不变。Phase 4 的 ordinary Python pipeline composition 尚在进行。
+> 实现状态（2026-09-19）：Phase 1–4 已落地。四条产品流使用共享 typed transcript / resumable-ASR 边界、拆分后的 acquisition planner/provider、共享 runtime/checkpoint/retry 机制与普通 Python pipeline composition。为表达嵌套 parentage 和 interruption，subtitle profile 已明确升级为 schema v2；其余既有业务 artifact 与 checkpoint JSON schema 保持不变。
 
 ### 已确定的约束
 

@@ -49,33 +49,28 @@ def build_source_cues(transcription: MediaTranscribeResult) -> tuple[str, list[S
 
 def _asr_cues_from_chunks(transcription: MediaTranscribeResult) -> list[SourceCue]:
     plan = transcription.workspace.load_transcribe_plan()
-    if not isinstance(plan, list) or not plan:
+    if not plan:
         return []
     entries: list[tuple[float, float, str]] = []
     for chunk in plan:
-        if not isinstance(chunk, dict) or "chunk_id" not in chunk:
+        payload = transcription.workspace.load_transcribe_chunk_result(chunk.chunk_id)
+        if payload is None:
             return []
-        payload = transcription.workspace.load_transcribe_chunk_result(str(chunk["chunk_id"]))
-        if not isinstance(payload, list):
-            return []
-        chunk_start = float(chunk.get("start_seconds", 0))
-        chunk_duration = float(chunk.get("end_seconds", 0)) - chunk_start
-        payload_end = max(
-            (float(item.get("end_seconds", 0)) for item in payload if isinstance(item, dict)),
-            default=0,
-        )
+        chunk_start = float(chunk.start_seconds)
+        chunk_duration = float(chunk.end_seconds) - chunk_start
+        payload_end = max((float(item.end_seconds) for item in payload), default=0)
         offset = (
-            chunk_start if "segment_index" in chunk and payload_end <= chunk_duration + 0.001 else 0
+            chunk_start
+            if chunk.segment_index is not None and payload_end <= chunk_duration + 0.001
+            else 0
         )
         for item in payload:
-            if not isinstance(item, dict):
-                return []
-            text = str(item.get("text", "")).strip()
+            text = item.text.strip()
             if text:
                 entries.append(
                     (
-                        float(item.get("start_seconds", 0)) + offset,
-                        float(item.get("end_seconds", 0)) + offset,
+                        float(item.start_seconds) + offset,
+                        float(item.end_seconds) + offset,
                         text,
                     )
                 )

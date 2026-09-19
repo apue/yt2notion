@@ -57,8 +57,13 @@ class ContentPreparation:
         self._summarizer_factory = summarizer_factory
         self._bundle_builder = bundle_builder
 
-    def segment(self, metadata: VideoMeta, config: dict, verbose: bool) -> tuple[SegmentSpec, ...]:
-        return self._segmenter(metadata, config, verbose)
+    def segment(
+        self,
+        metadata: VideoMeta,
+        config: AppConfig,
+        verbose: bool,
+    ) -> tuple[SegmentSpec, ...]:
+        return self._segmenter(metadata, _config_mapping(config), verbose)
 
     def should_topic_segment(self, transcripts: Sequence[TranscriptSegment]) -> bool:
         return should_topic_segment(transcripts)
@@ -70,34 +75,59 @@ class ContentPreparation:
         self,
         transcripts: Sequence[TranscriptSegment],
         metadata: VideoMeta,
-        config: dict,
+        config: AppConfig,
         max_segment_seconds: int,
     ) -> tuple[TranscriptSegment, ...]:
-        return self._topic_segmenter(transcripts, metadata, config, max_segment_seconds)
+        return self._topic_segmenter(
+            transcripts,
+            metadata,
+            _config_mapping(config),
+            max_segment_seconds,
+        )
 
     def review(
         self,
         transcripts: Sequence[TranscriptSegment],
         metadata: VideoMeta,
-        config: dict,
+        config: AppConfig,
         workspace: Workspace,
         verbose: bool,
     ) -> tuple[TranscriptSegment, ...]:
-        return self._reviewer(transcripts, metadata, config, workspace, verbose)
+        return self._reviewer(
+            transcripts,
+            metadata,
+            _config_mapping(config),
+            workspace,
+            verbose,
+        )
 
     def summarize(
         self,
         transcripts: Sequence[TranscriptSegment],
         metadata: VideoMeta,
-        config: dict,
+        config: AppConfig,
     ) -> NoteBundle:
-        summarizer = self._summarizer_factory(config)
+        summarizer = self._summarizer_factory(_config_mapping(config))
         return self._bundle_builder(transcripts, metadata, summarizer)
 
     def is_long(
-        self, metadata: VideoMeta, transcripts: Sequence[TranscriptSegment], config: dict
+        self,
+        metadata: VideoMeta,
+        transcripts: Sequence[TranscriptSegment],
+        config: AppConfig,
     ) -> bool:
-        return is_long_content(metadata, transcripts, config)
+        return is_long_content(metadata, transcripts, _config_mapping(config))
+
+
+def _config_mapping(config: AppConfig) -> dict:
+    """Adapt typed application config at the legacy model/helper boundary."""
+    return {
+        "extract": config.extract,
+        "model": config.model,
+        "storage": config.storage,
+        "credit": config.credit,
+        "output": config.output,
+    }
 
 
 def segment_content(metadata: VideoMeta, config: dict, verbose: bool) -> tuple[SegmentSpec, ...]:

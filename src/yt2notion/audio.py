@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from yt2notion.domain import SegmentSpec
 
 
 class AudioError(Exception):
@@ -66,12 +71,11 @@ def extract_audio_from_video(
 
 def split_audio(
     audio_path: Path,
-    segments: list[dict],
+    segments: Sequence[SegmentSpec],
     output_dir: Path,
 ) -> list[Path]:
     """Split audio into per-segment files via ffmpeg.
 
-    Each segment dict must have 'start_seconds' and 'end_seconds' keys.
     Adds 0.5s padding at boundaries to avoid cutting mid-word.
     Uses stream copy (-c copy) for speed.
 
@@ -82,8 +86,8 @@ def split_audio(
     outputs: list[Path] = []
 
     for i, seg in enumerate(segments):
-        start = max(0, seg["start_seconds"] - 0.5)
-        end = seg["end_seconds"] + 0.5
+        start = max(0, seg.start_seconds - 0.5)
+        end = seg.end_seconds + 0.5
         out_path = output_dir / f"segment_{i + 1:03d}{suffix}"
 
         cmd = [

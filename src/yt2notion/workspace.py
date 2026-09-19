@@ -21,6 +21,17 @@ from yt2notion.models.base import (
     NOTE_VARIANT_LONGFORM,
     NOTE_VARIANT_SOURCE,
 )
+from yt2notion.transcribe.contracts import (
+    ChunkTranscriptEntry,
+    TranscribeChunk,
+    TranscribeState,
+    decode_chunk_entries,
+    decode_transcribe_plan,
+    decode_transcribe_state,
+    encode_chunk_entries,
+    encode_transcribe_plan,
+    encode_transcribe_state,
+)
 
 if TYPE_CHECKING:
     from yt2notion.domain import SegmentSpec, TranscriptSegment
@@ -195,25 +206,35 @@ class Workspace:
         payload = self._read_json("transcripts.json")
         return decode_transcript_segments(payload) if payload is not None else None
 
-    def save_transcribe_plan(self, plan: list[dict]) -> None:
-        self._write_json("transcribe_plan.json", plan)
+    def save_transcribe_plan(self, plan: list[TranscribeChunk]) -> None:
+        self._write_json("transcribe_plan.json", encode_transcribe_plan(plan))
 
-    def load_transcribe_plan(self) -> list[dict] | None:
-        return self._read_json("transcribe_plan.json")
+    def load_transcribe_plan(self) -> list[TranscribeChunk] | None:
+        payload = self._read_json("transcribe_plan.json")
+        return decode_transcribe_plan(payload) if payload is not None else None
 
-    def save_transcribe_state(self, state: dict) -> None:
-        self._write_json("transcribe_state.json", state)
+    def save_transcribe_state(self, state: TranscribeState) -> None:
+        self._write_json("transcribe_state.json", encode_transcribe_state(state))
 
-    def load_transcribe_state(self) -> dict | None:
-        return self._read_json("transcribe_state.json")
+    def load_transcribe_state(self) -> TranscribeState | None:
+        payload = self._read_json("transcribe_state.json")
+        return decode_transcribe_state(payload) if payload is not None else None
 
-    def save_transcribe_chunk_result(self, chunk_id: str, entries: list[dict]) -> None:
+    def save_transcribe_chunk_result(
+        self,
+        chunk_id: str,
+        entries: list[ChunkTranscriptEntry],
+    ) -> None:
         chunk_dir = self.dir / "transcribe_chunks"
         chunk_dir.mkdir(parents=True, exist_ok=True)
-        self._write_json(str(Path("transcribe_chunks") / f"{chunk_id}.json"), entries)
+        self._write_json(
+            str(Path("transcribe_chunks") / f"{chunk_id}.json"),
+            encode_chunk_entries(entries),
+        )
 
-    def load_transcribe_chunk_result(self, chunk_id: str) -> list[dict] | None:
-        return self._read_json(str(Path("transcribe_chunks") / f"{chunk_id}.json"))
+    def load_transcribe_chunk_result(self, chunk_id: str) -> list[ChunkTranscriptEntry] | None:
+        payload = self._read_json(str(Path("transcribe_chunks") / f"{chunk_id}.json"))
+        return decode_chunk_entries(payload) if payload is not None else None
 
     # --- Reviewed ---
 

@@ -19,7 +19,7 @@ pipeline, DAG engine, workflow registry, or local queue runtime.
 
 ## Canonical pipeline
 
-1. `DOWNLOAD`: `SourceRouter` selects the explicit source adapter;
+1. `DOWNLOAD`: `route_source()` selects the explicit source adapter;
    `SourceProvider.probe()` observes metadata/capabilities once;
    `plan_acquisition()` creates a deterministic subtitle/webpage/audio/video
    operation plan; the pipeline executes that plan. `keep_video=false` plans
@@ -37,9 +37,10 @@ pipeline, DAG engine, workflow registry, or local queue runtime.
 7. `PUBLISH`: only explicit `process` writes the source/A/B bundle through
    `ObsidianStorage`.
 
-`transcribe_pipeline` stops after step 3. `prepare_pipeline` stops after step 6.
-`process` explicitly publishes the prepared result after `prepare_pipeline`;
-the other three pipelines do not receive a storage dependency.
+`run_transcribe_pipeline()` stops after step 3. `run_note_pipeline()` stops after
+step 6. `process` explicitly publishes the prepared result after
+`run_note_pipeline()`; none of the four pipeline functions receives a storage
+dependency.
 `translation-experiment` reuses `transcribe`, then makes one batched translation
 call per strategy and writes only local experiment artifacts. It never reaches
 storage or `PUBLISH`.
@@ -95,6 +96,9 @@ Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 JSON boundary for segment/transcript artifacts and rejects invalid ingress before
 domain objects enter a pipeline. Cue and segment contracts remain separate so
 text regrouping cannot mutate playback timing evidence.
+`transcribe/contracts.py` similarly owns typed resumable-ASR plans, state, and
+chunk entries plus their unchanged JSON codecs; `Workspace` exposes only these
+typed values to the core pipeline.
 
 `translation_experiment/` contains `source.json`, the two strategy candidates,
 `manifest.json` diagnostics, `evaluation.json`, `blind_review.md`, and a separate
@@ -218,13 +222,13 @@ documentation.
 cli -> application
 application -> pipelines and dependency factories
 pipelines -> acquisition planner/provider, TranscriptionEngine, ContentPreparation
-process -> prepare_pipeline result, then Storage
+process -> run_note_pipeline result, then Storage
 ContentPreparation -> review, topic_segment, note_bundle
 note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters
 TranscriptionEngine -> Transcriber adapters, Workspace
 Storage -> ObsidianStorage
 SubtitlePackService -> subtitle source, SubtitleLLMWorkflow, validation, artifacts
-SubtitleLLMWorkflow -> LLMCaller, profile recorder
+SubtitleLLMWorkflow -> LLMCaller, RuntimeObserver, CheckpointStore
 browser-extension -> bilingual_subtitles.json
 ```

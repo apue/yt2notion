@@ -1,83 +1,42 @@
-"""Explicit yt2notion application use cases."""
+"""Application facade and dependency composition for typed product pipelines."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING
 
 import typer
 
-from yt2notion.content_preparation import (
-    ContentPreparation,
-    is_retries_exhausted,
-    render_prepared_output,
-)
-from yt2notion.media_source import (
-    AcquisitionError,
-    AcquisitionRequest,
-    SourceProvider,
-    acquire_media,
-    create_source_provider,
+from yt2notion.content_preparation import ContentPreparation, render_prepared_output
+from yt2notion.media_source import SourceProvider, create_source_provider
+from yt2notion.pipelines import (
+    NotePipelineRequest,
+    PreparedContent,
+    ProgressCallback,
+    TranscribePipelineRequest,
+    emit_progress,
+    run_note_pipeline,
+    run_subtitle_pack_pipeline,
+    run_transcribe_pipeline,
+    run_translation_experiment_pipeline,
 )
 from yt2notion.storage import create_storage
-from yt2notion.timing import StageTimer
 from yt2notion.transcribe import create_transcription_engine
-from yt2notion.transcript_artifacts import (
-    MediaTranscribeResult,
-    render_media_transcript_markdown,
-    resolve_transcript_source,
-)
-from yt2notion.workspace import STEPS, Workspace
 
 if TYPE_CHECKING:
     from yt2notion.config import AppConfig
-    from yt2notion.models.base import NoteBundle, VideoMeta
     from yt2notion.storage.base import Storage
     from yt2notion.subtitle_pack import SubtitlePackResult, SubtitlePackService
     from yt2notion.transcribe.engine import TranscriptionEngine
+    from yt2notion.transcript_artifacts import MediaTranscribeResult
     from yt2notion.translation_experiment import (
         TranslationExperimentResult,
         TranslationExperimentRunner,
     )
 
-ProgressEvent: TypeAlias = Literal[
-    "started",
-    "completed",
-    "skipped",
-    "failed",
-    "chunk_started",
-    "chunk_completed",
-    "hourly_wait",
-    "daily_fallback_switch",
-]
-ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
-
-
-def emit_progress(
-    progress_callback: ProgressCallback | None,
-    step: str,
-    event: ProgressEvent,
-    message: str | None = None,
-) -> None:
-    """Emit a typed progress event when a callback is configured."""
-    if progress_callback is not None:
-        progress_callback(step, event, message)
-
-
-@dataclass
-class PreparedContent:
-    """Bundle-only application output before storage publish."""
-
-    metadata: VideoMeta
-    note_bundle: NoteBundle
-    workspace: Workspace
-    is_long: bool
-
 
 class Yt2Notion:
-    """Application interface for the supported use cases."""
+    """Thin application interface that assembles and invokes typed pipelines."""
 
     def __init__(
         self,
@@ -117,136 +76,21 @@ class Yt2Notion:
         mode: str | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> PreparedContent:
-        """Prepare source/A/B content without publishing."""
-        if mode not in {None, "summary"}:
-            raise ValueError("source/A/B bundle output supports summary mode only")
-
-        start_idx = 0
-        if resume_from:
-            if resume_from not in STEPS:
-                raise ValueError(f"Unknown step: {resume_from!r}. Valid: {', '.join(STEPS)}")
-            start_idx = STEPS.index(resume_from)
-
-        ws: Workspace | None = None
-        current_step = "download"
-        try:
-            if start_idx <= 0:
-                emit_progress(progress_callback, "download", "started")
-                provider = self._source_provider(verbose=verbose)
-                try:
-                    acquired = acquire_media(
-                        provider,
-                        AcquisitionRequest(
-                            url=url,
-                            workspace_base_dir=self._workspace_base(workspace_dir),
-                        ),
-                    )
-                except AcquisitionError as failure:
-                    ws = failure.workspace
-                    raise failure.cause from failure
-                metadata = acquired.metadata
-                ws = acquired.workspace
-                emit_progress(progress_callback, "download", "completed")
-            else:
-                ws, metadata = self._resume_workspace(url, workspace_dir, verbose=verbose)
-
-            current_step = "segment"
-            if start_idx <= 1:
-                emit_progress(progress_callback, "segment", "started")
-                segments = self.content_preparation.segment(metadata, self.raw_config, verbose)
-                ws.save_segments(segments)
-                emit_progress(progress_callback, "segment", "completed")
-            else:
-                segments = ws.load_segments()
-                if segments is None:
-                    raise ValueError("Cannot resume: no segments.json in workspace")
-
-            current_step = "transcribe"
-            if start_idx <= 2:
-                if start_idx < 2:
-                    ws.discard_transcribe_artifacts(audio_path=ws.audio_path)
-                    ws.clear_asr_fallback_used()
-                elif (
-                    ws.load_transcribe_plan() is None
-                    and ws.load_transcribe_state() is None
-                    and not (ws.dir / "transcribe_chunks").exists()
-                ):
-                    ws.clear_asr_fallback_used()
-                emit_progress(progress_callback, "transcribe", "started")
-                transcripts = self.transcription_engine.transcribe_workspace(
-                    ws,
-                    metadata,
-                    segments,
-                    verbose=verbose,
-                    progress_callback=progress_callback,
-                )
-                ws.save_transcripts(transcripts)
-                emit_progress(progress_callback, "transcribe", "completed")
-            else:
-                transcripts = ws.load_transcripts()
-                if transcripts is None:
-                    raise ValueError("Cannot resume: no transcripts.json in workspace")
-
-            if start_idx <= 2 and self.content_preparation.should_topic_segment(transcripts):
-                max_seg_sec = self.raw_config.get("output", {}).get("max_segment_seconds", 600)
-                original_count = len(transcripts)
-                transcripts = self.content_preparation.topic_segment(
-                    transcripts,
-                    metadata,
-                    self.raw_config,
-                    max_seg_sec,
-                )
-                if len(transcripts) != original_count:
-                    ws.save_transcripts(transcripts)
-                    if verbose:
-                        typer.echo(
-                            f"  Topic segmentation: {original_count} -> {len(transcripts)} segments"
-                        )
-            elif verbose:
-                typer.echo("  Skipping topic segmentation for manual subtitle transcript")
-
-            current_step = "review"
-            if self.content_preparation.should_cleanup(transcripts):
-                if start_idx <= 3:
-                    emit_progress(progress_callback, "review", "started")
-                    reviewed = self.content_preparation.review(
-                        transcripts, metadata, self.raw_config, ws, verbose
-                    )
-                    ws.save_reviewed(reviewed)
-                    emit_progress(progress_callback, "review", "completed")
-                else:
-                    reviewed = ws.load_reviewed()
-                    if reviewed is None:
-                        raise ValueError("Cannot resume: no reviewed.json in workspace")
-            else:
-                reviewed = transcripts
-                if verbose:
-                    typer.echo("Skipping transcript cleanup for manual subtitle transcript")
-
-            current_step = "summarize"
-            emit_progress(progress_callback, "summarize", "started")
-            if verbose:
-                typer.echo("Summarizing source/A/B note bundle...")
-            note_bundle = self.content_preparation.summarize(reviewed, metadata, self.raw_config)
-            ws.save_note_bundle(note_bundle)
-            ws.clear_failure()
-            emit_progress(progress_callback, "summarize", "completed")
-
-            return PreparedContent(
-                metadata=metadata,
-                note_bundle=note_bundle,
-                workspace=ws,
-                is_long=self.content_preparation.is_long(metadata, transcripts, self.raw_config),
-            )
-        except Exception as exc:
-            if ws is not None:
-                ws.save_failure(
-                    url,
-                    current_step,
-                    exc,
-                    retries_exhausted=is_retries_exhausted(exc),
-                )
-            raise
+        """Prepare source/A/B content locally without publishing."""
+        return run_note_pipeline(
+            NotePipelineRequest(
+                url=url,
+                workspace_dir=workspace_dir,
+                resume_from=resume_from,
+                mode=mode,
+                verbose=verbose,
+            ),
+            config=self.config,
+            source_provider=self._source_provider(verbose=verbose),
+            transcription_engine=self.transcription_engine,
+            preparation=self.content_preparation,
+            progress_callback=progress_callback,
+        )
 
     def process(
         self,
@@ -268,7 +112,6 @@ class Yt2Notion:
             mode=mode,
             progress_callback=progress_callback,
         )
-
         if dry_run:
             output = render_prepared_output(prepared, self.config)
             typer.echo(output)
@@ -293,73 +136,19 @@ class Yt2Notion:
         keep_video: bool = True,
         verbose: bool = False,
     ) -> MediaTranscribeResult:
-        """Acquire captions or media and stop after local transcript artifacts."""
-        provider = self._source_provider(verbose=verbose)
-        timer = StageTimer()
-        ws: Workspace | None = None
-        current_step = "download"
-        try:
-            with timer.measure("acquire"):
-                try:
-                    acquired = acquire_media(
-                        provider,
-                        AcquisitionRequest(
-                            url=url,
-                            workspace_base_dir=self._workspace_base(workspace_dir),
-                            keep_video=keep_video,
-                        ),
-                    )
-                except AcquisitionError as failure:
-                    ws = failure.workspace
-                    raise failure.cause from failure
-            ws = acquired.workspace
-            metadata = acquired.metadata
-            if not keep_video:
-                ws.discard_video_artifacts()
-            ws.discard_transcribe_artifacts(audio_path=acquired.audio_path)
-            ws.clear_asr_fallback_used()
-
-            current_step = "segment"
-            with timer.measure("segment"):
-                segments = self.content_preparation.segment(metadata, self.raw_config, verbose)
-                ws.save_segments(segments)
-
-            current_step = "transcribe"
-            with timer.measure("transcribe"):
-                transcripts = self.transcription_engine.transcribe_workspace(
-                    ws,
-                    metadata,
-                    segments,
-                    verbose=verbose,
-                )
-                ws.save_transcripts(transcripts)
-
-            backend = self.transcription_engine.backend_outcome(ws)
-            transcript_source = resolve_transcript_source(transcripts, backend)
-            markdown_path = ws.dir / "transcript.md"
-            markdown_path.write_text(
-                render_media_transcript_markdown(metadata, transcripts, transcript_source),
-                encoding="utf-8",
-            )
-            ws.clear_failure()
-            return MediaTranscribeResult(
-                metadata=metadata,
-                workspace=ws,
-                video_path=acquired.video_path,
-                audio_path=acquired.audio_path,
-                transcripts_path=ws.dir / "transcripts.json",
-                transcript_markdown_path=markdown_path,
-                timings_seconds=timer.finish(),
-            )
-        except Exception as exc:
-            if ws is not None:
-                ws.save_failure(
-                    url,
-                    current_step,
-                    exc,
-                    retries_exhausted=is_retries_exhausted(exc),
-                )
-            raise
+        """Run the local transcript pipeline."""
+        return run_transcribe_pipeline(
+            TranscribePipelineRequest(
+                url=url,
+                workspace_dir=workspace_dir,
+                keep_video=keep_video,
+                verbose=verbose,
+            ),
+            config=self.config,
+            source_provider=self._source_provider(verbose=verbose),
+            transcription_engine=self.transcription_engine,
+            preparation=self.content_preparation,
+        )
 
     def run_translation_experiment(
         self,
@@ -369,28 +158,19 @@ class Yt2Notion:
         keep_video: bool = False,
         verbose: bool = False,
     ) -> TranslationExperimentResult:
-        """Acquire a transcript and generate a local blind translation experiment."""
+        """Transcribe and build a local blind translation experiment."""
         transcription = self.transcribe(
             url,
             workspace_dir=workspace_dir,
             keep_video=keep_video,
             verbose=verbose,
         )
-        transcripts = transcription.workspace.load_transcripts()
-        if transcripts is None:
-            raise ValueError("translation experiment requires transcripts.json")
-
-        if self.translation_experiment_runner is None:
+        runner = self.translation_experiment_runner
+        if runner is None:
             from yt2notion.translation_experiment import create_translation_experiment_runner
 
             runner = create_translation_experiment_runner(self.config)
-        else:
-            runner = self.translation_experiment_runner
-        return runner.run(
-            transcription.metadata,
-            transcripts,
-            transcription.workspace,
-        )
+        return run_translation_experiment_pipeline(transcription, runner)
 
     def create_subtitle_pack(
         self,
@@ -400,74 +180,42 @@ class Yt2Notion:
         keep_video: bool = False,
         verbose: bool = False,
     ) -> SubtitlePackResult:
-        """Create a local cue-timed bilingual package without publishing."""
+        """Transcribe and build a local cue-timed bilingual package."""
         transcription = self.transcribe(
             url,
             workspace_dir=workspace_dir,
             keep_video=keep_video,
             verbose=verbose,
         )
-        service = self.subtitle_pack_service
-        if service is None:
-            from yt2notion.models.llm import create_llm_caller
-            from yt2notion.subtitle_pack import SubtitlePackService
-
-            model_config = self.config.model
-            model_label = (
-                f"{model_config['backend']}:{model_config['translate_model']}:"
-                f"reasoning={model_config.get('reasoning_effort', 'low')}"
-            )
-            if verbose:
-                typer.echo(
-                    f"Subtitle LLM: {model_label}; "
-                    f"timeout={model_config['timeout_seconds']}s per provider attempt",
-                    err=True,
-                )
-            service = SubtitlePackService(
-                create_llm_caller(self.raw_config, model_key="translate_model"),
-                model_label=model_label,
-                target_language=str(self.config.output.get("target_language", "zh-CN")),
-                progress_callback=(lambda message: typer.echo(message, err=True))
-                if verbose
-                else None,
-            )
-        return service.run(transcription)
-
-    def _workspace_base(self, workspace_dir: str | None) -> Path:
-        workspace_base = workspace_dir or self.config.workspace.get("base_dir", "./workspace")
-        return Path(workspace_base).expanduser()
+        service = self.subtitle_pack_service or self._create_subtitle_pack_service(verbose=verbose)
+        return run_subtitle_pack_pipeline(transcription, service)
 
     def _source_provider(self, *, verbose: bool) -> SourceProvider:
         if self.source_provider is not None:
             return self.source_provider
         return create_source_provider(self.raw_config, verbose=verbose)
 
-    def _resume_workspace(
-        self,
-        url: str,
-        workspace_dir: str | None,
-        *,
-        verbose: bool,
-    ) -> tuple[Workspace, VideoMeta]:
-        from yt2notion.extract import extract_metadata
+    def _create_subtitle_pack_service(self, *, verbose: bool) -> SubtitlePackService:
+        from yt2notion.models.llm import create_llm_caller
+        from yt2notion.subtitle_pack import SubtitlePackService
 
-        base_dir = self._workspace_base(workspace_dir)
-        if workspace_dir:
-            ws_path = Path(workspace_dir)
-            if (ws_path / "metadata.json").exists():
-                ws = Workspace(ws_path.parent, ws_path.name)
-            else:
-                raise ValueError(f"No metadata.json found in {workspace_dir}")
-        else:
-            metadata = extract_metadata(url)
-            ws = Workspace(base_dir, metadata.video_id)
-
-        metadata = ws.load_metadata()
-        if metadata is None:
-            raise ValueError("Cannot resume: no metadata.json in workspace")
+        model_config = self.config.model
+        model_label = (
+            f"{model_config['backend']}:{model_config['translate_model']}:"
+            f"reasoning={model_config.get('reasoning_effort', 'low')}"
+        )
         if verbose:
-            typer.echo(f"Resuming from step for: {metadata.title}")
-        return ws, metadata
+            typer.echo(
+                f"Subtitle LLM: {model_label}; "
+                f"timeout={model_config['timeout_seconds']}s per provider attempt",
+                err=True,
+            )
+        return SubtitlePackService(
+            create_llm_caller(self.raw_config, model_key="translate_model"),
+            model_label=model_label,
+            target_language=str(self.config.output.get("target_language", "zh-CN")),
+            progress_callback=(lambda message: typer.echo(message, err=True)) if verbose else None,
+        )
 
 
 def create_yt2notion(config: AppConfig, *, verbose: bool = False) -> Yt2Notion:

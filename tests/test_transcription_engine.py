@@ -12,6 +12,12 @@ import pytest
 from yt2notion.domain import SegmentSpec
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
+from yt2notion.transcribe.contracts import (
+    ChunkTranscriptEntry,
+    TranscribeChunk,
+    TranscribeChunkState,
+    TranscribeState,
+)
 from yt2notion.transcribe.engine import TranscriptionEngine
 from yt2notion.transcribe.errors import (
     TranscriptionDailyLimitError,
@@ -107,9 +113,9 @@ def test_hourly_limit_retries_same_chunk_and_records_checkpoint(
     assert primary.transcribe.call_count == 3
     state = workspace.load_transcribe_state()
     assert state is not None
-    assert state["status"] == "completed"
-    assert state["ash_defer_count"] == 1
-    assert [chunk["status"] for chunk in state["chunks"]] == [
+    assert state.status == "completed"
+    assert state.ash_defer_count == 1
+    assert [chunk.status for chunk in state.chunks] == [
         "completed_groq",
         "completed_groq",
     ]
@@ -162,8 +168,8 @@ def test_daily_limit_switches_current_and_remaining_chunks_to_fallback(
     assert workspace.asr_fallback_used() is True
     state = workspace.load_transcribe_state()
     assert state is not None
-    assert state["job_mode"] == "remote_remaining"
-    assert [chunk["backend_used"] for chunk in state["chunks"]] == [
+    assert state.job_mode == "remote_remaining"
+    assert [chunk.backend_used for chunk in state.chunks] == [
         "groq",
         "remote",
         "remote",
@@ -182,42 +188,42 @@ def test_resume_reuses_completed_chunk_payload(
     chunks = _chunk_files(workspace, 2)
     workspace.save_transcribe_plan(
         [
-            {
-                "chunk_id": f"chunk-{index:03d}",
-                "title": f"Chunk {index}",
-                "start_seconds": float((index - 1) * 60),
-                "end_seconds": float(index * 60),
-                "audio_relpath": str(path.relative_to(workspace.dir)),
-                "preferred_backend": "groq",
-            }
+            TranscribeChunk(
+                chunk_id=f"chunk-{index:03d}",
+                title=f"Chunk {index}",
+                start_seconds=float((index - 1) * 60),
+                end_seconds=float(index * 60),
+                audio_relpath=str(path.relative_to(workspace.dir)),
+                preferred_backend="groq",
+            )
             for index, path in enumerate(chunks, start=1)
         ]
     )
     workspace.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "groq",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [
-                {
-                    "chunk_id": f"chunk-{index:03d}",
-                    "status": "pending",
-                    "backend_used": None,
-                    "result_relpath": None,
-                    "attempts": 0,
-                    "updated_at": "2026-04-19T12:00:00+08:00",
-                }
+        TranscribeState(
+            version=1,
+            job_mode="groq",
+            status="running",
+            next_attempt_at=None,
+            last_error=None,
+            defer_reason=None,
+            ash_defer_count=0,
+            chunks=[
+                TranscribeChunkState(
+                    chunk_id=f"chunk-{index:03d}",
+                    status="pending",
+                    backend_used=None,
+                    result_relpath=None,
+                    attempts=0,
+                    updated_at="2026-04-19T12:00:00+08:00",
+                )
                 for index in range(1, 3)
             ],
-        }
+        )
     )
     workspace.save_transcribe_chunk_result(
         "chunk-001",
-        [{"start_seconds": 0.0, "end_seconds": 1.0, "text": "cached", "source": "asr"}],
+        [ChunkTranscriptEntry(start_seconds=0.0, end_seconds=1.0, text="cached")],
     )
     primary = MagicMock(max_upload_bytes=None)
     primary.transcribe.return_value = [SubtitleEntry(0.0, 1.0, "fresh")]
@@ -242,36 +248,36 @@ def test_missing_completed_chunk_payload_is_recomputed(
     workspace, audio_path = _audio_workspace(tmp_path, metadata)
     workspace.save_transcribe_plan(
         [
-            {
-                "chunk_id": "chunk-001",
-                "title": "Chunk 1",
-                "start_seconds": 0.0,
-                "end_seconds": 120.0,
-                "audio_relpath": str(audio_path.relative_to(workspace.dir)),
-                "preferred_backend": "groq",
-            }
+            TranscribeChunk(
+                chunk_id="chunk-001",
+                title="Chunk 1",
+                start_seconds=0.0,
+                end_seconds=120.0,
+                audio_relpath=str(audio_path.relative_to(workspace.dir)),
+                preferred_backend="groq",
+            )
         ]
     )
     workspace.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "groq",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [
-                {
-                    "chunk_id": "chunk-001",
-                    "status": "completed_groq",
-                    "backend_used": "groq",
-                    "result_relpath": "transcribe_chunks/chunk-001.json",
-                    "attempts": 1,
-                    "updated_at": "2026-04-19T12:00:00+08:00",
-                }
+        TranscribeState(
+            version=1,
+            job_mode="groq",
+            status="running",
+            next_attempt_at=None,
+            last_error=None,
+            defer_reason=None,
+            ash_defer_count=0,
+            chunks=[
+                TranscribeChunkState(
+                    chunk_id="chunk-001",
+                    status="completed_groq",
+                    backend_used="groq",
+                    result_relpath="transcribe_chunks/chunk-001.json",
+                    attempts=1,
+                    updated_at="2026-04-19T12:00:00+08:00",
+                )
             ],
-        }
+        )
     )
     primary = MagicMock(max_upload_bytes=None)
     primary.transcribe.return_value = [SubtitleEntry(0.0, 1.0, "recovered")]
@@ -285,7 +291,9 @@ def test_missing_completed_chunk_payload_is_recomputed(
 
     assert result[0].text == "recovered"
     primary.transcribe.assert_called_once_with(audio_path, language=None)
-    assert workspace.load_transcribe_chunk_result("chunk-001")[0]["text"] == "recovered"
+    chunk_result = workspace.load_transcribe_chunk_result("chunk-001")
+    assert chunk_result is not None
+    assert chunk_result[0].text == "recovered"
 
 
 @patch("yt2notion.audio.split_audio")

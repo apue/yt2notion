@@ -18,6 +18,10 @@ from yt2notion.media_source import (
     create_source_provider,
 )
 from yt2notion.models.base import NoteDocument, NoteMetadata, VideoMeta
+from yt2notion.pipelines import (
+    run_subtitle_pack_pipeline,
+    run_translation_experiment_pipeline,
+)
 from yt2notion.transcribe import create_transcription_engine
 from yt2notion.workspace import Workspace
 
@@ -289,6 +293,43 @@ def test_application_process_uses_injected_storage_adapter(tmp_path: Path) -> No
 
     assert result == "obsidian://source-note"
     assert len(storage.saved) == 1
+
+
+def test_non_publish_pipelines_do_not_construct_storage(tmp_path: Path) -> None:
+    cfg = AppConfig()
+    cfg.workspace = {"base_dir": str(tmp_path)}
+    storage_calls = 0
+
+    def forbidden_storage(config: dict):
+        nonlocal storage_calls
+        storage_calls += 1
+        raise AssertionError("local pipelines must not construct storage")
+
+    app = Yt2Notion(
+        cfg,
+        source_provider=FakeSourceProvider(tmp_path),
+        transcription_engine=FakeEngine(),
+        content_preparation=ContentPreparation(summarizer_factory=lambda config: FakeSummarizer()),
+        storage_factory=forbidden_storage,
+    )
+    app.prepare("https://example.com/video")
+    transcription = app.transcribe("https://example.com/video", keep_video=False)
+
+    class FakeExperimentRunner:
+        def run(self, metadata, transcripts, workspace):
+            assert transcripts == _transcript("manual_subtitle")
+            return "experiment"
+
+    class FakeSubtitleService:
+        def run(self, result):
+            assert result is transcription
+            return "subtitle"
+
+    assert (
+        run_translation_experiment_pipeline(transcription, FakeExperimentRunner()) == "experiment"
+    )
+    assert run_subtitle_pack_pipeline(transcription, FakeSubtitleService()) == "subtitle"
+    assert storage_calls == 0
 
 
 def test_unknown_media_source_backend_raises_config_error(tmp_path: Path) -> None:

@@ -25,6 +25,8 @@ You are an expert Python developer working on the `yt2notion` project, a CLI pip
 ## 5. Pipeline Overview
 `PROJECT_MAP.md` is the canonical anchor for pipeline order, branch logic, JSON contracts, and prompt bindings. This file only records the hard rules:
 - All pipeline decisions must be driven by metadata signals, not URL pattern matching.
+- Keep product flows as ordinary typed Python composition; raw provider/JSON payloads stop at adapter/codec boundaries.
+- Only explicit `process` may receive storage and publish; local preparation/transcription/experiment/subtitle flows must not publish.
 - Do not duplicate the full step-by-step pipeline here; keep this file as a policy summary only.
 - Any change to step order, artifact shape, or backend selection must be reflected in `PROJECT_MAP.md` first.
 - `AGENTS.md`, `CLAUDE.md`, and `.cursorrules` are index/constraint docs only; when conflicts exist, trust `PROJECT_MAP.md`.

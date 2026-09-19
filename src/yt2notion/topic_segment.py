@@ -8,6 +8,7 @@ are available, or when existing segments exceed a duration threshold.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from yt2notion.domain import TranscriptSegment
@@ -21,6 +22,14 @@ if TYPE_CHECKING:
 
 # Characters per second of speech (rough estimate for English)
 _CHARS_PER_SECOND = 15
+
+
+@dataclass(frozen=True)
+class TopicBoundary:
+    """Validated topic split returned by the LLM codec boundary."""
+
+    title: str
+    start_char: int
 
 
 def segment_transcript(
@@ -92,14 +101,14 @@ def _split_segment(
     return _apply_boundaries(seg, text, boundaries, seg_start, seg_duration)
 
 
-def _parse_boundaries(raw: str, text_length: int) -> list[dict]:
-    """Parse LLM output into a list of boundary dicts."""
+def _parse_boundaries(raw: str, text_length: int) -> list[TopicBoundary]:
+    """Parse LLM JSON output into typed topic boundaries."""
     data = extract_json_array(raw)
     if len(data) < 2:
         return []
 
     # Validate: start_char values must be ascending and within range
-    boundaries: list[dict] = []
+    boundaries: list[TopicBoundary] = []
     for item in data:
         sc = int(item.get("start_char", 0))
         title = item.get("title", "").strip()
@@ -107,14 +116,14 @@ def _parse_boundaries(raw: str, text_length: int) -> list[dict]:
             sc = 0
         if sc >= text_length:
             continue
-        boundaries.append({"title": title, "start_char": sc})
+        boundaries.append(TopicBoundary(title=title, start_char=sc))
 
     # Ensure ascending order
-    boundaries.sort(key=lambda b: b["start_char"])
+    boundaries.sort(key=lambda boundary: boundary.start_char)
 
     # First boundary must start at 0
-    if boundaries and boundaries[0]["start_char"] != 0:
-        boundaries[0]["start_char"] = 0
+    if boundaries and boundaries[0].start_char != 0:
+        boundaries[0] = TopicBoundary(title=boundaries[0].title, start_char=0)
 
     return boundaries
 
@@ -122,7 +131,7 @@ def _parse_boundaries(raw: str, text_length: int) -> list[dict]:
 def _apply_boundaries(
     orig_seg: TranscriptSegment,
     text: str,
-    boundaries: list[dict],
+    boundaries: list[TopicBoundary],
     seg_start_seconds: float,
     seg_duration: float,
 ) -> tuple[TranscriptSegment, ...]:
@@ -131,8 +140,8 @@ def _apply_boundaries(
     result: list[TranscriptSegment] = []
 
     for i, boundary in enumerate(boundaries):
-        start_char = boundary["start_char"]
-        end_char = boundaries[i + 1]["start_char"] if i + 1 < len(boundaries) else total_chars
+        start_char = boundary.start_char
+        end_char = boundaries[i + 1].start_char if i + 1 < len(boundaries) else total_chars
 
         chunk_text = text[start_char:end_char].strip()
         if not chunk_text:
@@ -144,7 +153,7 @@ def _apply_boundaries(
 
         result.append(
             TranscriptSegment(
-                title=str(boundary.get("title", f"Part {i + 1}")),
+                title=boundary.title or f"Part {i + 1}",
                 start_seconds=round(time_start),
                 end_seconds=round(time_end),
                 text=chunk_text,
