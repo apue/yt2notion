@@ -2,29 +2,26 @@
 
 ## 当前任务卡
 
-- 任务：Typed Node / Typed Pipeline 目标架构设计文档
-- 状态：`completed_local`
+- 任务：实现 Typed Pipeline 架构
+- 状态：`phase_1_ready_to_commit`
 - 当前 owner：Codex
-- 分支：`codex/typed-pipeline-architecture`
+- 分支：`codex/typed-pipeline-refactor`
 - PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
-- review 状态：已按 User 新要求从头重写并完成本地自查；保留初稿 commit 供 review history 对比
+- review 状态：等待 parent thread 独立 review
 - 目标：
-  - 用更短、按决策展开的中文提案说明 typed capabilities/nodes、普通 Python pipelines、provider adapters 与横切 runtime 的边界
-  - 通过 system context、repository components、acquisition/runtime sequences、focused pipeline flows 和 recovery flow 渐进展示架构
-  - 保持既有 JSON schema 与行为，首阶段移除核心 `list[dict]` 与 translation experiment cast
+  - 按 `docs/typed-pipeline-architecture.md` 分四个可审查阶段落地 typed transcript spine、acquisition split、shared runtime/artifact mechanisms 和普通 Python pipelines
+  - 保持 CLI 行为、artifact 文件名和既有 JSON schema
+  - 全部自动验证离线，不访问 YouTube、ASR、LLM、Obsidian 或其他远程服务
 - 约束：
-  - 仅文档 / 设计，不实现运行时代码
-  - `PROJECT_MAP.md` 继续作为当前实现唯一事实锚点，不把提议架构写成已落地事实
-  - 自动测试策略仅允许离线 contract tests；不调用 YouTube / ASR / LLM / Obsidian
+  - 直接在已存在且起点干净的 `codex/typed-pipeline-refactor` 工作
+  - 每个迁移阶段先运行 targeted checks，再做本地 commit
+  - 不改 prompt Markdown 结构，不自动发布，不改 main
   - 不 push、不创建 PR、不 merge、不修改 `main`
-- 受影响文件：
-  - `docs/typed-pipeline-architecture.md`
-  - `handoff.md`
-- 重写结果：文档从 909 行缩短为 431 行；删除 exhaustive node inventory、精确 class fields/module tree/YAML schema/error taxonomy/retry matrix，将内容收敛为架构边界、交互与验收决策
-- 图表：9 个 Mermaid block（2 个 sequenceDiagram、7 个 focused flowchart），分别覆盖 system context、repository components、acquisition、4 条 pipelines、node execution/profiling 和 retry/recovery
-- 验证结果：Markdown/Mermaid fences 与图类型、相对链接、关键约束、延期决策和尾随空白检查通过；`git diff --check` 通过；未发现现成 Mermaid CLI，因此按要求未安装新依赖
-- 最后一次自测命令：`git diff --cached --check`；内联 Python 文档结构/链接/约束检查；`git diff HEAD^..HEAD --stat`；`git status --short --branch`
-- 下一步：User 对比两个本地 commits 审阅信息密度；若进入实现，单独规划 Phase 1 typed transcript spine
+- 起点：branch/HEAD/origin-main 均为 `2849205eac2c4c118866cf9e0b135f0e4af50d1b`；启动时 worktree 无 tracked changes
+- Phase 1：新增 `SegmentSpec` / `TranscriptCue` / `TranscriptSegment` / `TranscriptArtifact` 和严格 JSON codecs；workspace、segmentation、transcription、review、note、subtitle-pack fallback 与 translation experiment 已使用 typed transcript spine；既有 segments/transcripts/reviewed JSON shape 保持；application cast 已删除
+- 验证结果：全量离线测试 `259 passed`；Phase 1 targeted `86 passed`；受影响文件 ruff check/format check 通过；core 搜索仅余 transcribe plan/chunk checkpoint、LLM response 等显式 codec/provider raw dict
+- 最后一次自测命令：`uv run pytest tests/ -q`；Phase 1 targeted pytest；受影响范围 `ruff check` / `ruff format --check`；`git diff --check`
+- 下一步：提交 Phase 1，进入 acquisition split
 
 ## 上一任务卡（已合并至 main）
 

@@ -17,7 +17,6 @@ from yt2notion.translation_experiment.artifacts import (
 from yt2notion.translation_experiment.generator import TranslationGenerator
 from yt2notion.translation_experiment.models import (
     CandidateIdentity,
-    CanonicalTranscript,
     TranslationExperimentResult,
     TranslationItem,
     TranslationStrategy,
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from yt2notion.config import AppConfig
+    from yt2notion.domain import TranscriptSegment
     from yt2notion.models.base import VideoMeta
     from yt2notion.models.llm import LLMCaller
     from yt2notion.workspace import Workspace
@@ -43,7 +43,7 @@ class TranslationExperimentRunner:
     def run(
         self,
         metadata: VideoMeta,
-        transcripts: Sequence[CanonicalTranscript],
+        transcripts: Sequence[TranscriptSegment],
         workspace: Workspace,
     ) -> TranslationExperimentResult:
         """Execute the controlled experiment against canonical transcripts."""

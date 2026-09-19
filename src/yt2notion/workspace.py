@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from yt2notion.artifact_codecs import (
+    decode_segment_specs,
+    decode_transcript_segments,
+    encode_segment_specs,
+    encode_transcript_segments,
+)
 from yt2notion.models.base import (
     NOTE_VARIANT_GUIDE,
     NOTE_VARIANT_LONGFORM,
@@ -16,6 +23,7 @@ from yt2notion.models.base import (
 )
 
 if TYPE_CHECKING:
+    from yt2notion.domain import SegmentSpec, TranscriptSegment
     from yt2notion.models.base import NoteBundle, VideoMeta
 
 # Step name → output artifact filename
@@ -171,19 +179,21 @@ class Workspace:
 
     # --- Segments ---
 
-    def save_segments(self, segments: list[dict]) -> None:
-        self._write_json("segments.json", segments)
+    def save_segments(self, segments: Sequence[SegmentSpec]) -> None:
+        self._write_json("segments.json", encode_segment_specs(segments))
 
-    def load_segments(self) -> list[dict] | None:
-        return self._read_json("segments.json")
+    def load_segments(self) -> tuple[SegmentSpec, ...] | None:
+        payload = self._read_json("segments.json")
+        return decode_segment_specs(payload) if payload is not None else None
 
     # --- Transcripts ---
 
-    def save_transcripts(self, transcripts: list[dict]) -> None:
-        self._write_json("transcripts.json", transcripts)
+    def save_transcripts(self, transcripts: Sequence[TranscriptSegment]) -> None:
+        self._write_json("transcripts.json", encode_transcript_segments(transcripts))
 
-    def load_transcripts(self) -> list[dict] | None:
-        return self._read_json("transcripts.json")
+    def load_transcripts(self) -> tuple[TranscriptSegment, ...] | None:
+        payload = self._read_json("transcripts.json")
+        return decode_transcript_segments(payload) if payload is not None else None
 
     def save_transcribe_plan(self, plan: list[dict]) -> None:
         self._write_json("transcribe_plan.json", plan)
@@ -207,11 +217,12 @@ class Workspace:
 
     # --- Reviewed ---
 
-    def save_reviewed(self, reviewed: list[dict]) -> None:
-        self._write_json("reviewed.json", reviewed)
+    def save_reviewed(self, reviewed: Sequence[TranscriptSegment]) -> None:
+        self._write_json("reviewed.json", encode_transcript_segments(reviewed))
 
-    def load_reviewed(self) -> list[dict] | None:
-        return self._read_json("reviewed.json")
+    def load_reviewed(self) -> tuple[TranscriptSegment, ...] | None:
+        payload = self._read_json("reviewed.json")
+        return decode_transcript_segments(payload) if payload is not None else None
 
     # --- Note bundle ---
 

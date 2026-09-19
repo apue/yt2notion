@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from yt2notion.domain import TranscriptSegment
 from yt2notion.models.base import VideoMeta
 from yt2notion.transcript_artifacts import MediaTranscribeResult
 from yt2notion.workspace import Workspace
@@ -95,15 +96,15 @@ def make_transcription(tmp_path: Path, *, source_kind: str) -> MediaTranscribeRe
     )
     workspace.save_subtitle_source(source_kind)
     workspace.save_transcripts(
-        [
-            {
-                "title": "Segment",
-                "start_seconds": 1,
-                "end_seconds": 9,
-                "text": "Welcome to Transformer agents. Thank you Graeme.",
-                "source": source_kind,
-            }
-        ]
+        (
+            TranscriptSegment(
+                title="Segment",
+                start_seconds=1,
+                end_seconds=9,
+                text="Welcome to Transformer agents. Thank you Graeme.",
+                source=source_kind,
+            ),
+        )
     )
     transcript_path = workspace.dir / "transcript.md"
     transcript_path.write_text("transcript", encoding="utf-8")

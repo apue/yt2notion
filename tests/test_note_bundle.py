@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from yt2notion.domain import TranscriptSegment
 from yt2notion.models._parsers import (
     ParseError,
     parse_note_document_json,
@@ -63,18 +64,8 @@ def test_resolve_note_targets_scales_with_duration() -> None:
 def test_format_note_bundle_transcript_preserves_time_and_title() -> None:
     transcript = format_note_bundle_transcript(
         [
-            {
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 10,
-                "text": "alpha",
-            },
-            {
-                "title": "Part 2",
-                "start_seconds": 10,
-                "end_seconds": 20,
-                "text": "beta",
-            },
+            TranscriptSegment("Part 1", 0, 10, "alpha", "asr"),
+            TranscriptSegment("Part 2", 10, 20, "beta", "asr"),
         ]
     )
 
@@ -111,15 +102,7 @@ def test_build_source_note_is_light_index() -> None:
 
 
 def test_build_note_bundle_calls_guide_then_longform_then_metadata() -> None:
-    reviewed = [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 10,
-            "text": "alpha",
-            "source": "asr",
-        }
-    ]
+    reviewed = [TranscriptSegment("Part 1", 0, 10, "alpha", "asr")]
     metadata = _sample_metadata()
     calls: list[str] = []
 

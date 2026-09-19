@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from yt2notion.domain import TranscriptSegment
 from yt2notion.translation_experiment.source import build_source_chapters
 from yt2notion.translation_experiment.style import evaluate_translation_style
 
@@ -9,13 +10,13 @@ from yt2notion.translation_experiment.style import evaluate_translation_style
 def _chapter(source_text: str):
     return build_source_chapters(
         [
-            {
-                "title": "Style case",
-                "start_seconds": 0,
-                "end_seconds": 30,
-                "text": source_text,
-                "source": "manual_subtitle",
-            }
+            TranscriptSegment(
+                title="Style case",
+                start_seconds=0,
+                end_seconds=30,
+                text=source_text,
+                source="manual_subtitle",
+            )
         ]
     )
 

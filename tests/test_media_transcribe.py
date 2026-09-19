@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from yt2notion.config import AppConfig, ConfigError
+from yt2notion.domain import TranscriptSegment
 from yt2notion.media_transcribe import (
     DEFAULT_USER_CONFIG_PATH,
     render_media_transcript_markdown,
@@ -81,15 +82,7 @@ def test_transcribe_media_writes_workspace_artifacts(monkeypatch, tmp_path: Path
     )
     monkeypatch.setattr(
         "yt2notion.transcribe.engine.TranscriptionEngine.transcribe_audio",
-        lambda self, *args, **kwargs: [
-            {
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 10,
-                "text": transcript_text,
-                "source": "asr",
-            }
-        ],
+        lambda self, *args, **kwargs: (TranscriptSegment("Part 1", 0, 10, transcript_text, "asr"),),
     )
 
     result = transcribe_media("https://example.com/video", cfg)
@@ -135,15 +128,9 @@ def test_transcribe_media_no_video_clears_stale_video_and_markdown(
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_audio", fake_extract_audio)
     monkeypatch.setattr(
         "yt2notion.transcribe.engine.TranscriptionEngine.transcribe_audio",
-        lambda self, *args, **kwargs: [
-            {
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 10,
-                "text": "fresh transcript",
-                "source": "asr",
-            }
-        ],
+        lambda self, *args, **kwargs: (
+            TranscriptSegment("Part 1", 0, 10, "fresh transcript", "asr"),
+        ),
     )
 
     result = transcribe_media("https://example.com/video", cfg, keep_video=False)
@@ -164,15 +151,7 @@ def test_render_media_transcript_markdown_includes_transcript_source() -> None:
 
     output = render_media_transcript_markdown(
         metadata,
-        [
-            {
-                "title": "Intro",
-                "start_seconds": 65,
-                "end_seconds": 80,
-                "text": "hello world",
-                "source": "asr",
-            }
-        ],
+        [TranscriptSegment("Intro", 65, 80, "hello world", "asr")],
         "manual_subtitle",
     )
 

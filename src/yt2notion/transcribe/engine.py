@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import typer
 
+from yt2notion.artifact_codecs import encode_segment_specs
+from yt2notion.domain import SegmentSpec, TranscriptSegment
 from yt2notion.extract import ExtractionError
 from yt2notion.process import SubtitleEntry, parse_subtitle_file, seconds_to_display
 from yt2notion.transcribe.base import Transcriber
@@ -76,11 +78,11 @@ class TranscriptionEngine:
         self,
         ws: Workspace,
         metadata: VideoMeta,
-        segments: list[dict],
+        segments: Sequence[SegmentSpec],
         *,
         verbose: bool = False,
         progress_callback: ProgressCallback | None = None,
-    ) -> list[dict]:
+    ) -> tuple[TranscriptSegment, ...]:
         """Transcribe current workspace subtitles or audio into transcript segments."""
         if verbose:
             typer.echo("Transcribing...")
@@ -113,13 +115,13 @@ class TranscriptionEngine:
     def transcribe_audio(
         self,
         audio_path: Path,
-        segments: list[dict],
+        segments: Sequence[SegmentSpec],
         metadata: VideoMeta,
         ws: Workspace,
         *,
         verbose: bool = False,
         progress_callback: ProgressCallback | None = None,
-    ) -> list[dict]:
+    ) -> tuple[TranscriptSegment, ...]:
         """Transcribe audio via the configured primary/fallback providers."""
         transcriber = self._primary_transcriber
         if transcriber is None:
@@ -390,13 +392,13 @@ def _switch_remaining_chunks_to_backend(
 
 def _transcribe_from_subtitles(
     sub_path: Path,
-    segments: list[dict],
+    segments: Sequence[SegmentSpec],
     metadata: VideoMeta,
     config: dict,
     verbose: bool,
     *,
     source: str = "subtitle",
-) -> list[dict]:
+) -> tuple[TranscriptSegment, ...]:
     """Assign subtitle entries to segments, or create segments from entries."""
     entries = parse_subtitle_file(sub_path)
     if verbose:
@@ -411,47 +413,50 @@ def _transcribe_from_subtitles(
 
         max_seg = config.get("output", {}).get("max_segment_seconds", 900)
         split_segs = _split_by_duration(entries, max_seg)
-        return [
-            {
-                "title": seg.title,
-                "start_seconds": seg.start_seconds,
-                "end_seconds": seg.end_seconds,
-                "text": seg.text,
-                "source": source,
-            }
+        return tuple(
+            TranscriptSegment(
+                title=seg.title,
+                start_seconds=seg.start_seconds,
+                end_seconds=seg.end_seconds,
+                text=seg.text,
+                source=source,
+            )
             for seg in split_segs
-        ]
+        )
 
 
 def _assign_entries_to_segments(
-    entries: list[SubtitleEntry], segments: list[dict], *, source: str = "subtitle"
-) -> list[dict]:
+    entries: list[SubtitleEntry],
+    segments: Sequence[SegmentSpec],
+    *,
+    source: str = "subtitle",
+) -> tuple[TranscriptSegment, ...]:
     """Assign subtitle entries to segments by timestamp."""
-    result: list[dict] = []
+    result: list[TranscriptSegment] = []
     for seg in segments:
         seg_entries = [
             e
             for e in entries
-            if e.start_seconds >= seg["start_seconds"] and e.start_seconds < seg["end_seconds"]
+            if e.start_seconds >= seg.start_seconds and e.start_seconds < seg.end_seconds
         ]
         text = " ".join(e.text for e in seg_entries).strip()
         result.append(
-            {
-                "title": seg.get("title", ""),
-                "start_seconds": seg["start_seconds"],
-                "end_seconds": seg["end_seconds"],
-                "text": text,
-                "source": source,
-            }
+            TranscriptSegment(
+                title=seg.title,
+                start_seconds=seg.start_seconds,
+                end_seconds=seg.end_seconds,
+                text=text,
+                source=source,
+            )
         )
-    return result
+    return tuple(result)
 
 
 def _build_segment_transcribe_plan(
     *,
     ws: Workspace,
     audio_path: Path,
-    segments: list[dict],
+    segments: Sequence[SegmentSpec],
     preferred_backend: str,
 ) -> list[dict]:
     existing = ws.load_transcribe_plan()
@@ -472,14 +477,14 @@ def _build_segment_transcribe_plan(
     from yt2notion.audio import split_audio
 
     seg_dir = audio_path.parent / "segments"
-    seg_files = split_audio(audio_path, segments, seg_dir)
+    seg_files = split_audio(audio_path, encode_segment_specs(segments), seg_dir)
     plan = [
         {
             "chunk_id": f"segment-{index + 1:03d}",
             "segment_index": index,
-            "title": seg.get("title", f"Part {index + 1}"),
-            "start_seconds": seg["start_seconds"],
-            "end_seconds": seg["end_seconds"],
+            "title": seg.title or f"Part {index + 1}",
+            "start_seconds": seg.start_seconds,
+            "end_seconds": seg.end_seconds,
             "audio_relpath": _chunk_audio_ref(ws, seg_file),
             "preferred_backend": preferred_backend,
         }
@@ -579,21 +584,23 @@ def _load_required_chunk_payload(ws: Workspace, chunk_id: str) -> ChunkResultPay
     return payload
 
 
-def _segment_transcripts_from_plan(ws: Workspace, plan: list[dict]) -> list[dict]:
-    result: list[dict] = []
+def _segment_transcripts_from_plan(
+    ws: Workspace, plan: list[dict]
+) -> tuple[TranscriptSegment, ...]:
+    result: list[TranscriptSegment] = []
     for chunk in plan:
         payload = _load_required_chunk_payload(ws, str(chunk["chunk_id"]))
         entries = _entries_from_chunk_payload(payload)
         result.append(
-            {
-                "title": chunk["title"],
-                "start_seconds": chunk["start_seconds"],
-                "end_seconds": chunk["end_seconds"],
-                "text": " ".join(entry.text for entry in entries).strip(),
-                "source": "asr",
-            }
+            TranscriptSegment(
+                title=str(chunk["title"]),
+                start_seconds=float(chunk["start_seconds"]),
+                end_seconds=float(chunk["end_seconds"]),
+                text=" ".join(entry.text for entry in entries).strip(),
+                source="asr",
+            )
         )
-    return result
+    return tuple(result)
 
 
 def _merged_chunk_entries(ws: Workspace, plan: list[dict]) -> list[SubtitleEntry]:
@@ -798,7 +805,7 @@ def _execute_chunk_plan(
 
 def _transcribe_from_audio(
     audio_path: Path,
-    segments: list[dict],
+    segments: Sequence[SegmentSpec],
     metadata: VideoMeta,
     config: dict,
     ws: Workspace,
@@ -809,7 +816,7 @@ def _transcribe_from_audio(
     fallback_backend: str | None = None,
     fallback_transcriber_factory: TranscriberFactory | None = None,
     progress_callback: ProgressCallback | None = None,
-) -> list[dict]:
+) -> tuple[TranscriptSegment, ...]:
     """Transcribe audio via ASR, optionally per-segment."""
     language = metadata.language or None
 
@@ -871,16 +878,16 @@ def _transcribe_from_audio(
 
     max_seg = config.get("output", {}).get("max_segment_seconds", 900)
     split_segs = _split_by_duration(entries, max_seg)
-    return [
-        {
-            "title": seg.title,
-            "start_seconds": seg.start_seconds,
-            "end_seconds": seg.end_seconds,
-            "text": seg.text,
-            "source": "asr",
-        }
+    return tuple(
+        TranscriptSegment(
+            title=seg.title,
+            start_seconds=seg.start_seconds,
+            end_seconds=seg.end_seconds,
+            text=seg.text,
+            source="asr",
+        )
         for seg in split_segs
-    ]
+    )
 
 
 def _transcriber_max_upload_bytes(transcriber: Transcriber) -> int | None:

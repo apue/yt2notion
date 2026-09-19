@@ -36,14 +36,14 @@ def build_source_cues(transcription: MediaTranscribeResult) -> tuple[str, list[S
     cues = [
         SourceCue(
             id=f"cue-{index:06d}",
-            start_ms=round(float(segment.get("start_seconds", 0)) * 1000),
-            end_ms=round(float(segment.get("end_seconds", 0)) * 1000),
-            original_text=str(segment.get("text", "")).strip(),
+            start_ms=round(float(segment.start_seconds) * 1000),
+            end_ms=round(float(segment.end_seconds) * 1000),
+            original_text=segment.text.strip(),
         )
         for index, segment in enumerate(transcripts, start=1)
-        if str(segment.get("text", "")).strip()
+        if segment.text.strip()
     ]
-    sources = {str(item.get("source", "")) for item in transcripts}
+    sources = {item.source for item in transcripts}
     return ("asr" if "asr" in sources else "transcript"), cues
 
 

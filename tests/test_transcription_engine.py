@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from yt2notion.domain import SegmentSpec
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
 from yt2notion.transcribe.engine import TranscriptionEngine
@@ -65,7 +66,7 @@ def test_transcribe_workspace_preserves_saved_subtitle_source(
 
     transcripts = engine.transcribe_workspace(workspace, metadata, [])
 
-    assert transcripts[0]["source"] == "manual_subtitle"
+    assert transcripts[0].source == "manual_subtitle"
 
 
 @patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
@@ -102,7 +103,7 @@ def test_hourly_limit_retries_same_chunk_and_records_checkpoint(
         progress_callback=lambda step, event, message=None: events.append((step, event, message)),
     )
 
-    assert result[0]["text"] == "chunk one chunk two"
+    assert result[0].text == "chunk one chunk two"
     assert primary.transcribe.call_count == 3
     state = workspace.load_transcribe_state()
     assert state is not None
@@ -157,7 +158,7 @@ def test_daily_limit_switches_current_and_remaining_chunks_to_fallback(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "chunk one chunk two chunk three"
+    assert result[0].text == "chunk one chunk two chunk three"
     assert workspace.asr_fallback_used() is True
     state = workspace.load_transcribe_state()
     assert state is not None
@@ -228,7 +229,7 @@ def test_resume_reuses_completed_chunk_payload(
 
     result = engine.transcribe_audio(workspace.audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "cached fresh"
+    assert result[0].text == "cached fresh"
     primary.transcribe.assert_called_once_with(chunks[1], language=None)
 
 
@@ -282,7 +283,7 @@ def test_missing_completed_chunk_payload_is_recomputed(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "recovered"
+    assert result[0].text == "recovered"
     primary.transcribe.assert_called_once_with(audio_path, language=None)
     assert workspace.load_transcribe_chunk_result("chunk-001")[0]["text"] == "recovered"
 
@@ -329,7 +330,7 @@ def test_small_full_audio_uses_single_upload_fast_path(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "single request"
+    assert result[0].text == "single request"
     primary.transcribe.assert_called_once_with(audio_path, language=None)
     split_audio.assert_not_called()
 
@@ -358,7 +359,7 @@ def test_non_retryable_error_does_not_load_fallback(
     with pytest.raises(TranscriptionError, match="bad request"):
         engine.transcribe_audio(
             audio_path,
-            [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+            [SegmentSpec(title="Part 1", start_seconds=0, end_seconds=30)],
             metadata,
             workspace,
         )
@@ -408,7 +409,7 @@ def test_primary_success_does_not_load_fallback(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "primary"
+    assert result[0].text == "primary"
     fallback_factory.assert_not_called()
 
 
@@ -468,12 +469,12 @@ def test_oversized_segment_is_subdivided_before_upload(
 
     result = engine.transcribe_audio(
         audio_path,
-        [{"title": "Long segment", "start_seconds": 0, "end_seconds": 120}],
+        [SegmentSpec(title="Long segment", start_seconds=0, end_seconds=120)],
         metadata,
         workspace,
     )
 
-    assert result[0]["text"] == "child one child two"
+    assert result[0].text == "child one child two"
     assert split_audio.call_count == 2
     assert [call.args[0] for call in primary.transcribe.call_args_list] == children
 
@@ -504,11 +505,11 @@ def test_segmented_audio_without_upload_limit_keeps_direct_timestamps(
 
     result = engine.transcribe_audio(
         audio_path,
-        [{"title": "Part 1", "start_seconds": 100, "end_seconds": 130}],
+        [SegmentSpec(title="Part 1", start_seconds=100, end_seconds=130)],
         metadata,
         workspace,
     )
 
-    assert result[0]["text"] == "first second"
+    assert result[0].text == "first second"
     primary.transcribe.assert_called_once_with(segment_file, language=None)
     rebase_chunk_entries.assert_not_called()

@@ -9,6 +9,7 @@ import pytest
 from yt2notion.application import Yt2Notion
 from yt2notion.config import AppConfig, ConfigError, load_config
 from yt2notion.content_preparation import ContentPreparation
+from yt2notion.domain import TranscriptSegment
 from yt2notion.media_source import (
     MediaAcquireRequest,
     MediaAcquireResult,
@@ -52,11 +53,11 @@ class FakeEngine:
         self.workspace_calls = 0
         self.audio_calls = 0
 
-    def transcribe_workspace(self, *args, **kwargs) -> list[dict]:
+    def transcribe_workspace(self, *args, **kwargs) -> tuple[TranscriptSegment, ...]:
         self.workspace_calls += 1
         return _transcript("manual_subtitle")
 
-    def transcribe_audio(self, *args, **kwargs) -> list[dict]:
+    def transcribe_audio(self, *args, **kwargs) -> tuple[TranscriptSegment, ...]:
         self.audio_calls += 1
         return _transcript("asr")
 
@@ -225,7 +226,7 @@ def test_application_records_transcription_failure(tmp_path: Path) -> None:
     cfg.workspace = {"base_dir": str(tmp_path)}
 
     class FailingEngine(FakeEngine):
-        def transcribe_workspace(self, *args, **kwargs) -> list[dict]:
+        def transcribe_workspace(self, *args, **kwargs) -> tuple[TranscriptSegment, ...]:
             raise RuntimeError("ASR unavailable")
 
     with pytest.raises(RuntimeError, match="ASR unavailable"):
@@ -328,13 +329,13 @@ def test_transcription_engine_factory_memoizes_fallback_adapter(monkeypatch) -> 
     assert calls == 1
 
 
-def _transcript(source: str) -> list[dict]:
-    return [
-        {
-            "title": "Part 1",
-            "start_seconds": 0,
-            "end_seconds": 10,
-            "text": "hello",
-            "source": source,
-        }
-    ]
+def _transcript(source: str) -> tuple[TranscriptSegment, ...]:
+    return (
+        TranscriptSegment(
+            title="Part 1",
+            start_seconds=0,
+            end_seconds=10,
+            text="hello",
+            source=source,
+        ),
+    )

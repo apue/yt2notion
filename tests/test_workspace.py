@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from yt2notion.domain import SegmentSpec, TranscriptSegment
 from yt2notion.models.base import NoteBundle, NoteDocument, VideoMeta
 from yt2notion.workspace import STEPS, Workspace
 
@@ -35,10 +36,39 @@ def test_metadata_roundtrip(tmp_path):
 
 def test_segments_roundtrip(tmp_path):
     ws = Workspace(tmp_path, "test123")
-    segs = [{"title": "Intro", "start_seconds": 0, "end_seconds": 300}]
+    segs = (SegmentSpec(title="Intro", start_seconds=0, end_seconds=300),)
     ws.save_segments(segs)
     loaded = ws.load_segments()
     assert loaded == segs
+    assert json.loads((ws.dir / "segments.json").read_text()) == [
+        {"title": "Intro", "start_seconds": 0, "end_seconds": 300}
+    ]
+
+
+def test_transcripts_roundtrip_uses_typed_domain_with_existing_json(tmp_path):
+    ws = Workspace(tmp_path, "test123")
+    transcripts = (
+        TranscriptSegment(
+            title="Part 1",
+            start_seconds=0,
+            end_seconds=10,
+            text="before",
+            source="asr",
+        ),
+    )
+
+    ws.save_transcripts(transcripts)
+
+    assert ws.load_transcripts() == transcripts
+    assert json.loads((ws.dir / "transcripts.json").read_text()) == [
+        {
+            "title": "Part 1",
+            "start_seconds": 0,
+            "end_seconds": 10,
+            "text": "before",
+            "source": "asr",
+        }
+    ]
 
 
 def test_step_done(tmp_path):
@@ -126,15 +156,15 @@ def test_steps_constant():
 def test_discard_transcribe_artifacts_removes_transcripts_and_chunk_dirs(tmp_path):
     ws = Workspace(tmp_path, "test123")
     ws.save_transcripts(
-        [
-            {
-                "title": "Part 1",
-                "start_seconds": 0,
-                "end_seconds": 10,
-                "text": "before",
-                "source": "asr",
-            }
-        ]
+        (
+            TranscriptSegment(
+                title="Part 1",
+                start_seconds=0,
+                end_seconds=10,
+                text="before",
+                source="asr",
+            ),
+        )
     )
     (ws.dir / "segments").mkdir(parents=True, exist_ok=True)
     (ws.dir / "segments" / "segment_001.mp3").write_bytes(b"fake")
