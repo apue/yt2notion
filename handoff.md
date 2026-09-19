@@ -3,15 +3,17 @@
 ## 当前任务卡
 
 - 任务：将 Amp Runner 无法转派时的默认行为改为本地执行
-- 状态：`implementing`
+- 状态：`completed`
 - 当前 owner：Codex
 - 分支：`codex/amp-runner-local-fallback`
-- PR：待创建
+- PR：[#37](https://github.com/apue/yt2notion/pull/37)
+- review 状态：merge-base 文档 review 无 finding；本地 fallback、免重复确认和 Orb 排除规则均已核对；User 已授权自行合入
 - 目标：`mac-mini` 仍为首选；离线或无法转派时默认在本地 CLI / User 自有 Runner 继续，不再等待确认；Orb 不作为隐式 fallback
 - 约束：纯文本策略调整，不修改 pipeline、运行时配置或 Mac mini LaunchAgent
 - 受影响文件：`AGENTS.md`、`handoff.md`
-- 验证：待执行 Markdown/diff 与策略关键字段检查；纯文本改动不运行测试
-- 下一步：完成本地 review，创建并合入 PR
+- fallback 记录：当前线程运行在 MacBook Air Runner，且该执行环境不提供创建 Runner 子线程的能力，因此按 User 新默认在本地完成
+- 验证：`git diff --check`、Markdown 链接目标和策略关键字段断言通过；纯文本改动未运行测试
+- 下一步：无
 
 ## 上一任务卡（已完成）
 
