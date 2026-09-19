@@ -16,6 +16,7 @@ from yt2notion.media_source import (
     SourceProbe,
     SourceRef,
     acquire_media,
+    create_source_provider,
     plan_acquisition,
     route_source,
 )
@@ -47,6 +48,11 @@ def test_planner_skips_subtitle_and_keeps_video_when_requested() -> None:
 
 def test_router_is_explicit_and_does_not_guess_from_url_patterns() -> None:
     assert route_source("https://podcasts.example/episode").provider == "yt_dlp"
+
+
+def test_unknown_source_provider_factory_backend_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown media-source backend"):
+        create_source_provider({"extract": {"media_source": {"backend": "nope"}}})
 
 
 class FakeProvider:

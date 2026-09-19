@@ -14,8 +14,12 @@ artifacts, configuration bindings, and extension seams.
 | `yt2notion subtitle-pack URL` | create a local, cue-timed bilingual subtitle package for browser playback |
 
 All commands enter through `application.Yt2Notion`, which assembles dependencies
-and invokes ordinary typed functions in `pipelines.py`. There is no compatibility
-pipeline, DAG engine, workflow registry, or local queue runtime.
+and invokes ordinary typed functions exported by the `pipelines` package. Product
+ownership is explicit: `contracts.py` owns requests/results/progress,
+`transcribe.py` owns transcription, `notes.py` owns prepare/process,
+`translation_experiment.py` and `subtitle_pack.py` own their complete specialized
+flows, and `shared.py` contains only workspace-root resolution. There is no
+compatibility pipeline, DAG engine, workflow registry, or local queue runtime.
 
 ## Canonical pipeline
 
@@ -178,7 +182,8 @@ CLI-facing orchestrator. It has no dependency on `Storage`.
 `SubtitlePackService` delegates cue recovery
 to `subtitle_pack.source`, bounded context/generation/QA calls to
 `SubtitleLLMWorkflow`, deterministic model-output checks to
-`subtitle_pack.validation`, shared checkpoint serialization to `runtime.py`, and
+`subtitle_pack.validation`, shared checkpoint serialization to
+`runtime.checkpoint`, and
 package serialization to `subtitle_pack.artifacts`. The workflow depends on
 `LLMCaller` and `RuntimeObserver`. `run_subtitle_pack_pipeline()` owns acquisition,
 transcription, and service invocation as one profiled product run. The browser extension consumes only
@@ -188,9 +193,10 @@ To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a
 registry or expose provider details through `Yt2Notion`.
 
-`runtime.py` provides the shared `RuntimeObserver`, `NodeExecutor`, typed
-retry policy, checkpoint store, and passive provider-availability observations.
-The recorder models nested run/node/batch/provider-call/attempt/checkpoint
+The `runtime` package keeps observation/context/provider calls and the tiny
+`NodeExecutor` together in `observer.py`; `checkpoint.py` owns identity-bound JSON
+checkpoint persistence. Typed retry policy remains operation-local in `retry.py`.
+The observer models nested run/node/batch/provider-call/attempt/checkpoint
 observations and stores only redacted labels, counts, status, timing, and
 normalized failure categories. Whole-node retry is disabled by default;
 provider retry remains operation-local, and business fallback remains in the
@@ -223,7 +229,7 @@ documentation.
 ```text
 cli -> application
 application -> complete product pipelines and dependency factories
-pipelines -> acquisition planner/provider, TranscriptionEngine, ContentPreparation
+pipelines package -> acquisition planner/provider, TranscriptionEngine, ContentPreparation
 run_process_pipeline -> run_note_pipeline result, then Storage
 ContentPreparation -> review, topic_segment, note_bundle
 note_bundle -> Summarizer

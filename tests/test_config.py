@@ -61,6 +61,22 @@ def test_invalid_output_mode(tmp_path):
         load_config(str(cfg_file))
 
 
+def test_unknown_media_source_backend_raises_config_error(tmp_path) -> None:
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("extract:\n  media_source:\n    backend: nope\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="Invalid media-source backend"):
+        load_config(str(cfg_file))
+
+
+def test_invalid_media_source_config_shape_raises_config_error(tmp_path) -> None:
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("extract:\n  media_source: yt_dlp\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="extract.media_source must be a mapping"):
+        load_config(str(cfg_file))
+
+
 def test_deep_merge_preserves_nested(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
