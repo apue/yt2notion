@@ -3,11 +3,11 @@
 ## 当前任务卡
 
 - 任务：固定 yt2notion 的 Amp Runner 执行策略并配置 Mac mini checkout
-- 状态：`implementing`
+- 状态：`merge_approved`
 - 当前 owner：Codex
 - 分支：`codex/amp-runner-policy`
-- PR：待创建
-- review 状态：待本地 review
+- PR：[#35](https://github.com/apue/yt2notion/pull/35)
+- review 状态：merge-base 文档 review 通过；Runner ID、固定目录、无递归转派与无静默 fallback 规则均已核对；User 已授权自行合入
 - 目标：
   - 在 `AGENTS.md` 中将 `mac-mini` 和 `/Users/yangtian/Developer/agent/yt2notion` 定义为仓库操作的首选执行位置
   - 非 Runner 线程在能力允许时转派完整任务；Runner 不可用时停止并请求 User 决策，不静默 fallback
@@ -18,8 +18,8 @@
   - 不污染当前其他开发分支；通过独立 worktree、分支和 PR 交付
   - User 已明确授权完成 review 并自行合入 PR
 - 受影响文件：`AGENTS.md`、`handoff.md`；合并后仅修改 Mac mini 用户级 LaunchAgent 和新增远端 checkout
-- 基线验证：`uv run --extra dev pytest tests/ -q`，284 passed、16 warnings
-- 下一步：完成文档自查，创建并 review PR，合并后配置和验证 Mac mini Runner
+- 验证：`uv run --extra dev pytest tests/ -q`，284 passed、16 warnings；`git diff --check` 与策略关键字段断言通过
+- 下一步：合并 PR #35，然后配置和验证 Mac mini Runner
 
 ## 上一任务卡（已合并至 main）
 
