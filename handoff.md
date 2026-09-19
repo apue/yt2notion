@@ -6,7 +6,7 @@
 - 状态：`completed`
 - 当前 owner：Codex
 - 分支：`codex/amp-runner-policy`
-- PR：[#35](https://github.com/apue/yt2notion/pull/35)（已合并）；closeout PR 待创建
+- PR：[#35](https://github.com/apue/yt2notion/pull/35)（策略，已合并）；[#36](https://github.com/apue/yt2notion/pull/36)（closeout）
 - review 状态：merge-base 文档 review 通过；Runner ID、固定目录、无递归转派与无静默 fallback 规则均已核对；PR #35 已 squash merge
 - 目标：
   - 在 `AGENTS.md` 中将 `mac-mini` 和 `/Users/yangtian/Developer/agent/yt2notion` 定义为仓库操作的首选执行位置
