@@ -2,6 +2,19 @@
 
 ## 当前任务卡
 
+- 任务：将 Amp Runner 无法转派时的默认行为改为本地执行
+- 状态：`implementing`
+- 当前 owner：Codex
+- 分支：`codex/amp-runner-local-fallback`
+- PR：待创建
+- 目标：`mac-mini` 仍为首选；离线或无法转派时默认在本地 CLI / User 自有 Runner 继续，不再等待确认；Orb 不作为隐式 fallback
+- 约束：纯文本策略调整，不修改 pipeline、运行时配置或 Mac mini LaunchAgent
+- 受影响文件：`AGENTS.md`、`handoff.md`
+- 验证：待执行 Markdown/diff 与策略关键字段检查；纯文本改动不运行测试
+- 下一步：完成本地 review，创建并合入 PR
+
+## 上一任务卡（已完成）
+
 - 任务：固定 yt2notion 的 Amp Runner 执行策略并配置 Mac mini checkout
 - 状态：`completed`
 - 当前 owner：Codex
