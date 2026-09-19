@@ -61,7 +61,7 @@ Use `uv sync --extra anthropic` only when `model.backend` is
 
 | Capability | Interface | Adapters |
 |---|---|---|
-| Media acquisition | `MediaSource` | `yt_dlp` |
+| Media acquisition | `SourceProvider` | `YtDlpSourceProvider` |
 | ASR | `Transcriber` | `groq`, `remote` |
 | LLM call | `LLMCaller` | `claude_code`, `codex_cli`, `anthropic_api` |
 | Bundle storage | `Storage` | `obsidian` |

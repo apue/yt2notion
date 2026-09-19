@@ -10,11 +10,11 @@ from yt2notion.config import AppConfig, ConfigError
 from yt2notion.domain import TranscriptSegment
 from yt2notion.media_transcribe import (
     DEFAULT_USER_CONFIG_PATH,
-    render_media_transcript_markdown,
     resolve_media_transcribe_config_path,
     transcribe_media,
 )
 from yt2notion.models.base import VideoMeta
+from yt2notion.transcript_artifacts import render_media_transcript_markdown
 
 
 def test_default_user_config_path_uses_agent_runtime_directory() -> None:

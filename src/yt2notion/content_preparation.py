@@ -63,7 +63,7 @@ class ContentPreparation:
         config: AppConfig,
         verbose: bool,
     ) -> tuple[SegmentSpec, ...]:
-        return self._segmenter(metadata, _config_mapping(config), verbose)
+        return self._segmenter(metadata, config.to_legacy_mapping(), verbose)
 
     def should_topic_segment(self, transcripts: Sequence[TranscriptSegment]) -> bool:
         return should_topic_segment(transcripts)
@@ -81,7 +81,7 @@ class ContentPreparation:
         return self._topic_segmenter(
             transcripts,
             metadata,
-            _config_mapping(config),
+            config.to_legacy_mapping(),
             max_segment_seconds,
         )
 
@@ -96,7 +96,7 @@ class ContentPreparation:
         return self._reviewer(
             transcripts,
             metadata,
-            _config_mapping(config),
+            config.to_legacy_mapping(),
             workspace,
             verbose,
         )
@@ -107,7 +107,7 @@ class ContentPreparation:
         metadata: VideoMeta,
         config: AppConfig,
     ) -> NoteBundle:
-        summarizer = self._summarizer_factory(_config_mapping(config))
+        summarizer = self._summarizer_factory(config.to_legacy_mapping())
         return self._bundle_builder(transcripts, metadata, summarizer)
 
     def is_long(
@@ -116,18 +116,7 @@ class ContentPreparation:
         transcripts: Sequence[TranscriptSegment],
         config: AppConfig,
     ) -> bool:
-        return is_long_content(metadata, transcripts, _config_mapping(config))
-
-
-def _config_mapping(config: AppConfig) -> dict:
-    """Adapt typed application config at the legacy model/helper boundary."""
-    return {
-        "extract": config.extract,
-        "model": config.model,
-        "storage": config.storage,
-        "credit": config.credit,
-        "output": config.output,
-    }
+        return is_long_content(metadata, transcripts, config.to_legacy_mapping())
 
 
 def segment_content(metadata: VideoMeta, config: dict, verbose: bool) -> tuple[SegmentSpec, ...]:

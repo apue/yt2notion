@@ -10,6 +10,7 @@ import pytest
 from tests.subtitle_pack_support import (
     ScriptedSubtitleCaller,
     make_transcription,
+    run_subtitle_service,
     successful_caller,
 )
 from yt2notion.subtitle_pack.service import SubtitlePackService
@@ -19,11 +20,14 @@ def test_keyboard_interrupt_marks_run_stage_and_call_failed(tmp_path: Path) -> N
     transcription = make_transcription(tmp_path, source_kind="automatic_caption")
 
     with pytest.raises(KeyboardInterrupt):
-        SubtitlePackService(
-            ScriptedSubtitleCaller(KeyboardInterrupt()),
-            model_label="fake:model",
-            target_language="zh-CN",
-        ).run(transcription)
+        run_subtitle_service(
+            SubtitlePackService(
+                ScriptedSubtitleCaller(KeyboardInterrupt()),
+                model_label="fake:model",
+                target_language="zh-CN",
+            ),
+            transcription,
+        )
 
     profiles = list((transcription.workspace.dir / "profiles").glob("*.json"))
     assert len(profiles) == 1
@@ -46,12 +50,15 @@ def test_keyboard_interrupt_marks_run_stage_and_call_failed(tmp_path: Path) -> N
 def test_progress_reports_stage_and_timed_llm_events(tmp_path: Path) -> None:
     messages: list[str] = []
 
-    SubtitlePackService(
-        successful_caller(),
-        model_label="fake:model",
-        target_language="zh-CN",
-        progress_callback=messages.append,
-    ).run(make_transcription(tmp_path, source_kind="manual_subtitle"))
+    run_subtitle_service(
+        SubtitlePackService(
+            successful_caller(),
+            model_label="fake:model",
+            target_language="zh-CN",
+            progress_callback=messages.append,
+        ),
+        make_transcription(tmp_path, source_kind="manual_subtitle"),
+    )
 
     assert "Subtitle pack: 2 source cues (manual_subtitle)" in messages
     assert any(

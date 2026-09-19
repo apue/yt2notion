@@ -29,7 +29,7 @@ YouTube 原生字幕后，由浏览器插件根据播放器时间显示经过上
 
 可以直接复用的能力：
 
-- `YtDlpMediaSource` 的 metadata、人工字幕、自动字幕和音频 fallback；
+- `YtDlpSourceProvider` 的 metadata、人工字幕、自动字幕和音频 operation；
 - `SubtitleEntry` 以及 SRT/VTT 的逐条时间戳解析；
 - `TranscriptionEngine` 的 ASR、分片、checkpoint 和 fallback；
 - `LLMCaller` 及现有模型配置；
@@ -236,9 +236,9 @@ LLM 语义校验只返回问题列表。修复阶段按问题 cue 定向生成�
 
 ## Profiling 与性能分析
 
-现有 `StageTimer` 继续提供 acquire/segment/transcribe 耗时；字幕服务另外记录本地阶段、
-逻辑 LLM 调用和 checkpoint 收益。字幕 pipeline 每次运行都写一份结构化 profile；运行成功或
-失败都在 `finally` 路径落盘，避免只留下成功样本。
+产品 pipeline 统一拥有 `RuntimeObserver` run，并记录 acquire/segment/transcribe、字幕本地阶段、
+逻辑 LLM 调用和 checkpoint 收益。字幕服务必须在该既有 run 内执行，不自行创建或收尾 profile；
+run context 在成功、失败或中断时落盘，避免只留下成功样本。
 
 计时分为三层：
 

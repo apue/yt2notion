@@ -25,34 +25,6 @@ ProgressCallback: TypeAlias = Callable[[str, ProgressEvent, str | None], None]
 StorageFactory: TypeAlias = Callable[[dict], "Storage"]
 
 
-@dataclass(frozen=True)
-class NotePipelineRequest:
-    """Inputs controlling local note preparation and resume behavior."""
-
-    url: str
-    workspace_dir: str | None = None
-    resume_from: str | None = None
-    mode: str | None = None
-    verbose: bool = False
-
-
-@dataclass(frozen=True)
-class TranscribePipelineRequest:
-    """Inputs controlling local transcript artifact creation."""
-
-    url: str
-    workspace_dir: str | None = None
-    keep_video: bool = True
-    verbose: bool = False
-
-
-@dataclass(frozen=True)
-class ProcessPipelineRequest(NotePipelineRequest):
-    """Inputs controlling note preparation and explicit publication."""
-
-    dry_run: bool = False
-
-
 @dataclass
 class PreparedContent:
     """Bundle-only pipeline output before explicit storage publish."""

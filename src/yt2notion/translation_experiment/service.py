@@ -147,14 +147,7 @@ class TranslationExperimentRunner:
 def create_translation_experiment_runner(config: AppConfig) -> TranslationExperimentRunner:
     """Create the experiment runner from the standard translation-model role."""
     model_config = config.model
-    raw_config = {
-        "extract": config.extract,
-        "model": config.model,
-        "storage": config.storage,
-        "credit": config.credit,
-        "output": config.output,
-    }
-    caller = create_llm_caller(raw_config, model_key="translate_model")
+    caller = create_llm_caller(config.to_legacy_mapping(), model_key="translate_model")
     model_label = (
         f"{model_config['backend']}:{model_config['translate_model']}:"
         f"reasoning={model_config.get('reasoning_effort', 'low')}"

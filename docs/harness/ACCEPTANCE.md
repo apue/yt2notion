@@ -1,6 +1,9 @@
 # ACCEPTANCE
 
-Status: accepted
+Status: historical accepted snapshot; deprecated as current architecture documentation
+
+This file records the pre-typed-pipeline harness acceptance language. Names below
+are historical; current contracts are defined by `PROJECT_MAP.md`.
 
 ## Done Definition
 

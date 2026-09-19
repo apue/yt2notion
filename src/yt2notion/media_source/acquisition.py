@@ -3,55 +3,50 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from yt2notion.media_source.base import (
     AcquiredMedia,
     AcquisitionError,
-    AcquisitionIntent,
-    AcquisitionPlan,
-    AcquisitionRequest,
     SourceOperation,
     SourceOperationError,
     SourceProbe,
     SourceProvider,
-    SourceRef,
 )
 from yt2notion.runtime import provider_call
 from yt2notion.workspace import Workspace
 
 
-def route_source(locator: str) -> SourceRef:
-    """Route a locator to the only currently supported source provider."""
-    if not locator.strip():
-        raise ValueError("source locator must not be empty")
-    return SourceRef(locator=locator)
-
-
-def plan_acquisition(probe: SourceProbe, intent: AcquisitionIntent) -> AcquisitionPlan:
+def plan_acquisition(probe: SourceProbe, *, keep_video: bool) -> tuple[SourceOperation, ...]:
     """Create deterministic subtitle/webpage/media fallback policy."""
     operations: list[SourceOperation] = []
     if probe.subtitles_available:
         operations.append("subtitle")
     operations.append("webpage_transcript")
-    operations.append("video" if intent.keep_video else "audio")
-    return AcquisitionPlan(operations=tuple(operations))
+    operations.append("video" if keep_video else "audio")
+    return tuple(operations)
 
 
-def acquire_media(provider: SourceProvider, request: AcquisitionRequest) -> AcquiredMedia:
-    """Probe once and execute the pure acquisition plan until it is satisfied."""
-    source = route_source(request.url)
+def acquire_media(
+    provider: SourceProvider,
+    *,
+    url: str,
+    workspace_base_dir: Path,
+    keep_video: bool = False,
+) -> AcquiredMedia:
+    """Own workspace lifecycle and execute the acquisition fallback policy."""
+    if not url.strip():
+        raise ValueError("source locator must not be empty")
     with provider_call("source.probe"):
-        probe = provider.probe(source)
-    workspace_id = probe.metadata.video_id or _stable_workspace_id(
-        probe.metadata.url or request.url
-    )
-    workspace = Workspace(request.workspace_base_dir, workspace_id)
+        probe = provider.probe(url)
+    workspace_id = probe.metadata.video_id or _stable_workspace_id(probe.metadata.url or url)
+    workspace = Workspace(workspace_base_dir, workspace_id)
     try:
         workspace.discard_acquisition_artifacts()
         workspace.save_metadata(probe.metadata)
-        plan = plan_acquisition(probe, AcquisitionIntent(keep_video=request.keep_video))
+        plan = plan_acquisition(probe, keep_video=keep_video)
         unavailable: SourceOperationError | None = None
-        for operation in plan.operations:
+        for operation in plan:
             try:
                 with provider_call(f"source.{operation}"):
                     result = provider.execute(operation, probe, workspace)

@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-from yt2notion.media_source.acquisition import acquire_media, plan_acquisition, route_source
+from yt2notion.media_source.acquisition import acquire_media, plan_acquisition
 from yt2notion.media_source.base import (
     AcquiredMedia,
     AcquisitionError,
-    AcquisitionIntent,
-    AcquisitionPlan,
-    AcquisitionRequest,
     OperationResult,
     SourceFailureCategory,
     SourceOperation,
     SourceOperationError,
     SourceProbe,
     SourceProvider,
-    SourceRef,
 )
 from yt2notion.media_source.ytdlp import YtDlpSourceProvider
 
@@ -34,18 +30,13 @@ def create_source_provider(config: dict, *, verbose: bool = False) -> SourceProv
 __all__ = [
     "AcquiredMedia",
     "AcquisitionError",
-    "AcquisitionIntent",
-    "AcquisitionPlan",
-    "AcquisitionRequest",
     "OperationResult",
     "SourceFailureCategory",
     "SourceOperation",
     "SourceOperationError",
     "SourceProbe",
     "SourceProvider",
-    "SourceRef",
     "acquire_media",
     "create_source_provider",
     "plan_acquisition",
-    "route_source",
 ]

@@ -12,6 +12,7 @@ from tests.subtitle_pack_support import (
     context_response,
     generation_response,
     make_transcription,
+    run_subtitle_service,
     successful_caller,
 )
 from yt2notion.subtitle_pack.service import SubtitlePackService
@@ -19,11 +20,14 @@ from yt2notion.subtitle_pack.validation import SubtitlePackError
 
 
 def test_manual_subtitles_are_translated_without_source_rewrite(tmp_path: Path) -> None:
-    result = SubtitlePackService(
-        successful_caller(),
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(make_transcription(tmp_path, source_kind="manual_subtitle"))
+    result = run_subtitle_service(
+        SubtitlePackService(
+            successful_caller(),
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        make_transcription(tmp_path, source_kind="manual_subtitle"),
+    )
 
     package = json.loads(result.package_path.read_text(encoding="utf-8"))
     assert result.cue_count == 2
@@ -40,11 +44,14 @@ def test_manual_subtitles_are_translated_without_source_rewrite(tmp_path: Path) 
 
 
 def test_automatic_captions_can_be_contextually_corrected(tmp_path: Path) -> None:
-    result = SubtitlePackService(
-        successful_caller(corrected=True),
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(make_transcription(tmp_path, source_kind="automatic_caption"))
+    result = run_subtitle_service(
+        SubtitlePackService(
+            successful_caller(corrected=True),
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        make_transcription(tmp_path, source_kind="automatic_caption"),
+    )
 
     package = json.loads(result.package_path.read_text(encoding="utf-8"))
     assert package["cues"][1]["original_text"] == "Thank you Graeme."
@@ -62,11 +69,14 @@ def test_semantic_issue_is_repaired_and_rechecked(tmp_path: Path) -> None:
         generation_response(include_second=False),
         "[]",
     )
-    result = SubtitlePackService(
-        caller,
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(make_transcription(tmp_path, source_kind="manual_subtitle"))
+    result = run_subtitle_service(
+        SubtitlePackService(
+            caller,
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        make_transcription(tmp_path, source_kind="manual_subtitle"),
+    )
 
     assert result.quality_passed is True
     profile = json.loads(result.profile_path.read_text(encoding="utf-8"))
@@ -84,10 +94,13 @@ def test_malformed_quality_response_cannot_publish_package(tmp_path: Path) -> No
     caller = ScriptedSubtitleCaller(context_response(), generation_response(), "quality looks good")
 
     with pytest.raises(SubtitlePackError, match="semantic quality response is not valid JSON"):
-        SubtitlePackService(
-            caller,
-            model_label="fake:model",
-            target_language="zh-CN",
-        ).run(transcription)
+        run_subtitle_service(
+            SubtitlePackService(
+                caller,
+                model_label="fake:model",
+                target_language="zh-CN",
+            ),
+            transcription,
+        )
 
     assert not (transcription.workspace.dir / "bilingual_subtitles.json").exists()

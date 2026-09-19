@@ -1,6 +1,9 @@
 # REUSE_INDEX
 
-Status: accepted
+Status: historical accepted snapshot; deprecated as current architecture documentation
+
+The names below capture an earlier reuse decision and are not current APIs. See
+`PROJECT_MAP.md` for the implemented provider and pipeline boundaries.
 
 - `application.Yt2Notion`: reuse as the sole orchestration interface.
 - `media_source.MediaSource`: retain provider seam.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from yt2notion.runtime import CheckpointStore, NodeExecutor, RuntimeObserver
+from yt2notion.runtime import CheckpointStore, RuntimeObserver
 
 
 def test_observations_preserve_nested_parentage_without_content(tmp_path: Path) -> None:
@@ -95,18 +95,3 @@ def test_implicit_checkpoint_observer_uses_active_node_parent(tmp_path: Path) ->
     payload = json.loads((tmp_path / "profile.json").read_text(encoding="utf-8"))
     saved = next(item for item in payload["observations"] if item["kind"] == "checkpoint")
     assert saved["parent_id"] == node.id
-
-
-def test_node_executor_runs_once_without_implicit_retry(tmp_path: Path) -> None:
-    observer = RuntimeObserver(tmp_path / "profile.json", run_name="test")
-    calls = 0
-
-    def fail() -> None:
-        nonlocal calls
-        calls += 1
-        raise RuntimeError("failure")
-
-    with pytest.raises(RuntimeError):
-        NodeExecutor(observer).run("business_node", fail)
-
-    assert calls == 1

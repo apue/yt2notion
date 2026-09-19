@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, TypeAlias, TypeVar
+from typing import Literal, TypeAlias
 
 ObservationKind = Literal[
     "node",
@@ -22,7 +22,6 @@ ObservationKind = Literal[
 ]
 ObservationStatus = Literal["running", "completed", "failed", "interrupted"]
 Scalar: TypeAlias = str | int | float | bool | None
-T = TypeVar("T")
 
 _ACTIVE_OBSERVER: ContextVar[RuntimeObserver | None] = ContextVar(
     "yt2notion_runtime_observer", default=None
@@ -77,7 +76,6 @@ class RuntimeObserver:
         path: Path,
         *,
         run_name: str,
-        inherited_timings: dict[str, float] | None = None,
     ) -> None:
         self.run_name = run_name
         self.run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -85,14 +83,6 @@ class RuntimeObserver:
         self._started = time.perf_counter()
         self._sequence = 0
         self._observations: list[Observation] = []
-        for name, elapsed in (inherited_timings or {}).items():
-            if name != "total":
-                self.record(
-                    "node",
-                    name,
-                    attributes={"source": "transcribe_pipeline"},
-                    elapsed_seconds=elapsed,
-                )
 
     @contextmanager
     def run(self) -> Iterator[RuntimeObserver]:
@@ -221,18 +211,6 @@ class RuntimeObserver:
             name=name,
             attributes=sanitized,
         )
-
-
-class NodeExecutor:
-    """Execute ordinary Python callables with observation and no implicit retry."""
-
-    def __init__(self, observer: RuntimeObserver) -> None:
-        self.observer = observer
-
-    def run(self, name: str, operation: Callable[[], T]) -> T:
-        """Execute one node once; checkpoint/resume is owned by the operation."""
-        with self.observer.span("node", name):
-            return operation()
 
 
 def active_observer() -> RuntimeObserver | None:

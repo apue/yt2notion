@@ -118,7 +118,7 @@ subtitle、audio、video 下载属于 source adapter 的不同 operation，不�
 
 ### 3.5 Runtime 与 artifact 边界
 
-runtime 包含 `NodeExecutor`、profiler、retry、checkpoint 和 provider availability observation。它只提供机制。`Workspace` 管理本地运行目录；artifact codec 在 JSON/文件与 domain object 之间做 validation 和转换。
+runtime 包含 profiler/context、retry、checkpoint 和 provider availability observation。它只提供机制，pipeline 直接建立 node span。`Workspace` 是本仓库有意采用的具体本地 artifact 目的地；artifact codec 在 JSON/文件与 domain object 之间做 validation 和转换。
 
 兼容性留在 codec：domain 不应为了旧 JSON 保留无意义的 dict 形状，codec 则必须在初始迁移中继续读写现有 schema。
 
@@ -128,10 +128,8 @@ runtime 包含 `NodeExecutor`、profiler、retry、checkpoint 和 provider avail
 
 ### 4.1 来源与获取
 
-- `SourceRef`：已经路由到某类 source adapter 的稳定来源引用，同时保留用户输入。
 - `SourceProbe`：一次带时间点的 metadata 与 capability 观察；capability 表示“观察到可用”，不是执行成功保证。
-- `AcquisitionIntent`：pipeline 对 timed cues、audio、video 等结果的业务需求，不包含 yt-dlp 参数。
-- `AcquisitionPlan`：根据 probe 与 intent 产生的有序操作及允许的 fallback 条件。
+- `SourceOperation` tuple：planner 根据 probe 与 `keep_video` 产生的有序 operation 和 fallback 顺序。
 - `AcquiredMedia`：当前只承载 source metadata、workspace、可选本地路径与 subtitle source marker，足以保持现有行为；它不宣称提供完整 provenance graph。
 
 ### 4.2 Transcript 与内容
@@ -159,21 +157,18 @@ acquisition 是最先需要拆开的业务边界，因为来源能力可能变�
 ```mermaid
 sequenceDiagram
     participant P as Pipeline
-    participant R as SourceRouter
     participant A as SourceAdapter
     participant L as AcquisitionPlanner
-    participant S as ArtifactStore
+    participant W as Workspace
 
-    P->>R: route locator
-    R-->>P: SourceRef
-    P->>A: probe SourceRef
+    P->>A: probe locator
     A-->>P: SourceProbe
-    P->>L: plan probe and intent
-    L-->>P: AcquisitionPlan
-    loop until intent is satisfied or plan is exhausted
+    P->>L: plan probe and keep_video
+    L-->>P: ordered SourceOperation tuple
+    loop until an operation succeeds or plan is exhausted
         P->>A: execute operation
         alt operation succeeds
-            A->>S: persist artifact and provenance
+            A->>W: materialize requested artifact
             A-->>P: acquired result
         else declared fallback condition
             A-->>P: normalized failure
@@ -183,11 +178,11 @@ sequenceDiagram
 
 决策边界如下：
 
-1. `SourceRouter` 只识别应由哪个 adapter 处理 locator。
-2. `probe` 获取轻量 metadata/capabilities，不下载大媒体，也不做 fallback。
-3. planner 是纯策略：结合 `SourceProbe` 与 `AcquisitionIntent` 生成可离线测试的计划。
-4. adapter 执行 subtitle/audio/video 等 operation，并报告成功或归一化失败。
-5. pipeline 按 plan 解释失败；认证、无效输入、磁盘错误不能伪装成“没有字幕”。
+1. composition root 只创建当前显式配置的 yt-dlp adapter，不引入动态 router。
+2. `probe(locator)` 获取轻量 metadata/capabilities，不下载大媒体，也不做 fallback。
+3. planner 是纯策略：结合 `SourceProbe` 与 `keep_video` 生成可离线测试的 operation tuple。
+4. acquisition 拥有 workspace lifecycle、plan 解释和 fallback；adapter 只把一个指定 operation 写入传入的 `Workspace`，并报告成功或归一化失败。
+5. 认证、无效输入、磁盘错误不能伪装成“没有字幕”。
 
 这使“字幕优先、无字幕才 ASR”仍是业务规则，同时避免 pipeline 知道 cookie、format selector 或 provider CLI 细节。
 
@@ -262,9 +257,9 @@ experiment 直接消费 typed transcript view，删除当前 application 层的 
 
 ## 7. 执行、观测与恢复
 
-### 7.1 一个统一 executor，但没有 workflow engine
+### 7.1 一个统一 observer，但没有 workflow engine
 
-pipeline 通过共享 `RuntimeObserver` 建立 run，并使用 `NodeExecutor` 或显式 node span 包裹有外部调用或恢复意义的 ordinary-Python node。`NodeExecutor` 只负责 callable 的 node 观测边界；provider operation 负责相邻的技术 retry，`CheckpointStore` 负责 checkpoint lookup/write，run context 负责 success、failure 与 interruption 收尾。简单纯函数仍可直接调用。
+每个产品 pipeline 通过 `RuntimeObserver` 建立并拥有一个 run，使用显式 node span 包裹有外部调用或恢复意义的 ordinary-Python node。service 不创建、继承或收尾产品 profile；provider operation 负责相邻的技术 retry，`CheckpointStore` 负责 checkpoint lookup/write，run context 负责 success、failure 与 interruption 收尾。简单纯函数仍可直接调用。
 
 ```mermaid
 sequenceDiagram
@@ -389,7 +384,7 @@ checkpoint identity 必须覆盖所有影响输出的因素，例如输入 conte
 
 ### Phase 2：split acquisition
 
-从 `MediaSource.acquire()` 中分离 router、probe、planner 和 operation execution，先保留现有 source provider。
+本节记录迁移时的历史起点：从当时的 `MediaSource.acquire()` 分离 probe、planner 和 operation execution，最终收敛为单 provider factory、纯 operation tuple planner 与 acquisition-owned workspace lifecycle。
 
 **验收：**acquisition plan 可纯离线测试；字幕到 audio/video 的 fallback 显式；认证或本地错误不会被当成 capability 缺失。
 

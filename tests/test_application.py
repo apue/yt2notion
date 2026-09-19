@@ -6,11 +6,6 @@ from unittest.mock import Mock
 
 from yt2notion.application import Yt2Notion
 from yt2notion.config import AppConfig
-from yt2notion.pipelines import (
-    NotePipelineRequest,
-    ProcessPipelineRequest,
-    TranscribePipelineRequest,
-)
 
 
 def test_prepare_composes_note_pipeline_dependencies(monkeypatch) -> None:
@@ -21,12 +16,9 @@ def test_prepare_composes_note_pipeline_dependencies(monkeypatch) -> None:
     result = app.prepare("https://example.com/video", verbose=True, resume_from="review")
 
     assert result == "prepared"
-    request = pipeline.call_args.args[0]
-    assert request == NotePipelineRequest(
-        "https://example.com/video",
-        resume_from="review",
-        verbose=True,
-    )
+    assert pipeline.call_args.args == ("https://example.com/video",)
+    assert pipeline.call_args.kwargs["resume_from"] == "review"
+    assert pipeline.call_args.kwargs["verbose"] is True
     _assert_common_dependencies(pipeline, dependencies)
     assert "storage_factory" not in pipeline.call_args.kwargs
 
@@ -39,10 +31,8 @@ def test_process_is_only_facade_method_that_passes_storage(monkeypatch) -> None:
     result = app.process("https://example.com/video", dry_run=True)
 
     assert result == "obsidian://note"
-    assert pipeline.call_args.args[0] == ProcessPipelineRequest(
-        "https://example.com/video",
-        dry_run=True,
-    )
+    assert pipeline.call_args.args == ("https://example.com/video",)
+    assert pipeline.call_args.kwargs["dry_run"] is True
     _assert_common_dependencies(pipeline, dependencies)
     assert pipeline.call_args.kwargs["storage_factory"] is dependencies[3]
 
@@ -55,10 +45,8 @@ def test_transcribe_composes_complete_pipeline_dependencies(monkeypatch) -> None
     result = app.transcribe("https://example.com/video", keep_video=False)
 
     assert result == "transcription"
-    assert pipeline.call_args.args[0] == TranscribePipelineRequest(
-        "https://example.com/video",
-        keep_video=False,
-    )
+    assert pipeline.call_args.args == ("https://example.com/video",)
+    assert pipeline.call_args.kwargs["keep_video"] is False
     _assert_common_dependencies(pipeline, dependencies)
     assert "storage_factory" not in pipeline.call_args.kwargs
 
@@ -72,10 +60,8 @@ def test_translation_experiment_composes_complete_pipeline_dependencies(monkeypa
     result = app.run_translation_experiment("https://example.com/video")
 
     assert result == "experiment"
-    assert pipeline.call_args.args[0] == TranscribePipelineRequest(
-        "https://example.com/video",
-        keep_video=False,
-    )
+    assert pipeline.call_args.args == ("https://example.com/video",)
+    assert pipeline.call_args.kwargs["keep_video"] is False
     _assert_common_dependencies(pipeline, dependencies)
     assert pipeline.call_args.kwargs["runner"] is runner
     assert "storage_factory" not in pipeline.call_args.kwargs
@@ -90,10 +76,8 @@ def test_subtitle_pack_composes_complete_pipeline_dependencies(monkeypatch) -> N
     result = app.create_subtitle_pack("https://example.com/video")
 
     assert result == "subtitle"
-    assert pipeline.call_args.args[0] == TranscribePipelineRequest(
-        "https://example.com/video",
-        keep_video=False,
-    )
+    assert pipeline.call_args.args == ("https://example.com/video",)
+    assert pipeline.call_args.kwargs["keep_video"] is False
     _assert_common_dependencies(pipeline, dependencies)
     assert pipeline.call_args.kwargs["service"] is service
     assert "storage_factory" not in pipeline.call_args.kwargs

@@ -15,20 +15,23 @@ artifacts, configuration bindings, and extension seams.
 
 All commands enter through `application.Yt2Notion`, which assembles dependencies
 and invokes ordinary typed functions exported by the `pipelines` package. Product
-ownership is explicit: `contracts.py` owns requests/results/progress,
+ownership is explicit: `contracts.py` owns results/progress,
 `transcribe.py` owns transcription, `notes.py` owns prepare/process,
 `translation_experiment.py` and `subtitle_pack.py` own their complete specialized
 flows, and `shared.py` contains only workspace-root resolution. There is no
 compatibility pipeline, DAG engine, workflow registry, or local queue runtime.
+Pipeline functions expose explicit typed Python parameters rather than request
+wrapper objects.
 
 ## Canonical pipeline
 
-1. `DOWNLOAD`: `route_source()` selects the explicit source adapter;
-   `SourceProvider.probe()` observes metadata/capabilities once;
+1. `DOWNLOAD`: the composition root supplies the single configured source
+   provider; `SourceProvider.probe(locator)` observes metadata/capabilities once;
    `plan_acquisition()` creates a deterministic subtitle/webpage/audio/video
-   operation plan; the pipeline executes that plan. `keep_video=false` plans
-   direct audio fallback. Authentication and local-resource errors stop the plan
-   instead of being treated as missing subtitles.
+   operation tuple; acquisition executes that policy in a concrete `Workspace`.
+   `keep_video=false` plans direct audio fallback. Authentication and
+   local-resource errors stop the plan instead of being treated as missing
+   subtitles.
 2. `SEGMENT`: author chapters, description timestamps, or no pre-segmentation,
    represented as `SegmentSpec` values.
 3. `TRANSCRIBE`: subtitles are assigned locally; audio uses
@@ -136,7 +139,7 @@ human comparison decides the winner.
 | `storage.backend` | only `obsidian` is valid |
 | `storage.obsidian.vault_path` | `ObsidianStorage` |
 | `storage.obsidian.summaries_dir` | bundle destination |
-| `extract.media_source.backend` | `create_media_source`; currently `yt_dlp` |
+| `extract.media_source.backend` | `create_source_provider`; currently `yt_dlp` |
 | `extract.asr.backend` | primary `Transcriber`: `groq` or `remote` |
 | `extract.asr.fallback_backend` | optional different fallback transcriber |
 | `extract.asr.groq.*` | Groq key, model, endpoint, timeout, upload budget |
@@ -169,10 +172,14 @@ match.
 | `LLMCaller` | `create_llm_caller` | Claude CLI, Codex CLI, Anthropic API |
 | `Storage` | `create_storage` | `ObsidianStorage` |
 
-`route_source()` supports the single explicit `yt_dlp` route. `SourceProbe`,
-`AcquisitionIntent`, and `AcquisitionPlan` are provider-neutral typed contracts;
-the pure planner owns fallback policy while `YtDlpSourceProvider` owns yt-dlp
-operations, cookies, and normalized operation failures.
+`SourceProbe` and `OperationResult` are the provider-neutral typed acquisition
+contracts. The pure planner returns an ordered tuple of `SourceOperation` values
+from the probe and `keep_video`; acquisition owns routing/configuration,
+deterministic fallback, and the concrete `Workspace` lifecycle.
+`YtDlpSourceProvider` owns yt-dlp operations, cookies, normalized operation
+failures, and materializing exactly one requested operation into the supplied
+workspace. This concrete workspace boundary is intentional for this repository,
+not a temporary storage abstraction.
 
 `NoteComposer` is provider-independent and owns prompt payloads and parsing.
 `TranscriptionEngine` is provider-independent and owns ASR lifecycle.
@@ -193,8 +200,8 @@ To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a
 registry or expose provider details through `Yt2Notion`.
 
-The `runtime` package keeps observation/context/provider calls and the tiny
-`NodeExecutor` together in `observer.py`; `checkpoint.py` owns identity-bound JSON
+The `runtime` package keeps observation/context/provider calls in `observer.py`;
+pipelines create node spans directly and `checkpoint.py` owns identity-bound JSON
 checkpoint persistence. Typed retry policy remains operation-local in `retry.py`.
 The observer models nested run/node/batch/provider-call/attempt/checkpoint
 observations and stores only redacted labels, counts, status, timing, and
@@ -234,8 +241,10 @@ run_process_pipeline -> run_note_pipeline result, then Storage
 ContentPreparation -> review, topic_segment, note_bundle
 note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters
-TranscriptionEngine -> Transcriber adapters, Workspace
+transcribe composition factory -> TranscriptionEngine + lazy Transcriber adapter factories
+TranscriptionEngine -> Transcriber Protocol, Workspace
 Storage -> ObsidianStorage
+subtitle-pack pipeline -> run-owned RuntimeObserver -> SubtitlePackService
 SubtitlePackService -> subtitle source, SubtitleLLMWorkflow, validation, artifacts
 SubtitleLLMWorkflow -> LLMCaller, RuntimeObserver, CheckpointStore
 browser-extension -> bilingual_subtitles.json

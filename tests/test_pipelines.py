@@ -14,13 +14,9 @@ from yt2notion.media_source import (
     OperationResult,
     SourceOperationError,
     SourceProbe,
-    SourceRef,
 )
 from yt2notion.models.base import NoteDocument, NoteMetadata, VideoMeta
 from yt2notion.pipelines import (
-    NotePipelineRequest,
-    ProcessPipelineRequest,
-    TranscribePipelineRequest,
     run_note_pipeline,
     run_process_pipeline,
     run_subtitle_pack_pipeline,
@@ -36,15 +32,15 @@ class FakeSourceProvider:
         self.video_path = video_path
         self.operations: list[str] = []
 
-    def probe(self, source: SourceRef) -> SourceProbe:
+    def probe(self, locator: str) -> SourceProbe:
         metadata = VideoMeta(
             video_id="video-1",
             title="Title",
             channel="Channel",
-            url=source.locator,
+            url=locator,
             duration_seconds=60,
         )
-        return SourceProbe(source=source, metadata=metadata)
+        return SourceProbe(locator=locator, metadata=metadata)
 
     def execute(self, operation: str, probe: SourceProbe, workspace: Workspace) -> OperationResult:
         self.operations.append(operation)
@@ -111,7 +107,7 @@ def test_note_pipeline_uses_source_provider_and_transcription_engine(tmp_path: P
     engine = FakeEngine()
 
     prepared = run_note_pipeline(
-        NotePipelineRequest("https://example.com/video"),
+        "https://example.com/video",
         config=config,
         source_provider=source_provider,
         transcription_engine=engine,
@@ -130,11 +126,12 @@ def test_transcribe_pipeline_stops_after_transcript_artifacts(tmp_path: Path) ->
     engine = FakeEngine()
 
     result = run_transcribe_pipeline(
-        TranscribePipelineRequest("https://example.com/video", keep_video=False),
+        "https://example.com/video",
         config=_config(tmp_path),
         source_provider=source_provider,
         transcription_engine=engine,
         preparation=ContentPreparation(),
+        keep_video=False,
     )
 
     assert source_provider.operations == ["webpage_transcript", "audio"]
@@ -148,16 +145,16 @@ def test_transcribe_pipeline_stops_after_transcript_artifacts(tmp_path: Path) ->
 
 def test_transcribe_pipeline_uses_shared_workspace_transcription(tmp_path: Path) -> None:
     class SubtitleSourceProvider:
-        def probe(self, source: SourceRef) -> SourceProbe:
+        def probe(self, locator: str) -> SourceProbe:
             metadata = VideoMeta(
                 video_id="captioned-video",
                 title="Captioned",
                 channel="Channel",
-                url=source.locator,
+                url=locator,
                 duration_seconds=60,
                 manual_subtitle_languages=["en"],
             )
-            return SourceProbe(source=source, metadata=metadata)
+            return SourceProbe(locator=locator, metadata=metadata)
 
         def execute(
             self, operation: str, probe: SourceProbe, workspace: Workspace
@@ -175,11 +172,12 @@ def test_transcribe_pipeline_uses_shared_workspace_transcription(tmp_path: Path)
 
     engine = FakeEngine()
     result = run_transcribe_pipeline(
-        TranscribePipelineRequest("https://example.com/captioned", keep_video=False),
+        "https://example.com/captioned",
         config=_config(tmp_path),
         source_provider=SubtitleSourceProvider(),
         transcription_engine=engine,
         preparation=ContentPreparation(),
+        keep_video=False,
     )
 
     assert engine.workspace_calls == 1
@@ -199,7 +197,7 @@ def test_transcribe_pipeline_returns_media_source_video_path(tmp_path: Path) -> 
     provider_video.write_bytes(b"video")
 
     result = run_transcribe_pipeline(
-        TranscribePipelineRequest("https://example.com/video"),
+        "https://example.com/video",
         config=_config(tmp_path),
         source_provider=FakeSourceProvider(video_path=provider_video),
         transcription_engine=FakeEngine(),
@@ -211,10 +209,10 @@ def test_transcribe_pipeline_returns_media_source_video_path(tmp_path: Path) -> 
 
 def test_note_pipeline_records_source_acquisition_failure(tmp_path: Path) -> None:
     class FailingSourceProvider:
-        def probe(self, source: SourceRef) -> SourceProbe:
+        def probe(self, locator: str) -> SourceProbe:
             return SourceProbe(
-                source=source,
-                metadata=VideoMeta("failed-video", "Title", "Channel", url=source.locator),
+                locator=locator,
+                metadata=VideoMeta("failed-video", "Title", "Channel", url=locator),
             )
 
         def execute(
@@ -224,7 +222,7 @@ def test_note_pipeline_records_source_acquisition_failure(tmp_path: Path) -> Non
 
     with pytest.raises(RuntimeError, match="download failed"):
         run_note_pipeline(
-            NotePipelineRequest("https://example.com/video"),
+            "https://example.com/video",
             config=_config(tmp_path),
             source_provider=FailingSourceProvider(),
             transcription_engine=FakeEngine(),
@@ -241,7 +239,7 @@ def test_transcribe_pipeline_records_failure_and_profile(tmp_path: Path) -> None
 
     with pytest.raises(RuntimeError, match="ASR unavailable"):
         run_transcribe_pipeline(
-            TranscribePipelineRequest("https://example.com/video"),
+            "https://example.com/video",
             config=_config(tmp_path),
             source_provider=FakeSourceProvider(),
             transcription_engine=FailingEngine(),
@@ -268,7 +266,7 @@ def test_transcribe_pipeline_clears_stale_failure_on_success(tmp_path: Path) -> 
     )
 
     result = run_transcribe_pipeline(
-        TranscribePipelineRequest("https://example.com/video"),
+        "https://example.com/video",
         config=_config(tmp_path),
         source_provider=FakeSourceProvider(),
         transcription_engine=FakeEngine(),
@@ -282,7 +280,7 @@ def test_process_pipeline_uses_storage_and_profiles_publish(tmp_path: Path) -> N
     storage = FakeStorage()
 
     result = run_process_pipeline(
-        ProcessPipelineRequest("https://example.com/video"),
+        "https://example.com/video",
         config=_config(tmp_path),
         source_provider=FakeSourceProvider(),
         transcription_engine=FakeEngine(),
@@ -327,7 +325,7 @@ def test_note_pipeline_profile_nests_provider_retry_attempts(tmp_path: Path) -> 
             )
 
     run_note_pipeline(
-        NotePipelineRequest("https://example.com/video"),
+        "https://example.com/video",
         config=_config(tmp_path),
         source_provider=RetryingSourceProvider(),
         transcription_engine=FakeEngine(),
@@ -355,12 +353,13 @@ def test_translation_pipeline_composes_transcription_and_profiles_interruption(
 
     with pytest.raises(KeyboardInterrupt):
         run_translation_experiment_pipeline(
-            TranscribePipelineRequest("https://example.com/video", keep_video=False),
+            "https://example.com/video",
             config=_config(tmp_path),
             source_provider=FakeSourceProvider(),
             transcription_engine=engine,
             preparation=ContentPreparation(),
             runner=InterruptingRunner(),
+            keep_video=False,
         )
 
     assert engine.workspace_calls == 1
@@ -395,15 +394,16 @@ def test_non_publish_pipelines_compose_transcription_without_storage(tmp_path: P
         "transcription_engine": engine,
         "preparation": ContentPreparation(),
     }
-    request = TranscribePipelineRequest("https://example.com/video", keep_video=False)
     experiment = run_translation_experiment_pipeline(
-        request,
+        "https://example.com/video",
         runner=FakeExperimentRunner(),
+        keep_video=False,
         **common,
     )
     subtitle = run_subtitle_pack_pipeline(
-        request,
+        "https://example.com/video",
         service=FakeSubtitleService(),
+        keep_video=False,
         **common,
     )
     assert experiment == "experiment"

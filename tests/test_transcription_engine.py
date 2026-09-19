@@ -59,6 +59,14 @@ def _chunk_files(workspace: Workspace, count: int) -> list[Path]:
     return paths
 
 
+def test_configured_fallback_requires_injected_factory() -> None:
+    with pytest.raises(ValueError, match="injected fallback Transcriber factory"):
+        TranscriptionEngine(
+            {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+            primary_transcriber=MagicMock(),
+        )
+
+
 def test_transcribe_workspace_preserves_saved_subtitle_source(
     tmp_path: Path,
     metadata: VideoMeta,

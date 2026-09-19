@@ -21,47 +21,16 @@ SourceFailureCategory = Literal[
 
 
 @dataclass(frozen=True)
-class SourceRef:
-    """A stable user locator routed to one explicit source provider."""
-
-    locator: str
-    provider: str = "yt_dlp"
-
-
-@dataclass(frozen=True)
 class SourceProbe:
     """Lightweight metadata and capability observation."""
 
-    source: SourceRef
+    locator: str
     metadata: VideoMeta
 
     @property
     def subtitles_available(self) -> bool:
         """Return whether the probe observed a subtitle capability."""
         return self.metadata.subtitles_available
-
-
-@dataclass(frozen=True)
-class AcquisitionIntent:
-    """Pipeline acquisition requirements without provider-specific options."""
-
-    keep_video: bool = False
-
-
-@dataclass(frozen=True)
-class AcquisitionPlan:
-    """Ordered source operations and their declared fallback sequence."""
-
-    operations: tuple[SourceOperation, ...]
-
-
-@dataclass(frozen=True)
-class AcquisitionRequest:
-    """Request for a local transcript source and optional retained video."""
-
-    url: str
-    workspace_base_dir: Path
-    keep_video: bool = False
 
 
 @dataclass(frozen=True)
@@ -111,9 +80,9 @@ class AcquisitionError(RuntimeError):
 
 
 class SourceProvider(Protocol):
-    """Probe a source and execute one explicit provider operation."""
+    """Observe a locator and materialize one requested operation into a workspace."""
 
-    def probe(self, source: SourceRef) -> SourceProbe:
+    def probe(self, locator: str) -> SourceProbe:
         """Observe metadata and capabilities without downloading large media."""
         ...
 

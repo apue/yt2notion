@@ -24,7 +24,6 @@ from yt2notion.media_source.base import (
     SourceOperation,
     SourceOperationError,
     SourceProbe,
-    SourceRef,
 )
 from yt2notion.process import seconds_to_display
 
@@ -40,12 +39,12 @@ class YtDlpSourceProvider:
         self._config = config
         self._verbose = verbose
 
-    def probe(self, source: SourceRef) -> SourceProbe:
+    def probe(self, locator: str) -> SourceProbe:
         """Fetch metadata and subtitle capability information once."""
         try:
             if self._verbose:
                 typer.echo("Extracting metadata...")
-            metadata = extract_metadata(source.locator)
+            metadata = extract_metadata(locator)
         except Exception as exc:
             raise _normalize_failure("probe", exc) from exc
         if self._verbose:
@@ -59,7 +58,7 @@ class YtDlpSourceProvider:
             typer.echo(f"  Duration: {duration}")
             typer.echo(f"  Chapters: {len(metadata.chapters)} found")
             typer.echo(f"  Subtitles available: {metadata.subtitles_available}")
-        return SourceProbe(source=source, metadata=metadata)
+        return SourceProbe(locator=locator, metadata=metadata)
 
     def execute(
         self,
@@ -90,7 +89,7 @@ class YtDlpSourceProvider:
             typer.echo("Downloading subtitles...")
         with tempfile.TemporaryDirectory() as tmp_dir:
             downloaded, source = extract_subtitles_with_source(
-                probe.source.locator,
+                probe.locator,
                 self._config,
                 Path(tmp_dir),
                 metadata=probe.metadata,
@@ -108,7 +107,7 @@ class YtDlpSourceProvider:
         workspace: Workspace,
     ) -> OperationResult:
         entries = extract_webpage_transcript(
-            probe.metadata.url or probe.source.locator,
+            probe.metadata.url or probe.locator,
             probe.metadata,
         )
         if not entries:
@@ -135,7 +134,7 @@ class YtDlpSourceProvider:
         extract_cfg = self._config.get("extract", {})
         with tempfile.TemporaryDirectory() as tmp_dir:
             downloaded = extract_audio(
-                probe.metadata.url or probe.source.locator,
+                probe.metadata.url or probe.locator,
                 Path(tmp_dir),
                 video_id=probe.metadata.video_id,
                 cookies_from=extract_cfg.get("cookies_from"),
@@ -150,7 +149,7 @@ class YtDlpSourceProvider:
         extract_cfg = self._config.get("extract", {})
         with tempfile.TemporaryDirectory() as tmp_dir:
             downloaded = extract_video(
-                probe.metadata.url or probe.source.locator,
+                probe.metadata.url or probe.locator,
                 Path(tmp_dir),
                 video_id=probe.metadata.video_id,
                 cookies_from=extract_cfg.get("cookies_from"),
@@ -189,6 +188,3 @@ def _normalize_failure(operation: str, exc: Exception) -> SourceOperationError:
     else:
         category = "provider"
     return SourceOperationError(operation, category, exc)
-
-
-# Backwards name intentionally omitted: callers depend on SourceProvider, not this adapter.

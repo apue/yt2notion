@@ -8,17 +8,15 @@ from typing import TYPE_CHECKING
 import typer
 
 from yt2notion.content_preparation import is_retries_exhausted
-from yt2notion.media_source import AcquisitionError, AcquisitionRequest, acquire_media
+from yt2notion.media_source import AcquisitionError, acquire_media
 from yt2notion.pipelines.contracts import (
-    NotePipelineRequest,
     PreparedContent,
-    ProcessPipelineRequest,
     ProgressCallback,
     StorageFactory,
     emit_progress,
 )
 from yt2notion.pipelines.shared import workspace_base
-from yt2notion.runtime import NodeExecutor, RuntimeObserver, provider_call
+from yt2notion.runtime import RuntimeObserver, provider_call
 from yt2notion.workspace import STEPS, Workspace
 
 if TYPE_CHECKING:
@@ -30,56 +28,72 @@ if TYPE_CHECKING:
 
 
 def run_note_pipeline(
-    request: NotePipelineRequest,
+    url: str,
     *,
     config: AppConfig,
     source_provider: SourceProvider,
     transcription_engine: TranscriptionEngine,
     preparation: ContentPreparation,
+    workspace_dir: str | None = None,
+    resume_from: str | None = None,
+    mode: str | None = None,
+    verbose: bool = False,
     progress_callback: ProgressCallback | None = None,
     observer: RuntimeObserver | None = None,
 ) -> PreparedContent:
     """Acquire, transcribe, review, and compose a local source/A/B note bundle."""
     runtime = observer or RuntimeObserver(
-        workspace_base(config, request.workspace_dir),
+        workspace_base(config, workspace_dir),
         run_name="note_prepare",
     )
     if observer is not None:
         return _run_note_pipeline(
-            request,
+            url,
             config=config,
             source_provider=source_provider,
             transcription_engine=transcription_engine,
             preparation=preparation,
+            workspace_dir=workspace_dir,
+            resume_from=resume_from,
+            mode=mode,
+            verbose=verbose,
             progress_callback=progress_callback,
             observer=runtime,
         )
     with runtime.run():
         return _run_note_pipeline(
-            request,
+            url,
             config=config,
             source_provider=source_provider,
             transcription_engine=transcription_engine,
             preparation=preparation,
+            workspace_dir=workspace_dir,
+            resume_from=resume_from,
+            mode=mode,
+            verbose=verbose,
             progress_callback=progress_callback,
             observer=runtime,
         )
 
 
 def _run_note_pipeline(
-    request: NotePipelineRequest,
+    url: str,
     *,
     config: AppConfig,
     source_provider: SourceProvider,
     transcription_engine: TranscriptionEngine,
     preparation: ContentPreparation,
+    workspace_dir: str | None,
+    resume_from: str | None,
+    mode: str | None,
+    verbose: bool,
     progress_callback: ProgressCallback | None,
     observer: RuntimeObserver,
 ) -> PreparedContent:
-    if request.mode not in {None, "summary"}:
+    if mode not in {None, "summary"}:
         raise ValueError("source/A/B bundle output supports summary mode only")
 
-    start_idx = _resume_index(request.resume_from)
+    start_idx = _resume_index(resume_from)
     workspace: Workspace | None = None
     current_step = "download"
     try:
@@ -89,10 +103,8 @@ def _run_note_pipeline(
                 with observer.span("node", "acquire"):
                     acquired = acquire_media(
                         source_provider,
-                        AcquisitionRequest(
-                            request.url,
-                            workspace_base(config, request.workspace_dir),
-                        ),
+                        url=url,
+                        workspace_base_dir=workspace_base(config, workspace_dir),
                     )
             except AcquisitionError as failure:
                 workspace = failure.workspace
@@ -105,10 +117,10 @@ def _run_note_pipeline(
         else:
             with observer.span("node", "resume"):
                 workspace, metadata = _resume_workspace(
-                    request.url,
-                    request.workspace_dir,
+                    url,
+                    workspace_dir,
                     config=config,
-                    verbose=request.verbose,
+                    verbose=verbose,
                 )
             observer.relocate(workspace.dir)
 
@@ -116,7 +128,7 @@ def _run_note_pipeline(
         if start_idx <= 1:
             emit_progress(progress_callback, "segment", "started")
             with observer.span("node", "segment"):
-                segments = preparation.segment(metadata, config, request.verbose)
+                segments = preparation.segment(metadata, config, verbose)
                 workspace.save_segments(segments)
             emit_progress(progress_callback, "segment", "completed")
         else:
@@ -141,7 +153,7 @@ def _run_note_pipeline(
                     workspace,
                     metadata,
                     segments,
-                    verbose=request.verbose,
+                    verbose=verbose,
                     progress_callback=progress_callback,
                 )
                 workspace.save_transcripts(transcripts)
@@ -163,11 +175,11 @@ def _run_note_pipeline(
                 )
             if len(transcripts) != original_count:
                 workspace.save_transcripts(transcripts)
-                if request.verbose:
+                if verbose:
                     typer.echo(
                         f"  Topic segmentation: {original_count} -> {len(transcripts)} segments"
                     )
-        elif request.verbose:
+        elif verbose:
             typer.echo("  Skipping topic segmentation for manual subtitle transcript")
 
         current_step = "review"
@@ -180,7 +192,7 @@ def _run_note_pipeline(
                         metadata,
                         config,
                         workspace,
-                        request.verbose,
+                        verbose,
                     )
                     workspace.save_reviewed(reviewed)
                 emit_progress(progress_callback, "review", "completed")
@@ -190,12 +202,12 @@ def _run_note_pipeline(
                     raise ValueError("Cannot resume: no reviewed.json in workspace")
         else:
             reviewed = transcripts
-            if request.verbose:
+            if verbose:
                 typer.echo("Skipping transcript cleanup for manual subtitle transcript")
 
         current_step = "summarize"
         emit_progress(progress_callback, "summarize", "started")
-        if request.verbose:
+        if verbose:
             typer.echo("Summarizing source/A/B note bundle...")
         with observer.span("node", "summarize"):
             note_bundle = preparation.summarize(reviewed, metadata, config)
@@ -211,7 +223,7 @@ def _run_note_pipeline(
     except Exception as exc:
         if workspace is not None:
             workspace.save_failure(
-                request.url,
+                url,
                 current_step,
                 exc,
                 retries_exhausted=is_retries_exhausted(exc),
@@ -220,49 +232,59 @@ def _run_note_pipeline(
 
 
 def run_process_pipeline(
-    request: ProcessPipelineRequest,
+    url: str,
     *,
     config: AppConfig,
     source_provider: SourceProvider,
     transcription_engine: TranscriptionEngine,
     preparation: ContentPreparation,
     storage_factory: StorageFactory,
+    workspace_dir: str | None = None,
+    resume_from: str | None = None,
+    mode: str | None = None,
+    verbose: bool = False,
+    dry_run: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> str:
     """Prepare and explicitly publish one note bundle under a shared run profile."""
     observer = RuntimeObserver(
-        workspace_base(config, request.workspace_dir),
+        workspace_base(config, workspace_dir),
         run_name="process",
     )
     with observer.run():
         prepared = run_note_pipeline(
-            request,
+            url,
             config=config,
             source_provider=source_provider,
             transcription_engine=transcription_engine,
             preparation=preparation,
+            workspace_dir=workspace_dir,
+            resume_from=resume_from,
+            mode=mode,
+            verbose=verbose,
             progress_callback=progress_callback,
             observer=observer,
         )
-        if request.dry_run:
+        if dry_run:
             from yt2notion.content_preparation import render_prepared_output
 
             output = render_prepared_output(prepared, config)
             typer.echo(output)
             return output
 
-        if request.verbose:
+        if verbose:
             typer.echo("Publishing to Obsidian...")
 
         def publish() -> str:
-            storage = storage_factory(_config_mapping(config))
+            storage = storage_factory(config.to_legacy_mapping())
             with provider_call("storage.save_note_bundle"):
                 return storage.save_note_bundle(prepared.note_bundle, prepared.metadata)
 
         emit_progress(progress_callback, "publish", "started")
-        result_url = NodeExecutor(observer).run("publish", publish)
+        with observer.span("node", "publish"):
+            result_url = publish()
         emit_progress(progress_callback, "publish", "completed")
-        if request.verbose:
+        if verbose:
             typer.echo(f"  Published: {result_url}")
         prepared.workspace.clear_failure()
         return result_url
@@ -274,16 +296,6 @@ def _resume_index(resume_from: str | None) -> int:
     if resume_from not in STEPS:
         raise ValueError(f"Unknown step: {resume_from!r}. Valid: {', '.join(STEPS)}")
     return STEPS.index(resume_from)
-
-
-def _config_mapping(config: AppConfig) -> dict:
-    return {
-        "extract": config.extract,
-        "model": config.model,
-        "storage": config.storage,
-        "credit": config.credit,
-        "output": config.output,
-    }
 
 
 def _resume_workspace(

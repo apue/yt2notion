@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from yt2notion.domain import TranscriptSegment
 from yt2notion.models.base import VideoMeta
+from yt2notion.runtime import RuntimeObserver
 from yt2notion.transcript_artifacts import MediaTranscribeResult
 from yt2notion.workspace import Workspace
+
+if TYPE_CHECKING:
+    from yt2notion.subtitle_pack import SubtitlePackResult, SubtitlePackService
 
 
 class ScriptedSubtitleCaller:
@@ -74,6 +79,16 @@ def successful_caller(*, corrected: bool = False) -> ScriptedSubtitleCaller:
         generation_response(corrected=corrected),
         "[]",
     )
+
+
+def run_subtitle_service(
+    service: SubtitlePackService,
+    transcription: MediaTranscribeResult,
+) -> SubtitlePackResult:
+    """Exercise the service inside the run lifecycle owned by its product pipeline."""
+    observer = RuntimeObserver(transcription.workspace.dir, run_name="subtitle_pack")
+    with observer.run():
+        return service.run(transcription, observer=observer)
 
 
 def make_transcription(tmp_path: Path, *, source_kind: str) -> MediaTranscribeResult:

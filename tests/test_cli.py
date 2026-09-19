@@ -137,8 +137,8 @@ def test_cli_transcribe_outputs_json(
     tmp_path,
 ):
     from yt2notion.config import AppConfig
-    from yt2notion.media_transcribe import MediaTranscribeResult
     from yt2notion.models.base import VideoMeta
+    from yt2notion.transcript_artifacts import MediaTranscribeResult
     from yt2notion.workspace import Workspace
 
     config_path = tmp_path / "config.yaml"

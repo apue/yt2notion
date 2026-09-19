@@ -8,10 +8,8 @@ import pytest
 
 from yt2notion.extract import ExtractionError
 from yt2notion.media_source import (
-    AcquisitionRequest,
     SourceOperationError,
     SourceProbe,
-    SourceRef,
     acquire_media,
 )
 from yt2notion.media_source.ytdlp import YtDlpSourceProvider
@@ -46,11 +44,9 @@ def test_captioned_video_skips_media_download(monkeypatch, tmp_path: Path) -> No
 
     result = acquire_media(
         YtDlpSourceProvider({"extract": {}}),
-        AcquisitionRequest(
-            url="https://example.com/captioned",
-            workspace_base_dir=tmp_path,
-            keep_video=False,
-        ),
+        url="https://example.com/captioned",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert result.subtitle_path == result.workspace.dir / "subtitles.srt"
@@ -82,11 +78,9 @@ def test_no_video_fallback_downloads_audio_directly(monkeypatch, tmp_path: Path)
 
     result = acquire_media(
         YtDlpSourceProvider({"extract": {}}),
-        AcquisitionRequest(
-            url="https://example.com/audio-only",
-            workspace_base_dir=tmp_path,
-            keep_video=False,
-        ),
+        url="https://example.com/audio-only",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert result.audio_path == result.workspace.dir / "audio.mp3"
@@ -121,11 +115,9 @@ def test_fresh_acquisition_discards_stale_source_artifacts(monkeypatch, tmp_path
 
     result = acquire_media(
         YtDlpSourceProvider({"extract": {}}),
-        AcquisitionRequest(
-            url="https://example.com/stale",
-            workspace_base_dir=tmp_path,
-            keep_video=False,
-        ),
+        url="https://example.com/stale",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert result.audio_path.read_bytes() == b"fresh audio"
@@ -163,7 +155,7 @@ def test_subtitle_adapter_preserves_hard_failure_categories(
     with pytest.raises(SourceOperationError) as raised:
         provider.execute(
             "subtitle",
-            SourceProbe(SourceRef("https://example.com/video"), metadata),
+            SourceProbe("https://example.com/video", metadata),
             Workspace(tmp_path, "captioned"),
         )
 

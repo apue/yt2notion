@@ -8,17 +8,13 @@ import pytest
 
 from yt2notion.media_source import (
     AcquisitionError,
-    AcquisitionIntent,
-    AcquisitionRequest,
     OperationResult,
     SourceFailureCategory,
     SourceOperationError,
     SourceProbe,
-    SourceRef,
     acquire_media,
     create_source_provider,
     plan_acquisition,
-    route_source,
 )
 from yt2notion.models.base import VideoMeta
 
@@ -31,23 +27,19 @@ def _probe(*, subtitles: bool) -> SourceProbe:
         url="https://example.com/video-1",
         manual_subtitle_languages=["en"] if subtitles else [],
     )
-    return SourceProbe(source=SourceRef(metadata.url), metadata=metadata)
+    return SourceProbe(locator=metadata.url, metadata=metadata)
 
 
 def test_planner_prefers_subtitle_then_webpage_then_direct_audio() -> None:
-    plan = plan_acquisition(_probe(subtitles=True), AcquisitionIntent(keep_video=False))
+    plan = plan_acquisition(_probe(subtitles=True), keep_video=False)
 
-    assert plan.operations == ("subtitle", "webpage_transcript", "audio")
+    assert plan == ("subtitle", "webpage_transcript", "audio")
 
 
 def test_planner_skips_subtitle_and_keeps_video_when_requested() -> None:
-    plan = plan_acquisition(_probe(subtitles=False), AcquisitionIntent(keep_video=True))
+    plan = plan_acquisition(_probe(subtitles=False), keep_video=True)
 
-    assert plan.operations == ("webpage_transcript", "video")
-
-
-def test_router_is_explicit_and_does_not_guess_from_url_patterns() -> None:
-    assert route_source("https://podcasts.example/episode").provider == "yt_dlp"
+    assert plan == ("webpage_transcript", "video")
 
 
 def test_unknown_source_provider_factory_backend_raises() -> None:
@@ -66,7 +58,8 @@ class FakeProvider:
         self.subtitle_failure = subtitle_failure
         self.operations: list[str] = []
 
-    def probe(self, source: SourceRef) -> SourceProbe:
+    def probe(self, locator: str) -> SourceProbe:
+        assert locator == "https://example.com/video-1"
         return _probe(subtitles=True)
 
     def execute(self, operation: str, probe: SourceProbe, workspace) -> OperationResult:
@@ -92,7 +85,9 @@ def test_unavailable_subtitle_uses_declared_fallback(tmp_path: Path) -> None:
 
     result = acquire_media(
         provider,
-        AcquisitionRequest("https://example.com/video-1", tmp_path, keep_video=False),
+        url="https://example.com/video-1",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert provider.operations == ["subtitle", "webpage_transcript", "audio"]
@@ -109,7 +104,9 @@ def test_auth_and_local_failures_are_not_treated_as_missing_subtitles(
     with pytest.raises(AcquisitionError) as raised:
         acquire_media(
             provider,
-            AcquisitionRequest("https://example.com/video-1", tmp_path, keep_video=False),
+            url="https://example.com/video-1",
+            workspace_base_dir=tmp_path,
+            keep_video=False,
         )
 
     assert raised.value.cause is failure

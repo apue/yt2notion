@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from yt2notion.config import AppConfig, ConfigError
-from yt2notion.transcript_artifacts import (
-    MediaTranscribeResult as MediaTranscribeResult,  # noqa: TC001
-)
-from yt2notion.transcript_artifacts import (
-    render_media_transcript_markdown as render_media_transcript_markdown,
-)
+
+if TYPE_CHECKING:
+    from yt2notion.transcript_artifacts import MediaTranscribeResult
 
 DEFAULT_USER_CONFIG_PATH = Path.home() / ".yt2notion-agent" / "config.yaml"
 DEFAULT_REPO_CONFIG_PATH = Path("config.yaml")

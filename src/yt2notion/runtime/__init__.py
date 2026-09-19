@@ -2,7 +2,6 @@
 
 from yt2notion.runtime.checkpoint import CheckpointStore
 from yt2notion.runtime.observer import (
-    NodeExecutor,
     Observation,
     ObservationKind,
     ObservationStatus,
@@ -14,7 +13,6 @@ from yt2notion.runtime.observer import (
 
 __all__ = [
     "CheckpointStore",
-    "NodeExecutor",
     "Observation",
     "ObservationKind",
     "ObservationStatus",

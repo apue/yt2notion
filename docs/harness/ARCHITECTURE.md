@@ -1,6 +1,9 @@
 # ARCHITECTURE
 
-Status: accepted
+Status: historical accepted snapshot; deprecated as current architecture documentation
+
+This diagram describes the architecture before the typed-pipeline refactor. Its
+contract names are historical; see `PROJECT_MAP.md` for current ownership.
 
 ```text
 CLI: process | prepare | transcribe

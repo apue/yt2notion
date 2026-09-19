@@ -40,6 +40,21 @@ def test_default_values(tmp_path):
     assert config.credit["always_include"] is True
 
 
+def test_legacy_mapping_exposes_only_existing_helper_sections() -> None:
+    config = AppConfig()
+
+    mapping = config.to_legacy_mapping()
+
+    assert mapping == {
+        "extract": config.extract,
+        "model": config.model,
+        "storage": config.storage,
+        "credit": config.credit,
+        "output": config.output,
+    }
+    assert "workspace" not in mapping
+
+
 def test_invalid_model_backend(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("model:\n  backend: invalid_backend\n")

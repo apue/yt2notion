@@ -78,6 +78,11 @@ class TranscriptionEngine:
         self._primary_transcriber = primary_transcriber
         self._primary_transcriber_factory = primary_transcriber_factory
         self._fallback_transcriber_factory = fallback_transcriber_factory
+        if self.fallback_backend and fallback_transcriber_factory is None:
+            raise ValueError(
+                "TranscriptionEngine requires an injected fallback Transcriber factory "
+                "when fallback_backend is configured"
+            )
 
     def transcribe_workspace(
         self,
@@ -135,20 +140,6 @@ class TranscriptionEngine:
             transcriber = self._primary_transcriber_factory()
             self._primary_transcriber = transcriber
 
-        fallback_factory = self._fallback_transcriber_factory
-        if fallback_factory is None and self.fallback_backend:
-            fallback_transcriber: Transcriber | None = None
-
-            def _load_fallback_transcriber() -> Transcriber | None:
-                nonlocal fallback_transcriber
-                if fallback_transcriber is None:
-                    from yt2notion.transcribe import create_fallback_transcriber
-
-                    fallback_transcriber = create_fallback_transcriber(self.config)
-                return fallback_transcriber
-
-            fallback_factory = _load_fallback_transcriber
-
         return _transcribe_from_audio(
             audio_path,
             segments,
@@ -159,7 +150,7 @@ class TranscriptionEngine:
             transcriber=transcriber,
             primary_backend=self.primary_backend,
             fallback_backend=self.fallback_backend,
-            fallback_transcriber_factory=fallback_factory,
+            fallback_transcriber_factory=self._fallback_transcriber_factory,
             progress_callback=progress_callback,
         )
 

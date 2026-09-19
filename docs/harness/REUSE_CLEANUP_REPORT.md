@@ -1,6 +1,9 @@
 # REUSE_CLEANUP_REPORT
 
-Status: accepted
+Status: historical accepted snapshot; deprecated as current architecture documentation
+
+This report is retained as decision history. Its provider names are not current
+API claims; current contracts are anchored in `PROJECT_MAP.md`.
 
 ## Reuse
 

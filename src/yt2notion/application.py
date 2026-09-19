@@ -10,11 +10,8 @@ import typer
 from yt2notion.content_preparation import ContentPreparation
 from yt2notion.media_source import SourceProvider, create_source_provider
 from yt2notion.pipelines import (
-    NotePipelineRequest,
     PreparedContent,
-    ProcessPipelineRequest,
     ProgressCallback,
-    TranscribePipelineRequest,
     run_note_pipeline,
     run_process_pipeline,
     run_subtitle_pack_pipeline,
@@ -51,13 +48,7 @@ class Yt2Notion:
         subtitle_pack_service: SubtitlePackService | None = None,
     ) -> None:
         self.config = config
-        self.raw_config = {
-            "extract": config.extract,
-            "model": config.model,
-            "storage": config.storage,
-            "credit": config.credit,
-            "output": config.output,
-        }
+        self.raw_config = config.to_legacy_mapping()
         self.source_provider = source_provider
         self.transcription_engine = transcription_engine or create_transcription_engine(
             self.raw_config
@@ -79,17 +70,15 @@ class Yt2Notion:
     ) -> PreparedContent:
         """Prepare source/A/B content locally without publishing."""
         return run_note_pipeline(
-            NotePipelineRequest(
-                url=url,
-                workspace_dir=workspace_dir,
-                resume_from=resume_from,
-                mode=mode,
-                verbose=verbose,
-            ),
+            url,
             config=self.config,
             source_provider=self._source_provider(verbose=verbose),
             transcription_engine=self.transcription_engine,
             preparation=self.content_preparation,
+            workspace_dir=workspace_dir,
+            resume_from=resume_from,
+            mode=mode,
+            verbose=verbose,
             progress_callback=progress_callback,
         )
 
@@ -106,19 +95,17 @@ class Yt2Notion:
     ) -> str:
         """Prepare and explicitly publish through the configured storage backend."""
         return run_process_pipeline(
-            ProcessPipelineRequest(
-                url=url,
-                workspace_dir=workspace_dir,
-                resume_from=resume_from,
-                mode=mode,
-                verbose=verbose,
-                dry_run=dry_run,
-            ),
+            url,
             config=self.config,
             source_provider=self._source_provider(verbose=verbose),
             transcription_engine=self.transcription_engine,
             preparation=self.content_preparation,
             storage_factory=self.storage_factory,
+            workspace_dir=workspace_dir,
+            resume_from=resume_from,
+            mode=mode,
+            verbose=verbose,
+            dry_run=dry_run,
             progress_callback=progress_callback,
         )
 
@@ -132,16 +119,14 @@ class Yt2Notion:
     ) -> MediaTranscribeResult:
         """Run the local transcript pipeline."""
         return run_transcribe_pipeline(
-            TranscribePipelineRequest(
-                url=url,
-                workspace_dir=workspace_dir,
-                keep_video=keep_video,
-                verbose=verbose,
-            ),
+            url,
             config=self.config,
             source_provider=self._source_provider(verbose=verbose),
             transcription_engine=self.transcription_engine,
             preparation=self.content_preparation,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
         )
 
     def run_translation_experiment(
@@ -159,17 +144,15 @@ class Yt2Notion:
 
             runner = create_translation_experiment_runner(self.config)
         return run_translation_experiment_pipeline(
-            TranscribePipelineRequest(
-                url=url,
-                workspace_dir=workspace_dir,
-                keep_video=keep_video,
-                verbose=verbose,
-            ),
+            url,
             config=self.config,
             source_provider=self._source_provider(verbose=verbose),
             transcription_engine=self.transcription_engine,
             preparation=self.content_preparation,
             runner=runner,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
         )
 
     def create_subtitle_pack(
@@ -183,17 +166,15 @@ class Yt2Notion:
         """Transcribe and build a local cue-timed bilingual package."""
         service = self.subtitle_pack_service or self._create_subtitle_pack_service(verbose=verbose)
         return run_subtitle_pack_pipeline(
-            TranscribePipelineRequest(
-                url=url,
-                workspace_dir=workspace_dir,
-                keep_video=keep_video,
-                verbose=verbose,
-            ),
+            url,
             config=self.config,
             source_provider=self._source_provider(verbose=verbose),
             transcription_engine=self.transcription_engine,
             preparation=self.content_preparation,
             service=service,
+            workspace_dir=workspace_dir,
+            keep_video=keep_video,
+            verbose=verbose,
         )
 
     def _source_provider(self, *, verbose: bool) -> SourceProvider:
@@ -226,13 +207,7 @@ class Yt2Notion:
 
 def create_yt2notion(config: AppConfig, *, verbose: bool = False) -> Yt2Notion:
     """Composition root for the application interface."""
-    raw_config = {
-        "extract": config.extract,
-        "model": config.model,
-        "storage": config.storage,
-        "credit": config.credit,
-        "output": config.output,
-    }
+    raw_config = config.to_legacy_mapping()
     return Yt2Notion(
         config,
         source_provider=create_source_provider(raw_config, verbose=verbose),
