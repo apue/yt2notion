@@ -1,10 +1,10 @@
-"""yt-dlp backed MediaSource adapter."""
+"""yt-dlp source-provider adapter."""
 
 from __future__ import annotations
 
-import hashlib
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -19,159 +19,172 @@ from yt2notion.extract import (
     write_transcript_srt,
 )
 from yt2notion.media_source.base import (
-    MediaAcquireRequest,
-    MediaAcquireResult,
-    MediaAcquisitionError,
+    OperationResult,
+    SourceFailureCategory,
+    SourceOperation,
+    SourceOperationError,
+    SourceProbe,
 )
 from yt2notion.process import seconds_to_display
-from yt2notion.workspace import Workspace
+
+if TYPE_CHECKING:
+    from yt2notion.models.base import VideoMeta
+    from yt2notion.workspace import Workspace
 
 
-class YtDlpMediaSource:
-    """Acquire media through the existing yt-dlp extraction implementation."""
+class YtDlpSourceProvider:
+    """Run explicit yt-dlp operations behind normalized provider failures."""
 
     def __init__(self, config: dict, *, verbose: bool = False) -> None:
-        self.config = config
-        self.verbose = verbose
+        self._config = config
+        self._verbose = verbose
 
-    def acquire(self, request: MediaAcquireRequest) -> MediaAcquireResult:
-        """Acquire metadata, preferring subtitles over media download and ASR."""
-        if self.verbose:
-            typer.echo("Extracting metadata...")
-        metadata = extract_metadata(request.url)
-        if self.verbose:
-            typer.echo(f"  Title: {metadata.title}")
-            typer.echo(f"  Channel: {metadata.channel}")
+    def probe(self, locator: str) -> SourceProbe:
+        """Fetch metadata and subtitle capability information once."""
+        try:
+            if self._verbose:
+                typer.echo("Extracting metadata...")
+            metadata = extract_metadata(locator)
+        except Exception as exc:
+            raise _normalize_failure("probe", exc) from exc
+        if self._verbose:
             duration = (
                 seconds_to_display(metadata.duration_seconds)
                 if metadata.duration_seconds
                 else "unknown"
             )
+            typer.echo(f"  Title: {metadata.title}")
+            typer.echo(f"  Channel: {metadata.channel}")
             typer.echo(f"  Duration: {duration}")
             typer.echo(f"  Chapters: {len(metadata.chapters)} found")
             typer.echo(f"  Subtitles available: {metadata.subtitles_available}")
+        return SourceProbe(locator=locator, metadata=metadata)
 
-        workspace_id = metadata.video_id or _stable_workspace_id(metadata.url or request.url)
-        ws = Workspace(request.workspace_base_dir, workspace_id)
+    def execute(
+        self,
+        operation: SourceOperation,
+        probe: SourceProbe,
+        workspace: Workspace,
+    ) -> OperationResult:
+        """Execute one planned provider operation and persist its local artifacts."""
         try:
-            ws.discard_acquisition_artifacts()
-            ws.save_metadata(metadata)
-
-            subtitle_path: Path | None = None
-            subtitle_source: str | None = None
-            audio_path: Path | None = None
-            video_path: Path | None = None
-            if metadata.subtitles_available:
-                if self.verbose:
-                    typer.echo("Downloading subtitles...")
-                try:
-                    with tempfile.TemporaryDirectory() as tmp_dir:
-                        sub_path, subtitle_source = extract_subtitles_with_source(
-                            request.url,
-                            self.config,
-                            Path(tmp_dir),
-                            metadata=metadata,
-                        )
-                        subtitle_path = ws.save_subtitles(sub_path)
-                        ws.save_subtitle_source(subtitle_source)
-                        if self.verbose:
-                            typer.echo(f"  Saved: subtitles{sub_path.suffix}")
-                except ExtractionError:
-                    if self.verbose:
-                        typer.echo("  Subtitle download failed, downloading media instead...")
-                    audio_path, video_path = self._acquire_fallback_media(request, metadata, ws)
-            else:
-                audio_path, video_path = self._acquire_fallback_media(request, metadata, ws)
-
-            return MediaAcquireResult(
-                metadata=metadata,
-                workspace=ws,
-                audio_path=audio_path or ws.audio_path,
-                subtitle_path=subtitle_path or ws.subtitle_path,
-                subtitle_source=subtitle_source or ws.load_subtitle_source(),
-                video_path=video_path,
-            )
+            if operation == "subtitle":
+                return self._subtitle(probe, workspace)
+            if operation == "webpage_transcript":
+                return self._webpage_transcript(probe, workspace)
+            if operation == "audio":
+                return self._audio(probe, workspace)
+            if operation == "video":
+                return self._video(probe, workspace)
+        except SourceOperationError:
+            raise
         except Exception as exc:
-            raise MediaAcquisitionError(ws, exc) from exc
+            raise _normalize_failure(operation, exc) from exc
+        raise SourceOperationError(operation, "provider", f"unknown operation: {operation}")
 
-    def _acquire_fallback_media(
-        self,
-        request: MediaAcquireRequest,
-        metadata,
-        ws: Workspace,
-    ) -> tuple[Path | None, Path | None]:
-        if self._download_webpage_transcript(request.url, metadata, ws):
-            return None, None
-        if request.keep_video:
-            return self._download_video_and_audio(request.url, metadata, ws)
-        return self._download_audio(request.url, metadata, ws), None
-
-    def _download_video_and_audio(
-        self,
-        url: str,
-        metadata,
-        ws: Workspace,
-    ) -> tuple[Path, Path]:
-        if self.verbose:
-            typer.echo("Downloading video...")
-        cookies_from = self.config.get("extract", {}).get("cookies_from")
+    def _subtitle(self, probe: SourceProbe, workspace: Workspace) -> OperationResult:
+        if not probe.subtitles_available:
+            raise SourceOperationError("subtitle", "unavailable", "subtitles unavailable")
+        if self._verbose:
+            typer.echo("Downloading subtitles...")
         with tempfile.TemporaryDirectory() as tmp_dir:
-            downloaded_video = extract_video(
-                url,
+            downloaded, source = extract_subtitles_with_source(
+                probe.locator,
+                self._config,
                 Path(tmp_dir),
-                video_id=metadata.video_id,
-                cookies_from=cookies_from,
+                metadata=probe.metadata,
             )
-            video_path = ws.save_video(downloaded_video)
-        audio_path = extract_audio_from_video(video_path, ws.dir / "audio.mp3")
-        return audio_path, video_path
+            subtitle_path = workspace.save_subtitles(downloaded)
+        workspace.save_subtitle_source(source)
+        return OperationResult(
+            subtitle_path=subtitle_path,
+            subtitle_source=source,
+        )
 
-    def _download_audio(self, url: str, metadata, ws: Workspace) -> Path:
-        if self.verbose:
-            typer.echo("Downloading audio...")
-        cookies_from = self.config.get("extract", {}).get("cookies_from")
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            audio_path = extract_audio(
-                url,
-                Path(tmp_dir),
-                video_id=metadata.video_id,
-                cookies_from=cookies_from,
-            )
-            saved = ws.save_audio(audio_path)
-            if self.verbose:
-                size_mb = saved.stat().st_size / 1e6
-                typer.echo(f"  Saved: {saved.name} ({size_mb:.1f} MB)")
-
-        if metadata.duration_seconds == 0:
-            duration = get_duration(saved)
-            metadata.duration_seconds = int(duration)
-            ws.save_metadata(metadata)
-            if self.verbose:
-                typer.echo(
-                    f"  Duration (from audio): {seconds_to_display(metadata.duration_seconds)}"
-                )
-        return saved
-
-    def _download_webpage_transcript(self, url: str, metadata, ws: Workspace) -> bool:
-        try:
-            entries = extract_webpage_transcript(url, metadata)
-        except Exception:
-            return False
-
+    def _webpage_transcript(
+        self,
+        probe: SourceProbe,
+        workspace: Workspace,
+    ) -> OperationResult:
+        entries = extract_webpage_transcript(
+            probe.metadata.url or probe.locator,
+            probe.metadata,
+        )
         if not entries:
-            return False
-
+            raise SourceOperationError(
+                "webpage_transcript",
+                "unavailable",
+                "webpage transcript unavailable",
+            )
         with tempfile.TemporaryDirectory() as tmp_dir:
-            transcript_path = Path(tmp_dir) / f"{metadata.video_id or 'transcript'}.srt"
-            write_transcript_srt(entries, transcript_path)
-            saved = ws.save_subtitles(transcript_path)
-            ws.save_subtitle_source("webpage_transcript")
+            downloaded = write_transcript_srt(
+                entries,
+                Path(tmp_dir) / f"{probe.metadata.video_id or 'transcript'}.srt",
+            )
+            subtitle_path = workspace.save_subtitles(downloaded)
+        workspace.save_subtitle_source("webpage_transcript")
+        return OperationResult(
+            subtitle_path=subtitle_path,
+            subtitle_source="webpage_transcript",
+        )
 
-        if self.verbose:
-            typer.echo(f"  Found webpage transcript: {saved.name} ({len(entries)} entries)")
-        return True
+    def _audio(self, probe: SourceProbe, workspace: Workspace) -> OperationResult:
+        if self._verbose:
+            typer.echo("Downloading audio...")
+        extract_cfg = self._config.get("extract", {})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            downloaded = extract_audio(
+                probe.metadata.url or probe.locator,
+                Path(tmp_dir),
+                video_id=probe.metadata.video_id,
+                cookies_from=extract_cfg.get("cookies_from"),
+            )
+            audio_path = workspace.save_audio(downloaded)
+        self._save_duration(probe.metadata, audio_path, workspace)
+        return OperationResult(audio_path=audio_path)
+
+    def _video(self, probe: SourceProbe, workspace: Workspace) -> OperationResult:
+        if self._verbose:
+            typer.echo("Downloading video...")
+        extract_cfg = self._config.get("extract", {})
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            downloaded = extract_video(
+                probe.metadata.url or probe.locator,
+                Path(tmp_dir),
+                video_id=probe.metadata.video_id,
+                cookies_from=extract_cfg.get("cookies_from"),
+            )
+            video_path = workspace.save_video(downloaded)
+        audio_path = extract_audio_from_video(video_path, workspace.dir / "audio.mp3")
+        self._save_duration(probe.metadata, audio_path, workspace)
+        return OperationResult(audio_path=audio_path, video_path=video_path)
+
+    @staticmethod
+    def _save_duration(metadata: VideoMeta, audio_path: Path, workspace: Workspace) -> None:
+        if metadata.duration_seconds == 0:
+            metadata.duration_seconds = int(get_duration(audio_path))
+            workspace.save_metadata(metadata)
 
 
-def _stable_workspace_id(value: str) -> str:
-    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
-    return f"media-{digest}"
+def _normalize_failure(operation: str, exc: Exception) -> SourceOperationError:
+    message = str(exc).lower()
+    category: SourceFailureCategory
+    if any(token in message for token in ("sign in", "login", "authentication", "cookies")):
+        category = "authentication"
+    elif isinstance(exc, (FileNotFoundError, PermissionError)) or any(
+        token in message
+        for token in (
+            "yt-dlp not found",
+            "not found in path",
+            "no such file",
+            "permission denied",
+        )
+    ):
+        category = "local_resource"
+    elif isinstance(exc, TimeoutError) or "timed out" in message:
+        category = "transient"
+    elif operation == "subtitle" and isinstance(exc, ExtractionError):
+        category = "unavailable"
+    else:
+        category = "provider"
+    return SourceOperationError(operation, category, exc)

@@ -9,8 +9,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from yt2notion.domain import SegmentSpec
 from yt2notion.process import SubtitleEntry
 from yt2notion.segment import Segment
+from yt2notion.transcribe.contracts import (
+    ChunkTranscriptEntry,
+    TranscribeChunk,
+    TranscribeChunkState,
+    TranscribeState,
+)
 from yt2notion.transcribe.engine import TranscriptionEngine
 from yt2notion.transcribe.errors import (
     TranscriptionDailyLimitError,
@@ -52,6 +59,14 @@ def _chunk_files(workspace: Workspace, count: int) -> list[Path]:
     return paths
 
 
+def test_configured_fallback_requires_injected_factory() -> None:
+    with pytest.raises(ValueError, match="injected fallback Transcriber factory"):
+        TranscriptionEngine(
+            {"extract": {"asr": {"backend": "groq", "fallback_backend": "remote"}}},
+            primary_transcriber=MagicMock(),
+        )
+
+
 def test_transcribe_workspace_preserves_saved_subtitle_source(
     tmp_path: Path,
     metadata: VideoMeta,
@@ -65,12 +80,12 @@ def test_transcribe_workspace_preserves_saved_subtitle_source(
 
     transcripts = engine.transcribe_workspace(workspace, metadata, [])
 
-    assert transcripts[0]["source"] == "manual_subtitle"
+    assert transcripts[0].source == "manual_subtitle"
 
 
 @patch("yt2notion.segment._split_by_duration", side_effect=_segment_result)
 @patch("yt2notion.audio.split_audio")
-@patch("yt2notion.transcribe.engine.time.sleep", return_value=None)
+@patch("yt2notion.transcribe.chunk_executor.time.sleep", return_value=None)
 def test_hourly_limit_retries_same_chunk_and_records_checkpoint(
     _sleep: MagicMock,
     split_audio: MagicMock,
@@ -102,13 +117,13 @@ def test_hourly_limit_retries_same_chunk_and_records_checkpoint(
         progress_callback=lambda step, event, message=None: events.append((step, event, message)),
     )
 
-    assert result[0]["text"] == "chunk one chunk two"
+    assert result[0].text == "chunk one chunk two"
     assert primary.transcribe.call_count == 3
     state = workspace.load_transcribe_state()
     assert state is not None
-    assert state["status"] == "completed"
-    assert state["ash_defer_count"] == 1
-    assert [chunk["status"] for chunk in state["chunks"]] == [
+    assert state.status == "completed"
+    assert state.ash_defer_count == 1
+    assert [chunk.status for chunk in state.chunks] == [
         "completed_groq",
         "completed_groq",
     ]
@@ -157,12 +172,12 @@ def test_daily_limit_switches_current_and_remaining_chunks_to_fallback(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "chunk one chunk two chunk three"
+    assert result[0].text == "chunk one chunk two chunk three"
     assert workspace.asr_fallback_used() is True
     state = workspace.load_transcribe_state()
     assert state is not None
-    assert state["job_mode"] == "remote_remaining"
-    assert [chunk["backend_used"] for chunk in state["chunks"]] == [
+    assert state.job_mode == "remote_remaining"
+    assert [chunk.backend_used for chunk in state.chunks] == [
         "groq",
         "remote",
         "remote",
@@ -181,42 +196,42 @@ def test_resume_reuses_completed_chunk_payload(
     chunks = _chunk_files(workspace, 2)
     workspace.save_transcribe_plan(
         [
-            {
-                "chunk_id": f"chunk-{index:03d}",
-                "title": f"Chunk {index}",
-                "start_seconds": float((index - 1) * 60),
-                "end_seconds": float(index * 60),
-                "audio_relpath": str(path.relative_to(workspace.dir)),
-                "preferred_backend": "groq",
-            }
+            TranscribeChunk(
+                chunk_id=f"chunk-{index:03d}",
+                title=f"Chunk {index}",
+                start_seconds=float((index - 1) * 60),
+                end_seconds=float(index * 60),
+                audio_relpath=str(path.relative_to(workspace.dir)),
+                preferred_backend="groq",
+            )
             for index, path in enumerate(chunks, start=1)
         ]
     )
     workspace.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "groq",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [
-                {
-                    "chunk_id": f"chunk-{index:03d}",
-                    "status": "pending",
-                    "backend_used": None,
-                    "result_relpath": None,
-                    "attempts": 0,
-                    "updated_at": "2026-04-19T12:00:00+08:00",
-                }
+        TranscribeState(
+            version=1,
+            job_mode="groq",
+            status="running",
+            next_attempt_at=None,
+            last_error=None,
+            defer_reason=None,
+            ash_defer_count=0,
+            chunks=[
+                TranscribeChunkState(
+                    chunk_id=f"chunk-{index:03d}",
+                    status="pending",
+                    backend_used=None,
+                    result_relpath=None,
+                    attempts=0,
+                    updated_at="2026-04-19T12:00:00+08:00",
+                )
                 for index in range(1, 3)
             ],
-        }
+        )
     )
     workspace.save_transcribe_chunk_result(
         "chunk-001",
-        [{"start_seconds": 0.0, "end_seconds": 1.0, "text": "cached", "source": "asr"}],
+        [ChunkTranscriptEntry(start_seconds=0.0, end_seconds=1.0, text="cached")],
     )
     primary = MagicMock(max_upload_bytes=None)
     primary.transcribe.return_value = [SubtitleEntry(0.0, 1.0, "fresh")]
@@ -228,7 +243,7 @@ def test_resume_reuses_completed_chunk_payload(
 
     result = engine.transcribe_audio(workspace.audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "cached fresh"
+    assert result[0].text == "cached fresh"
     primary.transcribe.assert_called_once_with(chunks[1], language=None)
 
 
@@ -241,36 +256,36 @@ def test_missing_completed_chunk_payload_is_recomputed(
     workspace, audio_path = _audio_workspace(tmp_path, metadata)
     workspace.save_transcribe_plan(
         [
-            {
-                "chunk_id": "chunk-001",
-                "title": "Chunk 1",
-                "start_seconds": 0.0,
-                "end_seconds": 120.0,
-                "audio_relpath": str(audio_path.relative_to(workspace.dir)),
-                "preferred_backend": "groq",
-            }
+            TranscribeChunk(
+                chunk_id="chunk-001",
+                title="Chunk 1",
+                start_seconds=0.0,
+                end_seconds=120.0,
+                audio_relpath=str(audio_path.relative_to(workspace.dir)),
+                preferred_backend="groq",
+            )
         ]
     )
     workspace.save_transcribe_state(
-        {
-            "version": 1,
-            "job_mode": "groq",
-            "status": "running",
-            "next_attempt_at": None,
-            "last_error": None,
-            "defer_reason": None,
-            "ash_defer_count": 0,
-            "chunks": [
-                {
-                    "chunk_id": "chunk-001",
-                    "status": "completed_groq",
-                    "backend_used": "groq",
-                    "result_relpath": "transcribe_chunks/chunk-001.json",
-                    "attempts": 1,
-                    "updated_at": "2026-04-19T12:00:00+08:00",
-                }
+        TranscribeState(
+            version=1,
+            job_mode="groq",
+            status="running",
+            next_attempt_at=None,
+            last_error=None,
+            defer_reason=None,
+            ash_defer_count=0,
+            chunks=[
+                TranscribeChunkState(
+                    chunk_id="chunk-001",
+                    status="completed_groq",
+                    backend_used="groq",
+                    result_relpath="transcribe_chunks/chunk-001.json",
+                    attempts=1,
+                    updated_at="2026-04-19T12:00:00+08:00",
+                )
             ],
-        }
+        )
     )
     primary = MagicMock(max_upload_bytes=None)
     primary.transcribe.return_value = [SubtitleEntry(0.0, 1.0, "recovered")]
@@ -282,9 +297,11 @@ def test_missing_completed_chunk_payload_is_recomputed(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "recovered"
+    assert result[0].text == "recovered"
     primary.transcribe.assert_called_once_with(audio_path, language=None)
-    assert workspace.load_transcribe_chunk_result("chunk-001")[0]["text"] == "recovered"
+    chunk_result = workspace.load_transcribe_chunk_result("chunk-001")
+    assert chunk_result is not None
+    assert chunk_result[0].text == "recovered"
 
 
 @patch("yt2notion.audio.split_audio")
@@ -329,7 +346,7 @@ def test_small_full_audio_uses_single_upload_fast_path(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "single request"
+    assert result[0].text == "single request"
     primary.transcribe.assert_called_once_with(audio_path, language=None)
     split_audio.assert_not_called()
 
@@ -358,7 +375,7 @@ def test_non_retryable_error_does_not_load_fallback(
     with pytest.raises(TranscriptionError, match="bad request"):
         engine.transcribe_audio(
             audio_path,
-            [{"title": "Part 1", "start_seconds": 0, "end_seconds": 30}],
+            [SegmentSpec(title="Part 1", start_seconds=0, end_seconds=30)],
             metadata,
             workspace,
         )
@@ -408,7 +425,7 @@ def test_primary_success_does_not_load_fallback(
 
     result = engine.transcribe_audio(audio_path, [], metadata, workspace)
 
-    assert result[0]["text"] == "primary"
+    assert result[0].text == "primary"
     fallback_factory.assert_not_called()
 
 
@@ -468,17 +485,17 @@ def test_oversized_segment_is_subdivided_before_upload(
 
     result = engine.transcribe_audio(
         audio_path,
-        [{"title": "Long segment", "start_seconds": 0, "end_seconds": 120}],
+        [SegmentSpec(title="Long segment", start_seconds=0, end_seconds=120)],
         metadata,
         workspace,
     )
 
-    assert result[0]["text"] == "child one child two"
+    assert result[0].text == "child one child two"
     assert split_audio.call_count == 2
     assert [call.args[0] for call in primary.transcribe.call_args_list] == children
 
 
-@patch("yt2notion.transcribe.engine._rebase_chunk_entries")
+@patch("yt2notion.transcribe.chunk_executor.rebase_chunk_entries")
 @patch("yt2notion.audio.split_audio")
 def test_segmented_audio_without_upload_limit_keeps_direct_timestamps(
     split_audio: MagicMock,
@@ -504,11 +521,11 @@ def test_segmented_audio_without_upload_limit_keeps_direct_timestamps(
 
     result = engine.transcribe_audio(
         audio_path,
-        [{"title": "Part 1", "start_seconds": 100, "end_seconds": 130}],
+        [SegmentSpec(title="Part 1", start_seconds=100, end_seconds=130)],
         metadata,
         workspace,
     )
 
-    assert result[0]["text"] == "first second"
+    assert result[0].text == "first second"
     primary.transcribe.assert_called_once_with(segment_file, language=None)
     rebase_chunk_entries.assert_not_called()

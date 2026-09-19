@@ -10,6 +10,7 @@ from yt2notion.models._parsers import (
     parse_note_metadata_json,
 )
 from yt2notion.prompts import load_prompt
+from yt2notion.runtime import provider_call
 
 if TYPE_CHECKING:
     from yt2notion.models.base import NoteDocument, NoteMetadata, VideoMeta
@@ -103,8 +104,9 @@ class NoteComposer:
         return parse_note_metadata_json(raw)
 
     def _call(self, prompt_name: str, payload: dict[str, object], *, max_tokens: int) -> str:
-        return self.caller.call(
-            load_prompt(prompt_name),
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            max_tokens=max_tokens,
-        )
+        with provider_call(f"llm.{prompt_name}"):
+            return self.caller.call(
+                load_prompt(prompt_name),
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                max_tokens=max_tokens,
+            )

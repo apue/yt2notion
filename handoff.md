@@ -2,29 +2,35 @@
 
 ## 当前任务卡
 
-- 任务：Typed Node / Typed Pipeline 目标架构设计文档
-- 状态：`completed_local`
+- 任务：实现 Typed Pipeline 架构
+- 状态：`ready_for_pr_review`
 - 当前 owner：Codex
-- 分支：`codex/typed-pipeline-architecture`
-- PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
-- review 状态：已按 User 新要求从头重写并完成本地自查；保留初稿 commit 供 review history 对比
+- 分支：`codex/typed-pipeline-refactor`
+- PR：[#34](https://github.com/apue/yt2notion/pull/34)
+- review 状态：typed architecture、review-fix 与 ownership 拆包已独立复核通过；最终 dependency/ownership closeout 及 transcription engine ownership split 已提交，PR #34 更新后等待复核
 - 目标：
-  - 用更短、按决策展开的中文提案说明 typed capabilities/nodes、普通 Python pipelines、provider adapters 与横切 runtime 的边界
-  - 通过 system context、repository components、acquisition/runtime sequences、focused pipeline flows 和 recovery flow 渐进展示架构
-  - 保持既有 JSON schema 与行为，首阶段移除核心 `list[dict]` 与 translation experiment cast
+  - 按 `docs/typed-pipeline-architecture.md` 分四个可审查阶段落地 typed transcript spine、acquisition split、shared runtime/artifact mechanisms 和普通 Python pipelines
+  - 保持 CLI 行为、artifact 文件名和既有 JSON schema
+  - 全部自动验证离线，不访问 YouTube、ASR、LLM、Obsidian 或其他远程服务
 - 约束：
-  - 仅文档 / 设计，不实现运行时代码
-  - `PROJECT_MAP.md` 继续作为当前实现唯一事实锚点，不把提议架构写成已落地事实
-  - 自动测试策略仅允许离线 contract tests；不调用 YouTube / ASR / LLM / Obsidian
-  - 不 push、不创建 PR、不 merge、不修改 `main`
-- 受影响文件：
-  - `docs/typed-pipeline-architecture.md`
-  - `handoff.md`
-- 重写结果：文档从 909 行缩短为 431 行；删除 exhaustive node inventory、精确 class fields/module tree/YAML schema/error taxonomy/retry matrix，将内容收敛为架构边界、交互与验收决策
-- 图表：9 个 Mermaid block（2 个 sequenceDiagram、7 个 focused flowchart），分别覆盖 system context、repository components、acquisition、4 条 pipelines、node execution/profiling 和 retry/recovery
-- 验证结果：Markdown/Mermaid fences 与图类型、相对链接、关键约束、延期决策和尾随空白检查通过；`git diff --check` 通过；未发现现成 Mermaid CLI，因此按要求未安装新依赖
-- 最后一次自测命令：`git diff --cached --check`；内联 Python 文档结构/链接/约束检查；`git diff HEAD^..HEAD --stat`；`git status --short --branch`
-- 下一步：User 对比两个本地 commits 审阅信息密度；若进入实现，单独规划 Phase 1 typed transcript spine
+  - 直接在已存在且起点干净的 `codex/typed-pipeline-refactor` 工作
+  - 每个迁移阶段先运行 targeted checks，再做本地 commit
+  - 不改 prompt Markdown 结构，不自动发布，不改 main
+  - PR 已获授权更新；不 merge、不修改 `main`
+- 起点：branch/HEAD/origin-main 均为 `2849205eac2c4c118866cf9e0b135f0e4af50d1b`；启动时 worktree 无 tracked changes
+- Phase 1（commit `075ef4b`）：新增 typed transcript spine 和严格 JSON codecs；workspace、segmentation、transcription、review、note、subtitle-pack fallback 与 translation experiment 已使用 typed transcript segment；既有 segments/transcripts/reviewed JSON shape 保持；application cast 已删除。后续 review fix 删除了未进入真实边界的 `TranscriptCue` / `TranscriptArtifact` 和 `cue_ids`，subtitle 播放时间轴继续由实际使用的 `SourceCue` 所有
+- Phase 2（commit `3f2b3d2`）：拆分轻量 `SourceProbe`、纯 `plan_acquisition`、`SourceProvider` operation adapter 和 fallback executor；最终 closeout 删除单 provider 下无增益的 route/intent/plan/request wrappers，planner 直接返回 operation tuple，acquisition 拥有 concrete `Workspace` lifecycle，provider 只 materialize 一个指定 operation；authentication/local-resource 不会被当成字幕缺失
+- Phase 3（commit `2a3cd11`）：新增共享 `RuntimeObserver` / `CheckpointStore` 与 typed provider-operation retry；最终 closeout 删除 ceremonial `NodeExecutor`，pipeline 直接创建 node span；schema-v2 嵌套 observation stream 记录 interruption、passive availability、batch/provider-call/attempt/checkpoint parentage且拒绝正文/secret attributes；subtitle 与 translation checkpoint 保持既有 envelope/schema；ASR quota/fallback 仍由 transcription engine 所有
+- Phase 4（commit `567c71f`）：新增普通 typed Python composition；`application.py` 只组装依赖；resumable ASR plan/state/chunk artifact 改为 typed contract + codec，subtitle-pack 和 audio split 不再传播 transcript dict；同步 canonical map、架构状态与规则摘要
+- Review fix（commit `5d60f0a`）：所有产品 pipeline 在同一 run 下关联 meaningful node/provider-call/attempt/checkpoint observations，并在 success/failure/`KeyboardInterrupt` 收尾；process 是唯一接收 storage 的完整 pipeline，translation-experiment 与 subtitle-pack 各自内聚 transcribe→specialized-stage；删除未使用的 transcript contracts；文档不再宣称超出 `AcquiredMedia` 实际字段的 provenance
+- Structural cleanup（commit `e724c26`）：`pipelines` 按 contracts/transcribe/notes/translation-experiment/subtitle-pack ownership 拆包；`runtime` 按 observer/context 与 checkpoint persistence 拆包，public imports 保持；pipeline integration tests 移至 `test_pipelines.py`，配置与 factory tests 回归所属 suite，`test_application.py` 只验证 facade/dependency composition；没有删除既有独立行为覆盖
+- Architecture closeout（commit `ec363e9`）：`TranscriptionEngine` 不再回调 composition package，fallback factory 必须注入；pipeline API 改为显式 typed 参数；subtitle service 必须使用产品 pipeline 已建立的 observer/run；删除 request/acquisition/executor wrappers 与 media-transcribe re-export；`AppConfig.to_legacy_mapping()` 集中旧 helper/provider config mapping；active docs 与历史 harness 状态已校正
+- Transcription engine split（commit `b416478`）：`engine.py` 只保留 `TranscriptionEngine` 与顶层 subtitle/audio orchestration；`audio_plan.py` 所有 deterministic plan/chunk construction，`checkpoint.py` 所有 durable state reconciliation/transitions，`chunk_executor.py` 所有 provider execution、upload subdivision 与 quota fallback；删除未被调用的重复 `_transcribe_full_audio_entries` 私有路径，既有 public engine symbols 由明确 `__all__` 保持
+- 测试减法审计：仅删除两个只保护已删除 wrapper 的测试（source router provider 字段、`NodeExecutor` 单次调用）；新增 fallback-factory 注入与 legacy mapping contract 测试，因此总数保持不变。schema roundtrip、hard acquisition failure、checkpoint identity、retry attempt、interruption 和四条产品 pipeline 覆盖均保留
+- 验证结果：engine split targeted `30 passed, 1 warning`；全量离线测试 `284 passed, 16 warnings`；`ruff check src/ tests/`、`ruff format --check src/ tests/`（111 files）、`git diff --check`、browser-extension core 与全部 JS syntax 通过；AST runtime dependency scan 检查 69 个 first-party modules（显式忽略 `TYPE_CHECKING` branches），0 cycles；stale private ownership symbol 与 extracted-module reverse-import 搜索均无结果；`workspace/` 无 Git 变更且 153 个现有文件保留
+- 最后一次自测命令：`uv run pytest tests/ -v`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`node browser-extension/tests/core.test.js`；browser-extension JS `node --check`；`git diff --check`
+- deliberate schema decision：所有 product-run profile 使用 schema v2；segments/transcripts/reviewed、resumable-ASR plan/state/chunks、subtitle/translation checkpoint 与 CLI output schema 保持兼容；raw mappings 只留在 JSON/provider/legacy config-model adapter 与 subtitle QA/workflow payload 边界
+- 下一步：等待 PR #34 最终 review；不 merge
 
 ## 上一任务卡（已合并至 main）
 

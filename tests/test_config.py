@@ -40,6 +40,21 @@ def test_default_values(tmp_path):
     assert config.credit["always_include"] is True
 
 
+def test_legacy_mapping_exposes_only_existing_helper_sections() -> None:
+    config = AppConfig()
+
+    mapping = config.to_legacy_mapping()
+
+    assert mapping == {
+        "extract": config.extract,
+        "model": config.model,
+        "storage": config.storage,
+        "credit": config.credit,
+        "output": config.output,
+    }
+    assert "workspace" not in mapping
+
+
 def test_invalid_model_backend(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("model:\n  backend: invalid_backend\n")
@@ -58,6 +73,22 @@ def test_invalid_output_mode(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("output:\n  mode: transcript_only\n")
     with pytest.raises(ConfigError, match="output.mode"):
+        load_config(str(cfg_file))
+
+
+def test_unknown_media_source_backend_raises_config_error(tmp_path) -> None:
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("extract:\n  media_source:\n    backend: nope\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="Invalid media-source backend"):
+        load_config(str(cfg_file))
+
+
+def test_invalid_media_source_config_shape_raises_config_error(tmp_path) -> None:
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("extract:\n  media_source: yt_dlp\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="extract.media_source must be a mapping"):
         load_config(str(cfg_file))
 
 

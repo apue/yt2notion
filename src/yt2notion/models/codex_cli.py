@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from yt2notion.retry import RetryExhaustedError, retry
+from yt2notion.retry import RetryExhaustedError, retry, retry_for_exceptions
 
 
 class CodexCLIError(Exception):
@@ -140,7 +140,7 @@ class CodexCLICaller:
                 _run,
                 max_retries=self.max_attempts,
                 base_delay=5.0,
-                retryable=(
+                classify=retry_for_exceptions(
                     subprocess.CalledProcessError,
                     subprocess.TimeoutExpired,
                     _EmptyOutputError,

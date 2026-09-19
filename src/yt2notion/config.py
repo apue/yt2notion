@@ -89,6 +89,16 @@ class AppConfig:
     output: dict = field(default_factory=lambda: deepcopy(DEFAULTS["output"]))
     workspace: dict = field(default_factory=lambda: deepcopy(DEFAULTS["workspace"]))
 
+    def to_legacy_mapping(self) -> dict:
+        """Return the mapping consumed by legacy helpers and provider factories."""
+        return {
+            "extract": self.extract,
+            "model": self.model,
+            "storage": self.storage,
+            "credit": self.credit,
+            "output": self.output,
+        }
+
 
 def _deep_merge(base: dict, override: dict) -> dict:
     """Merge override into base, recursing into nested dicts."""

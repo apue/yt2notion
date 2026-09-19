@@ -54,6 +54,8 @@ Plugin 架构，三个抽象接口用 `typing.Protocol` 定义：
 流水线的唯一规范真源在 [PROJECT_MAP.md](./PROJECT_MAP.md)。本文件只保留开发者视角的高层摘要：
 - `PROJECT_MAP.md` 负责步骤顺序、条件分支、JSON 契约、prompt 绑定和扩展入口
 - `CLAUDE.md` 负责开发约束、命令约定、模型角色与本地运行假设
+- application 只组装依赖；产品流使用普通 typed Python pipeline，raw provider/JSON payload 在 adapter/codec 边界转换
+- 每个 product pipeline 拥有完整组合并共享 run/node/provider/attempt/checkpoint profile；只有显式 `process` pipeline 获得 storage 并发布
 - 当实现和文档发生偏差时，以 `PROJECT_MAP.md` 为准，再回头同步这里的摘要
 
 文档锚定约定：

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from yt2notion.models.base import (
@@ -13,6 +14,7 @@ from yt2notion.models.base import (
 from yt2notion.process import seconds_to_display
 
 if TYPE_CHECKING:
+    from yt2notion.domain import TranscriptSegment
     from yt2notion.models.base import Summarizer, VideoMeta
 
 
@@ -27,13 +29,13 @@ def resolve_note_targets(duration_seconds: int) -> tuple[int, int]:
     return guide_target, longform_target
 
 
-def format_note_bundle_transcript(reviewed: list[dict]) -> str:
+def format_note_bundle_transcript(reviewed: Sequence[TranscriptSegment]) -> str:
     """Format reviewed transcript as a continuous note-bundle source text."""
     lines: list[str] = []
     for segment in reviewed:
-        start = seconds_to_display(int(segment.get("start_seconds", 0)))
-        title = str(segment.get("title", "")).strip()
-        text = str(segment.get("text", "")).strip()
+        start = seconds_to_display(int(segment.start_seconds))
+        title = segment.title.strip()
+        text = segment.text.strip()
         lines.append(f"### [{start}] {title}")
         lines.append("")
         lines.append(text)
@@ -77,7 +79,7 @@ def build_source_note(
 
 
 def build_note_bundle(
-    reviewed: list[dict],
+    reviewed: Sequence[TranscriptSegment],
     metadata: VideoMeta,
     summarizer: Summarizer,
 ) -> NoteBundle:

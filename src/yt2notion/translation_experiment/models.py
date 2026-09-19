@@ -4,19 +4,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal
 
 TranslationStrategy = Literal["whole_chapter", "semantic_blocks"]
-
-
-class CanonicalTranscript(TypedDict):
-    """Fields consumed from one canonical transcripts.json segment."""
-
-    title: str
-    start_seconds: int | float
-    end_seconds: int | float
-    text: str
-    source: NotRequired[str]
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from yt2notion.models.llm import create_llm_caller
 from yt2notion.prompts import render_prompt
+from yt2notion.runtime import provider_call
 
 if TYPE_CHECKING:
     from yt2notion.models.base import VideoMeta
@@ -30,4 +31,5 @@ def review_segment(
     model_key = "review_model"
     max_tokens = 8000
     caller = create_llm_caller(config, model_key=model_key)
-    return caller.call(system_prompt, text, max_tokens=max_tokens).strip()
+    with provider_call("llm.review"):
+        return caller.call(system_prompt, text, max_tokens=max_tokens).strip()

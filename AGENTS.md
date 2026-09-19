@@ -37,7 +37,7 @@
 
 ## 项目概述
 
-`yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对和总结，最终可显式发布 source/A/B bundle 到 Obsidian。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
+`yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对和总结，最终可显式发布 source/A/B bundle 到 Obsidian。四条产品流由普通 Python pipeline 组合共享 typed domain、acquisition 和 runtime 边界；只有显式 `process` 可进入发布。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
 
 默认分工如下：
 

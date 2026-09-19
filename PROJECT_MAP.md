@@ -13,17 +13,29 @@ artifacts, configuration bindings, and extension seams.
 | `yt2notion translation-experiment URL` | create a local blind whole-chapter vs semantic-block translation experiment |
 | `yt2notion subtitle-pack URL` | create a local, cue-timed bilingual subtitle package for browser playback |
 
-All commands enter through `application.Yt2Notion`. There is no compatibility
-pipeline or local queue runtime.
+All commands enter through `application.Yt2Notion`, which assembles dependencies
+and invokes ordinary typed functions exported by the `pipelines` package. Product
+ownership is explicit: `contracts.py` owns results/progress,
+`transcribe.py` owns transcription, `notes.py` owns prepare/process,
+`translation_experiment.py` and `subtitle_pack.py` own their complete specialized
+flows, and `shared.py` contains only workspace-root resolution. There is no
+compatibility pipeline, DAG engine, workflow registry, or local queue runtime.
+Pipeline functions expose explicit typed Python parameters rather than request
+wrapper objects.
 
 ## Canonical pipeline
 
-1. `DOWNLOAD`: `MediaSource.acquire()` probes once, selects the preferred
-   available subtitle, and downloads media only when no transcript source is
-   available. `keep_video=false` downloads audio directly on media fallback.
-2. `SEGMENT`: author chapters, description timestamps, or no pre-segmentation.
+1. `DOWNLOAD`: the composition root supplies the single configured source
+   provider; `SourceProvider.probe(locator)` observes metadata/capabilities once;
+   `plan_acquisition()` creates a deterministic subtitle/webpage/audio/video
+   operation tuple; acquisition executes that policy in a concrete `Workspace`.
+   `keep_video=false` plans direct audio fallback. Authentication and
+   local-resource errors stop the plan instead of being treated as missing
+   subtitles.
+2. `SEGMENT`: author chapters, description timestamps, or no pre-segmentation,
+   represented as `SegmentSpec` values.
 3. `TRANSCRIBE`: subtitles are assigned locally; audio uses
-   `TranscriptionEngine`.
+   `TranscriptionEngine`; both return validated `TranscriptSegment` values.
 4. `TOPIC SEGMENT`: ASR-like transcripts may be regrouped by topic.
 5. `REVIEW`: manual subtitles skip cleanup; automatic/webpage/ASR sources are
    cleaned.
@@ -32,7 +44,11 @@ pipeline or local queue runtime.
 7. `PUBLISH`: only explicit `process` writes the source/A/B bundle through
    `ObsidianStorage`.
 
-`transcribe` stops after step 3. `prepare` stops after step 6.
+`run_transcribe_pipeline()` stops after step 3. `run_note_pipeline()` stops after
+step 6. `run_process_pipeline()` reuses the note pipeline under the same run
+profile and is the only pipeline that receives a storage factory. The
+translation-experiment and subtitle-pack pipelines each own their complete
+transcribe-then-specialized-stage composition and cannot reach storage.
 `translation-experiment` reuses `transcribe`, then makes one batched translation
 call per strategy and writes only local experiment artifacts. It never reaches
 storage or `PUBLISH`.
@@ -48,8 +64,12 @@ It never reaches storage or `PUBLISH`.
 
 ## Transcription state
 
-`TranscriptionEngine` owns audio planning, upload-size subdivision, checkpoint
-reconciliation, hourly waiting, daily fallback, and backend attribution.
+`TranscriptionEngine` owns top-level subtitle/audio orchestration and backend
+attribution. Within `transcribe/`, `audio_plan.py` owns deterministic chunk
+construction and upload-budget planning, `checkpoint.py` owns resumable state
+creation/reconciliation/transitions, and `chunk_executor.py` owns provider chunk
+execution, upload subdivision, hourly waiting, and daily fallback. Imports are
+one-way from the engine through those focused modules; none imports the engine.
 
 - Groq hourly quota: persist the retry time and retry the same chunk.
 - Groq daily quota: switch the failed and remaining pending chunks to
@@ -63,12 +83,12 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 | Artifact | Contract |
 |---|---|
 | `metadata.json` | serialized `VideoMeta`, including manual/automatic subtitle languages |
-| `segments.json` | `list[{title,start_seconds,end_seconds,?parent_title}]` |
+| `segments.json` | `list[{title,start_seconds,end_seconds,?parent_title}]`, encoded from ordered `SegmentSpec` values |
 | `transcribe_plan.json` | chunk identity, time range, audio path, preferred backend |
 | `transcribe_state.json` | job status, retry/fallback state, per-chunk status |
 | `transcribe_chunks/<id>.json` | completed chunk transcript entries |
-| `transcripts.json` | `list[{title,start_seconds,end_seconds,text,source}]` |
-| `reviewed.json` | cleaned transcript shape, when review runs |
+| `transcripts.json` | `list[{title,start_seconds,end_seconds,text,source}]`, encoded from ordered `TranscriptSegment` values |
+| `reviewed.json` | the same transcript-segment schema after cleanup |
 | `note_bundle.json` | source, guide, longform, stable tags, source topics |
 | `failed.json` | failed step, error type/message, retry exhaustion, timestamp |
 | `transcript.md` | readable output of standalone `transcribe` |
@@ -78,10 +98,19 @@ reconciliation, hourly waiting, daily fallback, and backend attribution.
 | `bilingual_subtitles.json` | stable schema-v1 browser-extension input with original, source, and translated text |
 | `bilingual_subtitles.srt` | readable bilingual export generated from the stable JSON package |
 | `subtitle_quality_report.json` | deterministic coverage/timeline validation and semantic QA findings |
-| `profiles/<run-id>.json` | stage and LLM-batch timing, status, sizes, and checkpoint reuse without content or secrets |
+| `profiles/<run-id>.json` | schema-v2 product-run node/provider/attempt/checkpoint timing and status without content or secrets |
 
 Optional side artifacts include `subtitles.srt|vtt`, `video.*`, `audio.mp3`,
 `segments/*.mp3`, and `full_audio_chunks/*.mp3`.
+
+`domain.py` owns the two shared domain values actually passed by the core flows:
+`SegmentSpec` and immutable `TranscriptSegment`. `artifact_codecs.py` is the only
+JSON boundary for segment/transcript artifacts and rejects invalid ingress before
+domain objects enter a pipeline. Cue-level playback evidence is owned by the
+subtitle-package contract (`SourceCue`) rather than a speculative shared type.
+`transcribe/contracts.py` similarly owns typed resumable-ASR plans, state, and
+chunk entries plus their unchanged JSON codecs; `Workspace` exposes only these
+typed values to the core pipeline.
 
 `translation_experiment/` contains `source.json`, the two strategy candidates,
 `manifest.json` diagnostics, `evaluation.json`, `blind_review.md`, and a separate
@@ -114,7 +143,7 @@ human comparison decides the winner.
 | `storage.backend` | only `obsidian` is valid |
 | `storage.obsidian.vault_path` | `ObsidianStorage` |
 | `storage.obsidian.summaries_dir` | bundle destination |
-| `extract.media_source.backend` | `create_media_source`; currently `yt_dlp` |
+| `extract.media_source.backend` | `create_source_provider`; currently `yt_dlp` |
 | `extract.asr.backend` | primary `Transcriber`: `groq` or `remote` |
 | `extract.asr.fallback_backend` | optional different fallback transcriber |
 | `extract.asr.groq.*` | Groq key, model, endpoint, timeout, upload budget |
@@ -142,28 +171,50 @@ match.
 
 | Interface | Factory | Adapters |
 |---|---|---|
-| `MediaSource` | `create_media_source` | `YtDlpMediaSource` |
+| `SourceProvider` | `create_source_provider` | `YtDlpSourceProvider` |
 | `Transcriber` | `create_transcriber` | `GroqTranscriber`, `RemoteTranscriber` |
 | `LLMCaller` | `create_llm_caller` | Claude CLI, Codex CLI, Anthropic API |
 | `Storage` | `create_storage` | `ObsidianStorage` |
 
+`SourceProbe` and `OperationResult` are the provider-neutral typed acquisition
+contracts. The pure planner returns an ordered tuple of `SourceOperation` values
+from the probe and `keep_video`; acquisition owns routing/configuration,
+deterministic fallback, and the concrete `Workspace` lifecycle.
+`YtDlpSourceProvider` owns yt-dlp operations, cookies, normalized operation
+failures, and materializing exactly one requested operation into the supplied
+workspace. This concrete workspace boundary is intentional for this repository,
+not a temporary storage abstraction.
+
 `NoteComposer` is provider-independent and owns prompt payloads and parsing.
 `TranscriptionEngine` is provider-independent and owns ASR lifecycle.
 `TranslationExperimentRunner` depends on `LLMCaller`, typed canonical transcripts,
-and experiment artifact functions; `application.Yt2Notion` is its only CLI-facing
-orchestrator. It has no dependency on `Storage`.
-`SubtitlePackService` is the application orchestrator. It delegates cue recovery
+and experiment artifact functions; `run_translation_experiment_pipeline()` is its
+CLI-facing orchestrator. It has no dependency on `Storage`.
+`SubtitlePackService` delegates cue recovery
 to `subtitle_pack.source`, bounded context/generation/QA calls to
 `SubtitleLLMWorkflow`, deterministic model-output checks to
-`subtitle_pack.validation`, and checkpoint/package serialization to
-`subtitle_pack.artifacts`. The workflow depends on `LLMCaller` and the profile
-recorder. `application.Yt2Notion` owns acquisition/transcription and passes their
-local result to the service. The browser extension consumes only
+`subtitle_pack.validation`, shared checkpoint serialization to
+`runtime.checkpoint`, and
+package serialization to `subtitle_pack.artifacts`. The workflow depends on
+`LLMCaller` and `RuntimeObserver`. `run_subtitle_pack_pipeline()` owns acquisition,
+transcription, and service invocation as one profiled product run. The browser extension consumes only
 `bilingual_subtitles.json`; it does not call an LLM or local companion service.
 
 To add an adapter, implement the relevant Protocol, extend its explicit
 factory and valid backend set, then add adapter contract tests. Do not add a
 registry or expose provider details through `Yt2Notion`.
+
+The `runtime` package keeps observation/context/provider calls in `observer.py`;
+pipelines create node spans directly and `checkpoint.py` owns identity-bound JSON
+checkpoint persistence. Typed retry policy remains operation-local in `retry.py`.
+The observer models nested run/node/batch/provider-call/attempt/checkpoint
+observations and stores only redacted labels, counts, status, timing, and
+normalized failure categories. Whole-node retry is disabled by default;
+provider retry remains operation-local, and business fallback remains in the
+pipeline/acquisition plan. Every product pipeline writes schema version 2's flat
+nested observation stream and finishes it on success, failure, or interruption;
+subtitle checkpoint envelopes and translation candidate checkpoint schemas remain
+unchanged while using the shared store.
 
 ## Prompt bindings
 
@@ -188,13 +239,18 @@ documentation.
 
 ```text
 cli -> application
-application -> media_source, TranscriptionEngine, ContentPreparation, Storage
+application -> complete product pipelines and dependency factories
+pipelines package -> acquisition planner/provider, TranscriptionEngine, ContentPreparation
+run_process_pipeline -> run_note_pipeline result, then Storage
 ContentPreparation -> review, topic_segment, note_bundle
 note_bundle -> Summarizer
 Summarizer implementation -> NoteComposer -> LLMCaller adapters
-TranscriptionEngine -> Transcriber adapters, Workspace
+transcribe composition factory -> TranscriptionEngine + lazy Transcriber adapter factories
+TranscriptionEngine -> audio plan + checkpoint + chunk executor
+chunk executor -> audio plan + checkpoint + Transcriber Protocol + Workspace
 Storage -> ObsidianStorage
+subtitle-pack pipeline -> run-owned RuntimeObserver -> SubtitlePackService
 SubtitlePackService -> subtitle source, SubtitleLLMWorkflow, validation, artifacts
-SubtitleLLMWorkflow -> LLMCaller, profile recorder
+SubtitleLLMWorkflow -> LLMCaller, RuntimeObserver, CheckpointStore
 browser-extension -> bilingual_subtitles.json
 ```

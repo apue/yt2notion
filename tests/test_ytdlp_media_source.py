@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from yt2notion.media_source.base import MediaAcquireRequest
-from yt2notion.media_source.ytdlp import YtDlpMediaSource
+import pytest
+
+from yt2notion.extract import ExtractionError
+from yt2notion.media_source import (
+    SourceOperationError,
+    SourceProbe,
+    acquire_media,
+)
+from yt2notion.media_source.ytdlp import YtDlpSourceProvider
 from yt2notion.models.base import VideoMeta
+from yt2notion.workspace import Workspace
 
 
 def test_captioned_video_skips_media_download(monkeypatch, tmp_path: Path) -> None:
@@ -34,12 +42,11 @@ def test_captioned_video_skips_media_download(monkeypatch, tmp_path: Path) -> No
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_audio", forbidden)
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_video", forbidden)
 
-    result = YtDlpMediaSource({"extract": {}}).acquire(
-        MediaAcquireRequest(
-            url="https://example.com/captioned",
-            workspace_base_dir=tmp_path,
-            keep_video=False,
-        )
+    result = acquire_media(
+        YtDlpSourceProvider({"extract": {}}),
+        url="https://example.com/captioned",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert result.subtitle_path == result.workspace.dir / "subtitles.srt"
@@ -69,12 +76,11 @@ def test_no_video_fallback_downloads_audio_directly(monkeypatch, tmp_path: Path)
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_audio", fake_audio)
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_video", forbidden)
 
-    result = YtDlpMediaSource({"extract": {}}).acquire(
-        MediaAcquireRequest(
-            url="https://example.com/audio-only",
-            workspace_base_dir=tmp_path,
-            keep_video=False,
-        )
+    result = acquire_media(
+        YtDlpSourceProvider({"extract": {}}),
+        url="https://example.com/audio-only",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert result.audio_path == result.workspace.dir / "audio.mp3"
@@ -107,15 +113,50 @@ def test_fresh_acquisition_discards_stale_source_artifacts(monkeypatch, tmp_path
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_webpage_transcript", lambda *a: [])
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_audio", fake_audio)
 
-    result = YtDlpMediaSource({"extract": {}}).acquire(
-        MediaAcquireRequest(
-            url="https://example.com/stale",
-            workspace_base_dir=tmp_path,
-            keep_video=False,
-        )
+    result = acquire_media(
+        YtDlpSourceProvider({"extract": {}}),
+        url="https://example.com/stale",
+        workspace_base_dir=tmp_path,
+        keep_video=False,
     )
 
     assert result.audio_path.read_bytes() == b"fresh audio"
     assert result.subtitle_path is None
     assert not (workspace / "subtitles.vtt").exists()
     assert not (workspace / "video.mp4").exists()
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    [
+        ("yt-dlp failed: Sign in to confirm your age", "authentication"),
+        ("yt-dlp not found. Install it", "local_resource"),
+    ],
+)
+def test_subtitle_adapter_preserves_hard_failure_categories(
+    monkeypatch,
+    tmp_path: Path,
+    message: str,
+    category: str,
+) -> None:
+    metadata = VideoMeta(
+        video_id="captioned",
+        title="Captioned",
+        channel="Channel",
+        manual_subtitle_languages=["en"],
+    )
+
+    def fail(*args, **kwargs):
+        raise ExtractionError(message)
+
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_subtitles_with_source", fail)
+    provider = YtDlpSourceProvider({"extract": {}})
+
+    with pytest.raises(SourceOperationError) as raised:
+        provider.execute(
+            "subtitle",
+            SourceProbe("https://example.com/video", metadata),
+            Workspace(tmp_path, "captioned"),
+        )
+
+    assert raised.value.category == category

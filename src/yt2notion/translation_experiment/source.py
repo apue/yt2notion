@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from yt2notion.translation_experiment.models import (
-    CanonicalTranscript,
     SourceBlock,
     SourceChapter,
 )
+
+if TYPE_CHECKING:
+    from yt2notion.domain import TranscriptSegment
 
 DEFAULT_BLOCK_TARGET_CHARS = 700
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?。！？])\s+")
@@ -20,7 +23,7 @@ class SourceContractError(ValueError):
 
 
 def build_source_chapters(
-    transcripts: Sequence[CanonicalTranscript],
+    transcripts: Sequence[TranscriptSegment],
     *,
     block_target_chars: int = DEFAULT_BLOCK_TARGET_CHARS,
 ) -> tuple[SourceChapter, ...]:
@@ -32,10 +35,10 @@ def build_source_chapters(
 
     chapters: list[SourceChapter] = []
     for chapter_index, transcript in enumerate(transcripts, start=1):
-        title = _required_text(transcript, "title", chapter_index)
-        source_text = _required_text(transcript, "text", chapter_index)
-        start_seconds = _required_seconds(transcript, "start_seconds", chapter_index)
-        end_seconds = _required_seconds(transcript, "end_seconds", chapter_index)
+        title = _required_text(transcript.title, "title", chapter_index)
+        source_text = _required_text(transcript.text, "text", chapter_index)
+        start_seconds = int(transcript.start_seconds)
+        end_seconds = int(transcript.end_seconds)
         if end_seconds < start_seconds:
             raise SourceContractError(f"chapter {chapter_index} ends before it starts")
 
@@ -58,18 +61,10 @@ def build_source_chapters(
     return tuple(chapters)
 
 
-def _required_text(transcript: CanonicalTranscript, field: str, chapter_index: int) -> str:
-    value = transcript.get(field)
+def _required_text(value: str, field: str, chapter_index: int) -> str:
     if not isinstance(value, str) or not value.strip():
         raise SourceContractError(f"chapter {chapter_index} has invalid {field!r}")
     return " ".join(value.split())
-
-
-def _required_seconds(transcript: CanonicalTranscript, field: str, chapter_index: int) -> int:
-    value = transcript.get(field)
-    if not isinstance(value, int | float):
-        raise SourceContractError(f"chapter {chapter_index} has invalid {field!r}")
-    return int(value)
 
 
 def _group_semantic_blocks(text: str, target_chars: int) -> list[str]:

@@ -1,18 +1,20 @@
 # yt2notion Typed Pipeline 目标架构
 
-> **文档性质：目标架构提案。** 本文不描述已经落地的事实。当前 pipeline、artifact、配置与扩展点仍以 [`PROJECT_MAP.md`](../PROJECT_MAP.md) 为唯一事实锚点；只有完成迁移的行为才能回写其中。
+> **文档性质：已批准的目标架构与边界说明。** 当前 pipeline、artifact、配置与扩展点以 [`PROJECT_MAP.md`](../PROJECT_MAP.md) 为唯一事实锚点；本文不替代实现目录或逐函数清单。
 
 ## 1. 要解决的架构问题
 
 yt2notion 已经从单一路径发展出转录、笔记、双语字幕包和翻译实验等用例。下一阶段需要让这些用例复用同一组可靠能力，而不是继续在应用服务中复制编排、恢复和观测逻辑。
 
-当前代码给出三类直接证据：
+架构批准时的代码给出三类直接证据：
 
 - 核心转录路径仍以 `list[dict]` 在 segmentation、transcription、review、workspace 之间传递数据，反序列化后缺少统一类型与校验边界。
 - `MediaSource.acquire()` 同时承担探测、来源选择、下载和 fallback，provider 操作与业务选择难以分别测试。
 - subtitle-pack 和 translation experiment 已各自实现 typed model、checkpoint 或 profile，证明这些模式有价值，也说明共享机制尚未形成。
 
 因此，本设计只解决一个核心问题：**把稳定的业务能力做成 typed nodes，由几条普通 Python pipeline 按用例组合；provider adapter 位于其下，执行、观测和恢复机制位于其侧。**
+
+> 实现状态（2026-09-19）：Phase 1–4 已落地。四条产品流使用共享 typed transcript / resumable-ASR 边界、拆分后的 acquisition planner/provider、共享 runtime/checkpoint/retry 机制与普通 Python pipeline composition。所有产品 run profile 使用 schema v2 表达嵌套 parentage 和 interruption；其余既有业务 artifact 与 checkpoint JSON schema 保持不变。
 
 ### 已确定的约束
 
@@ -116,7 +118,7 @@ subtitle、audio、video 下载属于 source adapter 的不同 operation，不�
 
 ### 3.5 Runtime 与 artifact 边界
 
-runtime 包含 `NodeExecutor`、profiler、retry、checkpoint 和 provider availability observation。它只提供机制。`Workspace` 管理本地运行目录；artifact codec 在 JSON/文件与 domain object 之间做 validation 和转换。
+runtime 包含 profiler/context、retry、checkpoint 和 provider availability observation。它只提供机制，pipeline 直接建立 node span。`Workspace` 是本仓库有意采用的具体本地 artifact 目的地；artifact codec 在 JSON/文件与 domain object 之间做 validation 和转换。
 
 兼容性留在 codec：domain 不应为了旧 JSON 保留无意义的 dict 形状，codec 则必须在初始迁移中继续读写现有 schema。
 
@@ -126,21 +128,18 @@ runtime 包含 `NodeExecutor`、profiler、retry、checkpoint 和 provider avail
 
 ### 4.1 来源与获取
 
-- `SourceRef`：已经路由到某类 source adapter 的稳定来源引用，同时保留用户输入。
 - `SourceProbe`：一次带时间点的 metadata 与 capability 观察；capability 表示“观察到可用”，不是执行成功保证。
-- `AcquisitionIntent`：pipeline 对 timed cues、audio、video 等结果的业务需求，不包含 yt-dlp 参数。
-- `AcquisitionPlan`：根据 probe 与 intent 产生的有序操作及允许的 fallback 条件。
-- `AcquiredMedia`：获取到的本地 artifact、source metadata 与 provenance；不能靠路径是否为 `None` 猜测来源。
+- `SourceOperation` tuple：planner 根据 probe 与 `keep_video` 产生的有序 operation 和 fallback 顺序。
+- `AcquiredMedia`：当前只承载 source metadata、workspace、可选本地路径与 subtitle source marker，足以保持现有行为；它不宣称提供完整 provenance graph。
 
 ### 4.2 Transcript 与内容
 
 - `SegmentSpec`：章节或 ASR 工作区间，只描述结构，不承载 transcript text。
-- `TranscriptCue`：最小时间轴证据，拥有稳定 ID、时间范围、文本和来源。
-- `TranscriptSegment`：面向阅读、校对和总结的聚合单元，可由多个 cue 组成。
-- `TranscriptArtifact`：将 source metadata、ordered cues、ordered segments 和来源信息作为一个受验证结果传递。
-- `ContentContext`：内容生成所需的有界上下文及其来源指纹，不持有 provider client。
+- `TranscriptSegment`：核心转录、校对、总结与实验流程共享的有序阅读单元。
+- `SourceCue`：仅由 subtitle-pack 拥有的稳定播放时间轴证据；不会为了架构对称而提升为未被其他流程消费的共享 domain type。
+- subtitle context artifact：subtitle-pack 所需的有界上下文及其来源指纹，不持有 provider client。
 
-`TranscriptCue` 与 `TranscriptSegment` 必须分开：topic segmentation 或 review 可以重组、改写 segment，但不能静默改动播放时间轴证据。
+`SourceCue` 与 `TranscriptSegment` 保持不同 ownership：topic segmentation 或 review 可以重组、改写 segment，但不能静默改动 subtitle-pack 的播放时间轴证据。
 
 ### 4.3 验证、质量与持久化
 
@@ -158,21 +157,18 @@ acquisition 是最先需要拆开的业务边界，因为来源能力可能变�
 ```mermaid
 sequenceDiagram
     participant P as Pipeline
-    participant R as SourceRouter
     participant A as SourceAdapter
     participant L as AcquisitionPlanner
-    participant S as ArtifactStore
+    participant W as Workspace
 
-    P->>R: route locator
-    R-->>P: SourceRef
-    P->>A: probe SourceRef
+    P->>A: probe locator
     A-->>P: SourceProbe
-    P->>L: plan probe and intent
-    L-->>P: AcquisitionPlan
-    loop until intent is satisfied or plan is exhausted
+    P->>L: plan probe and keep_video
+    L-->>P: ordered SourceOperation tuple
+    loop until an operation succeeds or plan is exhausted
         P->>A: execute operation
         alt operation succeeds
-            A->>S: persist artifact and provenance
+            A->>W: materialize requested artifact
             A-->>P: acquired result
         else declared fallback condition
             A-->>P: normalized failure
@@ -182,11 +178,11 @@ sequenceDiagram
 
 决策边界如下：
 
-1. `SourceRouter` 只识别应由哪个 adapter 处理 locator。
-2. `probe` 获取轻量 metadata/capabilities，不下载大媒体，也不做 fallback。
-3. planner 是纯策略：结合 `SourceProbe` 与 `AcquisitionIntent` 生成可离线测试的计划。
-4. adapter 执行 subtitle/audio/video 等 operation，并报告成功或归一化失败。
-5. pipeline 按 plan 解释失败；认证、无效输入、磁盘错误不能伪装成“没有字幕”。
+1. composition root 只创建当前显式配置的 yt-dlp adapter，不引入动态 router。
+2. `probe(locator)` 获取轻量 metadata/capabilities，不下载大媒体，也不做 fallback。
+3. planner 是纯策略：结合 `SourceProbe` 与 `keep_video` 生成可离线测试的 operation tuple。
+4. acquisition 拥有 workspace lifecycle、plan 解释和 fallback；adapter 只把一个指定 operation 写入传入的 `Workspace`，并报告成功或归一化失败。
+5. 认证、无效输入、磁盘错误不能伪装成“没有字幕”。
 
 这使“字幕优先、无字幕才 ASR”仍是业务规则，同时避免 pipeline 知道 cookie、format selector 或 provider CLI 细节。
 
@@ -202,7 +198,7 @@ flowchart LR
     ACQ --> KIND{Timed cues available}
     KIND -->|yes| PARSE[Parse cues]
     KIND -->|no| ASR[Transcribe audio]
-    PARSE --> BUILD[Build TranscriptArtifact]
+    PARSE --> BUILD[Build typed transcript segments]
     ASR --> BUILD
     BUILD --> WRITE[Write existing transcript artifacts]
 ```
@@ -232,7 +228,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    T[TranscriptArtifact with cues] --> CONTEXT[Build ContentContext]
+    T[Source cues from transcript artifacts] --> CONTEXT[Build bounded context]
     CONTEXT --> SOURCE{Source quality}
     SOURCE -->|manual| TRANSLATE[Translate only]
     SOURCE -->|auto or ASR| CORRECT[Correct and translate]
@@ -261,14 +257,14 @@ experiment 直接消费 typed transcript view，删除当前 application 层的 
 
 ## 7. 执行、观测与恢复
 
-### 7.1 一个统一 executor，但没有 workflow engine
+### 7.1 一个统一 observer，但没有 workflow engine
 
-pipeline 调用 `NodeExecutor` 执行有恢复或外部调用意义的 node。executor 统一处理 span、事件、技术 retry、checkpoint lookup/write 和 cancellation；简单纯函数仍可直接调用。
+每个产品 pipeline 通过 `RuntimeObserver` 建立并拥有一个 run，使用显式 node span 包裹有外部调用或恢复意义的 ordinary-Python node。service 不创建、继承或收尾产品 profile；provider operation 负责相邻的技术 retry，`CheckpointStore` 负责 checkpoint lookup/write，run context 负责 success、failure 与 interruption 收尾。简单纯函数仍可直接调用。
 
 ```mermaid
 sequenceDiagram
     participant P as Pipeline
-    participant E as NodeExecutor
+    participant E as Node boundary
     participant C as CheckpointStore
     participant N as Node
     participant A as ProviderAdapter
@@ -276,10 +272,10 @@ sequenceDiagram
 
     P->>E: execute node with typed input
     E->>O: start node span
-    E->>C: lookup identity
+    N->>C: lookup identity when resumable
     alt checkpoint hit and valid
-        C-->>E: typed output
-        E->>O: checkpoint reused
+        C-->>N: typed output
+        N->>O: checkpoint reused
     else checkpoint miss
         E->>N: invoke
         N->>O: start batch span if batched
@@ -288,13 +284,13 @@ sequenceDiagram
         A-->>N: typed result or failure
         N->>O: finish batch span
         N-->>E: typed output
-        E->>C: write validated checkpoint
+        N->>C: write validated checkpoint
     end
     E->>O: finish node span
     E-->>P: typed output
 ```
 
-executor 明确不做拓扑排序、node discovery、业务 fallback 或 publish 决策。
+runtime boundary 明确不做拓扑排序、node discovery、业务 fallback 或 publish 决策。
 
 ### 7.2 Profiler 与 progress events
 
@@ -302,7 +298,7 @@ executor 明确不做拓扑排序、node discovery、业务 fallback 或 publish
 
 profile 只记录关联 ID、operation、状态、耗时、数量、provider/backend 标签、retry/fallback/checkpoint 结果和归一化错误类别。prompt、字幕正文、cookie、token 与 provider 原始响应不得进入 profile。
 
-同一组 typed events 同时驱动 CLI progress 和结构化 profile。node 不直接打印 UI 文本。
+结构化 profile 由 content-free runtime observations 驱动；既有 CLI progress callback 独立保留，以维持当前用户可见输出契约。业务 node 不把正文或 secret 写入任一观测通道。
 
 ### 7.3 Provider availability 与 health
 
@@ -318,7 +314,7 @@ availability 可以帮助 runtime 决定是否等待或立即报告失败，但�
 
 三个概念必须分开：
 
-- **technical retry**：相同语义输入、相同 operation 内处理明确的 transient failure；由 executor/adapter 机制执行。
+- **technical retry**：相同语义输入、相同 operation 内处理明确的 transient failure；由 provider operation/adapter 在调用附近执行。
 - **checkpoint/resume**：复用已经验证、identity 完全匹配的输出；损坏或过期 checkpoint 视为 miss，而不是成功。
 - **business fallback**：改用另一来源、backend 或处理策略；由 pipeline/plan 显式选择并记录 provenance。
 
@@ -388,7 +384,7 @@ checkpoint identity 必须覆盖所有影响输出的因素，例如输入 conte
 
 ### Phase 2：split acquisition
 
-从 `MediaSource.acquire()` 中分离 router、probe、planner 和 operation execution，先保留现有 source provider。
+本节记录迁移时的历史起点：从当时的 `MediaSource.acquire()` 分离 probe、planner 和 operation execution，最终收敛为单 provider factory、纯 operation tuple planner 与 acquisition-owned workspace lifecycle。
 
 **验收：**acquisition plan 可纯离线测试；字幕到 audio/video 的 fallback 显式；认证或本地错误不会被当成 capability 缺失。
 
@@ -396,7 +392,7 @@ checkpoint identity 必须覆盖所有影响输出的因素，例如输入 conte
 
 把专项流程中已经存在的 profile/checkpoint 经验收敛到 executor、events、checkpoint identity 和 artifact codecs，再逐条迁移 node。
 
-**验收：**所有外部调用可关联到 run/node/provider attempt；checkpoint reuse 不比当前宽松；profile 无内容或 secret；既有 artifact schema 保持。
+**验收：**所有外部调用可关联到 run/node/provider attempt；checkpoint reuse 不比当前宽松；profile 无内容或 secret；业务 artifact/checkpoint schema 保持，profile 如需表达新增观测语义则明确版本化。
 
 ### Phase 4：ordinary Python pipelines
 
@@ -413,7 +409,7 @@ checkpoint identity 必须覆盖所有影响输出的因素，例如输入 conte
 - pipeline 是普通 Python，业务 fallback 在代码中显式可见。
 - adapter 不决定跨 provider 或跨来源的业务顺序。
 - executor/profiler/checkpoint 可被多条 pipeline 复用，但不拥有拓扑。
-- cue timeline 不会被 topic segmentation、review 或 LLM 静默改变。
+- subtitle-pack 的 `SourceCue` timeline 不会被 topic segmentation、review 或 LLM 静默改变。
 - 初始 artifact JSON schema 与当前消费者兼容。
 - source credit（频道、标题、URL）仍是所有用户输出的不变量。
 - 只有显式 `process` 能进入 publish；publish 不被盲目自动重试。

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from yt2notion.transcribe import create_fallback_transcriber, create_transcriber
+from yt2notion.transcribe import (
+    create_fallback_transcriber,
+    create_transcriber,
+    create_transcription_engine,
+)
 
 
 def test_create_transcriber_remote_backend_with_endpoint() -> None:
@@ -114,3 +118,31 @@ def test_create_transcriber_groq_requires_api_key(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with pytest.raises(ValueError, match="GROQ API key required"):
         create_transcriber({"extract": {"asr": {"backend": "groq", "groq": {"api_key": ""}}}})
+
+
+def test_transcription_engine_factory_memoizes_fallback_adapter(monkeypatch) -> None:
+    fallback = object()
+    calls = 0
+
+    def create_fallback(config: dict) -> object:
+        nonlocal calls
+        calls += 1
+        return fallback
+
+    monkeypatch.setattr("yt2notion.transcribe.create_fallback_transcriber", create_fallback)
+    engine = create_transcription_engine(
+        {
+            "extract": {
+                "asr": {
+                    "backend": "groq",
+                    "fallback_backend": "remote",
+                }
+            }
+        }
+    )
+
+    factory = engine._fallback_transcriber_factory
+    assert factory is not None
+    assert factory() is fallback
+    assert factory() is fallback
+    assert calls == 1

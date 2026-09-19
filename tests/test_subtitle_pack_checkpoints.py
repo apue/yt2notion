@@ -11,6 +11,7 @@ from tests.subtitle_pack_support import (
     context_response,
     generation_response,
     make_transcription,
+    run_subtitle_service,
     successful_caller,
 )
 from yt2notion.subtitle_pack import workflow as workflow_module
@@ -22,19 +23,25 @@ if TYPE_CHECKING:
 
 def test_context_checkpoint_is_invalidated_when_metadata_changes(tmp_path: Path) -> None:
     transcription = make_transcription(tmp_path, source_kind="manual_subtitle")
-    SubtitlePackService(
-        successful_caller(),
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(transcription)
+    run_subtitle_service(
+        SubtitlePackService(
+            successful_caller(),
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        transcription,
+    )
 
     transcription.metadata.description = "A different course and lecturer."
     second_caller = ScriptedSubtitleCaller(context_response(), generation_response(), "[]")
-    SubtitlePackService(
-        second_caller,
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(transcription)
+    run_subtitle_service(
+        SubtitlePackService(
+            second_caller,
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        transcription,
+    )
 
     assert len(second_caller.calls) == 3
     context = json.loads(
@@ -47,11 +54,14 @@ def test_generation_strategy_change_invalidates_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     transcription = make_transcription(tmp_path, source_kind="manual_subtitle")
-    SubtitlePackService(
-        successful_caller(),
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(transcription)
+    run_subtitle_service(
+        SubtitlePackService(
+            successful_caller(),
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        transcription,
+    )
     checkpoint_path = transcription.workspace.dir / "subtitle_checkpoints" / "batch-0001.json"
     first_identity = json.loads(checkpoint_path.read_text(encoding="utf-8"))["identity"]
 
@@ -61,11 +71,14 @@ def test_generation_strategy_change_invalidates_checkpoint(
         workflow_module._GENERATION_BATCH_CHAR_BUDGET - 1,
     )
     second_caller = ScriptedSubtitleCaller(generation_response(), "[]")
-    SubtitlePackService(
-        second_caller,
-        model_label="fake:model",
-        target_language="zh-CN",
-    ).run(transcription)
+    run_subtitle_service(
+        SubtitlePackService(
+            second_caller,
+            model_label="fake:model",
+            target_language="zh-CN",
+        ),
+        transcription,
+    )
 
     second_identity = json.loads(checkpoint_path.read_text(encoding="utf-8"))["identity"]
     assert len(second_caller.calls) == 2

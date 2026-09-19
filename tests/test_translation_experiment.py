@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from yt2notion.domain import TranscriptSegment
 from yt2notion.models.base import VideoMeta
 from yt2notion.translation_experiment.artifacts import (
     load_candidate_checkpoint,
@@ -41,23 +42,23 @@ class FakeCaller:
         return self.responses.pop(0)
 
 
-def _transcripts() -> list[dict]:
-    return [
-        {
-            "title": "Sets",
-            "start_seconds": 0,
-            "end_seconds": 60,
-            "text": "A sample space contains outcomes. An event is a subset of that space.",
-            "source": "manual_subtitle",
-        },
-        {
-            "title": "Examples",
-            "start_seconds": 60,
-            "end_seconds": 120,
-            "text": "Roll a die. The even outcomes form one event.",
-            "source": "manual_subtitle",
-        },
-    ]
+def _transcripts() -> tuple[TranscriptSegment, ...]:
+    return (
+        TranscriptSegment(
+            title="Sets",
+            start_seconds=0,
+            end_seconds=60,
+            text="A sample space contains outcomes. An event is a subset of that space.",
+            source="manual_subtitle",
+        ),
+        TranscriptSegment(
+            title="Examples",
+            start_seconds=60,
+            end_seconds=120,
+            text="Roll a die. The even outcomes form one event.",
+            source="manual_subtitle",
+        ),
+    )
 
 
 def test_build_source_chapters_creates_stable_semantic_block_ids():
@@ -76,16 +77,16 @@ def test_build_source_chapters_rejects_empty_transcript():
 def test_final_text_gate_requires_explicit_big_and_little_omega_symbols():
     chapters = build_source_chapters(
         [
-            {
-                "title": "Notation",
-                "start_seconds": 0,
-                "end_seconds": 30,
-                "text": (
+            TranscriptSegment(
+                title="Notation",
+                start_seconds=0,
+                end_seconds=30,
+                text=(
                     "The sample space is big omega. "
                     "A specific element is little omega in big omega."
                 ),
-                "source": "manual_subtitle",
-            }
+                source="manual_subtitle",
+            )
         ]
     )
 
@@ -104,13 +105,13 @@ def test_final_text_gate_requires_explicit_big_and_little_omega_symbols():
 def test_final_text_gate_accepts_spaced_and_hyphenated_case_cues():
     chapters = build_source_chapters(
         [
-            {
-                "title": "ASR notation",
-                "start_seconds": 0,
-                "end_seconds": 20,
-                "text": "Use upper case omega for the space and lower-case omega for an outcome.",
-                "source": "automatic_caption",
-            }
+            TranscriptSegment(
+                title="ASR notation",
+                start_seconds=0,
+                end_seconds=20,
+                text="Use upper case omega for the space and lower-case omega for an outcome.",
+                source="automatic_caption",
+            )
         ]
     )
 

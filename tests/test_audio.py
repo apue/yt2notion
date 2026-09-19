@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from yt2notion.audio import AudioError, extract_audio_from_video, get_duration, split_audio
+from yt2notion.domain import SegmentSpec
 
 
 @patch("yt2notion.audio.subprocess.run")
@@ -58,8 +59,8 @@ def test_split_audio(mock_run, tmp_path):
     out_dir = tmp_path / "segments"
 
     segments = [
-        {"start_seconds": 0, "end_seconds": 300},
-        {"start_seconds": 300, "end_seconds": 600},
+        SegmentSpec(title="Part 1", start_seconds=0, end_seconds=300),
+        SegmentSpec(title="Part 2", start_seconds=300, end_seconds=600),
     ]
 
     # Make split create output files
@@ -89,7 +90,11 @@ def test_split_audio_padding(mock_run, tmp_path):
 
     mock_run.side_effect = side_effect
 
-    split_audio(audio, [{"start_seconds": 10, "end_seconds": 60}], tmp_path / "out")
+    split_audio(
+        audio,
+        [SegmentSpec(title="Part 1", start_seconds=10, end_seconds=60)],
+        tmp_path / "out",
+    )
 
     call_args = mock_run.call_args[0][0]
     ss_idx = call_args.index("-ss")
