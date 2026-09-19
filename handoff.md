@@ -2,12 +2,33 @@
 
 ## 当前任务卡
 
+- 任务：固定 yt2notion 的 Amp Runner 执行策略并配置 Mac mini checkout
+- 状态：`merge_approved`
+- 当前 owner：Codex
+- 分支：`codex/amp-runner-policy`
+- PR：[#35](https://github.com/apue/yt2notion/pull/35)
+- review 状态：merge-base 文档 review 通过；Runner ID、固定目录、无递归转派与无静默 fallback 规则均已核对；User 已授权自行合入
+- 目标：
+  - 在 `AGENTS.md` 中将 `mac-mini` 和 `/Users/yangtian/Developer/agent/yt2notion` 定义为仓库操作的首选执行位置
+  - 非 Runner 线程在能力允许时转派完整任务；Runner 不可用时停止并请求 User 决策，不静默 fallback
+  - PR 合并后在 Mac mini clone `main`，将现有 LaunchAgent 默认目录切到该 checkout
+- 约束：
+  - 不修改 pipeline、运行时行为或数据契约
+  - 不读取或输出 Amp/GitHub 凭证
+  - 不污染当前其他开发分支；通过独立 worktree、分支和 PR 交付
+  - User 已明确授权完成 review 并自行合入 PR
+- 受影响文件：`AGENTS.md`、`handoff.md`；合并后仅修改 Mac mini 用户级 LaunchAgent 和新增远端 checkout
+- 验证：`uv run --extra dev pytest tests/ -q`，284 passed、16 warnings；`git diff --check` 与策略关键字段断言通过
+- 下一步：合并 PR #35，然后配置和验证 Mac mini Runner
+
+## 上一任务卡（已合并至 main）
+
 - 任务：实现 Typed Pipeline 架构
-- 状态：`ready_for_pr_review`
+- 状态：`merged`
 - 当前 owner：Codex
 - 分支：`codex/typed-pipeline-refactor`
 - PR：[#34](https://github.com/apue/yt2notion/pull/34)
-- review 状态：typed architecture、review-fix 与 ownership 拆包已独立复核通过；最终 dependency/ownership closeout 及 transcription engine ownership split 已提交，PR #34 更新后等待复核
+- review 状态：typed architecture、review-fix、ownership 拆包与最终 closeout 已复核并合入 `main`
 - 目标：
   - 按 `docs/typed-pipeline-architecture.md` 分四个可审查阶段落地 typed transcript spine、acquisition split、shared runtime/artifact mechanisms 和普通 Python pipelines
   - 保持 CLI 行为、artifact 文件名和既有 JSON schema
@@ -30,7 +51,7 @@
 - 验证结果：engine split targeted `30 passed, 1 warning`；全量离线测试 `284 passed, 16 warnings`；`ruff check src/ tests/`、`ruff format --check src/ tests/`（111 files）、`git diff --check`、browser-extension core 与全部 JS syntax 通过；AST runtime dependency scan 检查 69 个 first-party modules（显式忽略 `TYPE_CHECKING` branches），0 cycles；stale private ownership symbol 与 extracted-module reverse-import 搜索均无结果；`workspace/` 无 Git 变更且 153 个现有文件保留
 - 最后一次自测命令：`uv run pytest tests/ -v`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`node browser-extension/tests/core.test.js`；browser-extension JS `node --check`；`git diff --check`
 - deliberate schema decision：所有 product-run profile 使用 schema v2；segments/transcripts/reviewed、resumable-ASR plan/state/chunks、subtitle/translation checkpoint 与 CLI output schema 保持兼容；raw mappings 只留在 JSON/provider/legacy config-model adapter 与 subtitle QA/workflow payload 边界
-- 下一步：等待 PR #34 最终 review；不 merge
+- 下一步：已完成
 
 ## 上一任务卡（已合并至 main）
 

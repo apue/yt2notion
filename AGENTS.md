@@ -39,6 +39,14 @@
 
 `yt2notion` 是一个媒体内容处理 CLI 管道：输入 YouTube / Podcast URL，经过字幕提取或 ASR、章节/话题切分、转录校对和总结，最终可显式发布 source/A/B bundle 到 Obsidian。四条产品流由普通 Python pipeline 组合共享 typed domain、acquisition 和 runtime 边界；只有显式 `process` 可进入发布。完整的 pipeline、artifact 与分支规则以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为准。
 
+## Amp Runner 执行策略
+
+- 任何需要读取或修改本仓库 checkout、运行命令、执行测试或进行 code review 的任务，优先在 Amp Runner `mac-mini` 上执行。
+- `mac-mini` 上的固定工作目录是 `/Users/yangtian/Developer/agent/yt2notion`。创建 Runner 线程时使用 executor `runner:mac-mini` 和该目录；已经运行在该 Runner 和目录中的线程直接继续，不重复转派。
+- 开始仓库操作前先确认当前 executor。如果当前线程不在 `mac-mini`，且具备创建或转派 Runner 线程的能力，则将完整任务、约束和必要上下文转派过去，并停止在当前线程重复执行。
+- 如果 `mac-mini` 不在线，或当前环境没有创建 Runner 线程的能力，必须在修改文件或运行项目命令前告知 User；未经 User 明确允许，不得静默回退到本地 executor 或 Orb。
+- 纯讨论或不需要访问 checkout 的事实回答可以留在当前线程完成。
+
 默认分工如下：
 
 - Codex：默认主执行者与任务 owner；负责读取代码和文档、提出必要澄清、执行改动、运行最小充分验证、创建或更新分支/PR、处理 review comments、整理交接结果
