@@ -2,6 +2,32 @@
 
 ## 当前任务卡
 
+- 任务：Typed Node / Typed Pipeline 目标架构设计文档
+- 状态：`completed_local`
+- 当前 owner：Codex
+- 分支：`codex/typed-pipeline-architecture`
+- PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
+- review 状态：已按 User 新要求从头重写并完成本地自查；保留初稿 commit 供 review history 对比
+- 目标：
+  - 用更短、按决策展开的中文提案说明 typed capabilities/nodes、普通 Python pipelines、provider adapters 与横切 runtime 的边界
+  - 通过 system context、repository components、acquisition/runtime sequences、focused pipeline flows 和 recovery flow 渐进展示架构
+  - 保持既有 JSON schema 与行为，首阶段移除核心 `list[dict]` 与 translation experiment cast
+- 约束：
+  - 仅文档 / 设计，不实现运行时代码
+  - `PROJECT_MAP.md` 继续作为当前实现唯一事实锚点，不把提议架构写成已落地事实
+  - 自动测试策略仅允许离线 contract tests；不调用 YouTube / ASR / LLM / Obsidian
+  - 不 push、不创建 PR、不 merge、不修改 `main`
+- 受影响文件：
+  - `docs/typed-pipeline-architecture.md`
+  - `handoff.md`
+- 重写结果：文档从 909 行缩短为 431 行；删除 exhaustive node inventory、精确 class fields/module tree/YAML schema/error taxonomy/retry matrix，将内容收敛为架构边界、交互与验收决策
+- 图表：9 个 Mermaid block（2 个 sequenceDiagram、7 个 focused flowchart），分别覆盖 system context、repository components、acquisition、4 条 pipelines、node execution/profiling 和 retry/recovery
+- 验证结果：Markdown/Mermaid fences 与图类型、相对链接、关键约束、延期决策和尾随空白检查通过；`git diff --check` 通过；未发现现成 Mermaid CLI，因此按要求未安装新依赖
+- 最后一次自测命令：`git diff --cached --check`；内联 Python 文档结构/链接/约束检查；`git diff HEAD^..HEAD --stat`；`git status --short --branch`
+- 下一步：User 对比两个本地 commits 审阅信息密度；若进入实现，单独规划 Phase 1 typed transcript spine
+
+## 上一任务卡（已合并至 main）
+
 - 任务：生成可供浏览器插件播放的 LLM 精校双语字幕
 - 状态：`ready_for_manual_validation`
 - 当前 owner：Codex
