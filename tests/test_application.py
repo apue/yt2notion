@@ -11,38 +11,39 @@ from yt2notion.config import AppConfig, ConfigError, load_config
 from yt2notion.content_preparation import ContentPreparation
 from yt2notion.domain import TranscriptSegment
 from yt2notion.media_source import (
-    MediaAcquireRequest,
-    MediaAcquireResult,
-    MediaAcquisitionError,
-    create_media_source,
+    OperationResult,
+    SourceOperationError,
+    SourceProbe,
+    SourceRef,
+    create_source_provider,
 )
 from yt2notion.models.base import NoteDocument, NoteMetadata, VideoMeta
 from yt2notion.transcribe import create_transcription_engine
 from yt2notion.workspace import Workspace
 
 
-class FakeMediaSource:
+class FakeSourceProvider:
     def __init__(self, tmp_path: Path, *, video_path: Path | None = None) -> None:
-        self.tmp_path = tmp_path
         self.video_path = video_path
-        self.requests: list[MediaAcquireRequest] = []
+        self.operations: list[str] = []
 
-    def acquire(self, request: MediaAcquireRequest) -> MediaAcquireResult:
-        self.requests.append(request)
+    def probe(self, source: SourceRef) -> SourceProbe:
         metadata = VideoMeta(
             video_id="video-1",
             title="Title",
             channel="Channel",
-            url=request.url,
+            url=source.locator,
             duration_seconds=60,
         )
-        ws = Workspace(request.workspace_base_dir, metadata.video_id)
-        ws.save_metadata(metadata)
-        audio_path = ws.dir / "audio.mp3"
+        return SourceProbe(source=source, metadata=metadata)
+
+    def execute(self, operation: str, probe: SourceProbe, workspace: Workspace) -> OperationResult:
+        self.operations.append(operation)
+        if operation == "webpage_transcript":
+            raise SourceOperationError(operation, "unavailable", "no transcript")
+        audio_path = workspace.dir / "audio.mp3"
         audio_path.write_bytes(b"audio")
-        return MediaAcquireResult(
-            metadata=metadata,
-            workspace=ws,
+        return OperationResult(
             audio_path=audio_path,
             video_path=self.video_path,
         )
@@ -92,7 +93,7 @@ class FakeStorage:
         return "obsidian://source-note"
 
 
-def test_application_prepare_uses_media_source_and_transcription_engine(
+def test_application_prepare_uses_source_provider_and_transcription_engine(
     tmp_path: Path,
 ) -> None:
     cfg = AppConfig()
@@ -103,16 +104,16 @@ def test_application_prepare_uses_media_source_and_transcription_engine(
         "old failure",
         retries_exhausted=True,
     )
-    media_source = FakeMediaSource(tmp_path)
+    source_provider = FakeSourceProvider(tmp_path)
     engine = FakeEngine()
     prepared = Yt2Notion(
         cfg,
-        media_source=media_source,
+        source_provider=source_provider,
         transcription_engine=engine,
         content_preparation=ContentPreparation(summarizer_factory=lambda config: FakeSummarizer()),
     ).prepare("https://example.com/video")
 
-    assert media_source.requests[0].keep_video is False
+    assert source_provider.operations == ["webpage_transcript", "audio"]
     assert engine.workspace_calls == 1
     assert prepared.note_bundle.source.variant == "source"
     assert prepared.workspace.load_transcripts() == _transcript("manual_subtitle")
@@ -122,15 +123,17 @@ def test_application_prepare_uses_media_source_and_transcription_engine(
 def test_application_transcribe_stops_after_transcript_artifacts(tmp_path: Path) -> None:
     cfg = AppConfig()
     cfg.workspace = {"base_dir": str(tmp_path)}
-    media_source = FakeMediaSource(tmp_path)
+    source_provider = FakeSourceProvider(tmp_path)
     engine = FakeEngine()
 
-    result = Yt2Notion(cfg, media_source=media_source, transcription_engine=engine).transcribe(
+    result = Yt2Notion(
+        cfg, source_provider=source_provider, transcription_engine=engine
+    ).transcribe(
         "https://example.com/video",
         keep_video=False,
     )
 
-    assert media_source.requests[0].keep_video is False
+    assert source_provider.operations == ["webpage_transcript", "audio"]
     assert engine.workspace_calls == 1
     assert engine.audio_calls == 0
     assert result.transcripts_path.exists()
@@ -143,27 +146,28 @@ def test_application_transcribe_uses_shared_workspace_transcription(tmp_path: Pa
     cfg = AppConfig()
     cfg.workspace = {"base_dir": str(tmp_path)}
 
-    class SubtitleMediaSource:
-        def acquire(self, request: MediaAcquireRequest) -> MediaAcquireResult:
+    class SubtitleSourceProvider:
+        def probe(self, source: SourceRef) -> SourceProbe:
             metadata = VideoMeta(
                 video_id="captioned-video",
                 title="Captioned",
                 channel="Channel",
-                url=request.url,
+                url=source.locator,
                 duration_seconds=60,
                 manual_subtitle_languages=["en"],
             )
-            ws = Workspace(request.workspace_base_dir, metadata.video_id)
-            ws.save_metadata(metadata)
-            subtitle_path = ws.dir / "subtitles.srt"
+            return SourceProbe(source=source, metadata=metadata)
+
+        def execute(
+            self, operation: str, probe: SourceProbe, workspace: Workspace
+        ) -> OperationResult:
+            subtitle_path = workspace.dir / "subtitles.srt"
             subtitle_path.write_text(
                 "1\n00:00:00,000 --> 00:00:01,000\nHello\n",
                 encoding="utf-8",
             )
-            ws.save_subtitle_source("manual_subtitle")
-            return MediaAcquireResult(
-                metadata=metadata,
-                workspace=ws,
+            workspace.save_subtitle_source("manual_subtitle")
+            return OperationResult(
                 subtitle_path=subtitle_path,
                 subtitle_source="manual_subtitle",
             )
@@ -171,7 +175,7 @@ def test_application_transcribe_uses_shared_workspace_transcription(tmp_path: Pa
     engine = FakeEngine()
     result = Yt2Notion(
         cfg,
-        media_source=SubtitleMediaSource(),
+        source_provider=SubtitleSourceProvider(),
         transcription_engine=engine,
     ).transcribe("https://example.com/captioned", keep_video=False)
 
@@ -195,30 +199,37 @@ def test_application_transcribe_returns_media_source_video_path(tmp_path: Path) 
 
     result = Yt2Notion(
         cfg,
-        media_source=FakeMediaSource(tmp_path, video_path=provider_video),
+        source_provider=FakeSourceProvider(tmp_path, video_path=provider_video),
         transcription_engine=FakeEngine(),
     ).transcribe("https://example.com/video")
 
     assert result.video_path == provider_video
 
 
-def test_application_records_media_acquisition_failure(tmp_path: Path) -> None:
+def test_application_records_source_acquisition_failure(tmp_path: Path) -> None:
     cfg = AppConfig()
     cfg.workspace = {"base_dir": str(tmp_path)}
-    ws = Workspace(tmp_path, "failed-video")
 
-    class FailingMediaSource:
-        def acquire(self, request: MediaAcquireRequest) -> MediaAcquireResult:
-            raise MediaAcquisitionError(ws, RuntimeError("download failed"))
+    class FailingSourceProvider:
+        def probe(self, source: SourceRef) -> SourceProbe:
+            return SourceProbe(
+                source=source,
+                metadata=VideoMeta("failed-video", "Title", "Channel", url=source.locator),
+            )
+
+        def execute(
+            self, operation: str, probe: SourceProbe, workspace: Workspace
+        ) -> OperationResult:
+            raise SourceOperationError(operation, "provider", "download failed")
 
     with pytest.raises(RuntimeError, match="download failed"):
         Yt2Notion(
             cfg,
-            media_source=FailingMediaSource(),
+            source_provider=FailingSourceProvider(),
             transcription_engine=FakeEngine(),
         ).prepare("https://example.com/video")
 
-    assert ws.load_failure()["step"] == "download"
+    assert Workspace(tmp_path, "failed-video").load_failure()["step"] == "download"
 
 
 def test_application_records_transcription_failure(tmp_path: Path) -> None:
@@ -232,7 +243,7 @@ def test_application_records_transcription_failure(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="ASR unavailable"):
         Yt2Notion(
             cfg,
-            media_source=FakeMediaSource(tmp_path),
+            source_provider=FakeSourceProvider(tmp_path),
             transcription_engine=FailingEngine(),
         ).transcribe("https://example.com/video")
 
@@ -253,7 +264,7 @@ def test_application_transcribe_clears_stale_failure_on_success(tmp_path: Path) 
 
     result = Yt2Notion(
         cfg,
-        media_source=FakeMediaSource(tmp_path),
+        source_provider=FakeSourceProvider(tmp_path),
         transcription_engine=FakeEngine(),
     ).transcribe("https://example.com/video")
 
@@ -264,13 +275,13 @@ def test_application_process_uses_injected_storage_adapter(tmp_path: Path) -> No
     cfg = AppConfig()
     cfg.workspace = {"base_dir": str(tmp_path)}
     cfg.storage = {"backend": "obsidian"}
-    media_source = FakeMediaSource(tmp_path)
+    source_provider = FakeSourceProvider(tmp_path)
     engine = FakeEngine()
     storage = FakeStorage()
 
     result = Yt2Notion(
         cfg,
-        media_source=media_source,
+        source_provider=source_provider,
         transcription_engine=engine,
         content_preparation=ContentPreparation(summarizer_factory=lambda config: FakeSummarizer()),
         storage_factory=lambda config: storage,
@@ -296,9 +307,9 @@ def test_invalid_media_source_config_shape_raises_config_error(tmp_path: Path) -
         load_config(str(cfg_file))
 
 
-def test_unknown_media_source_factory_backend_raises() -> None:
+def test_unknown_source_provider_factory_backend_raises() -> None:
     with pytest.raises(ValueError, match="Unknown media-source backend"):
-        create_media_source({"extract": {"media_source": {"backend": "nope"}}})
+        create_source_provider({"extract": {"media_source": {"backend": "nope"}}})
 
 
 def test_transcription_engine_factory_memoizes_fallback_adapter(monkeypatch) -> None:

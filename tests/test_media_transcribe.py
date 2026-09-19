@@ -75,6 +75,7 @@ def test_transcribe_media_writes_workspace_artifacts(monkeypatch, tmp_path: Path
 
     transcript_text = "hello"
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_metadata", lambda url: metadata)
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_webpage_transcript", lambda *args: [])
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_video", fake_extract_video)
     monkeypatch.setattr(
         "yt2notion.media_source.ytdlp.extract_audio_from_video",
@@ -125,6 +126,7 @@ def test_transcribe_media_no_video_clears_stale_video_and_markdown(
         return path
 
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_metadata", lambda url: metadata)
+    monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_webpage_transcript", lambda *args: [])
     monkeypatch.setattr("yt2notion.media_source.ytdlp.extract_audio", fake_extract_audio)
     monkeypatch.setattr(
         "yt2notion.transcribe.engine.TranscriptionEngine.transcribe_audio",

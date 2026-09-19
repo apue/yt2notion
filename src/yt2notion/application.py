@@ -15,10 +15,11 @@ from yt2notion.content_preparation import (
     render_prepared_output,
 )
 from yt2notion.media_source import (
-    MediaAcquireRequest,
-    MediaAcquisitionError,
-    MediaSource,
-    create_media_source,
+    AcquisitionError,
+    AcquisitionRequest,
+    SourceProvider,
+    acquire_media,
+    create_source_provider,
 )
 from yt2notion.storage import create_storage
 from yt2notion.timing import StageTimer
@@ -82,7 +83,7 @@ class Yt2Notion:
         self,
         config: AppConfig,
         *,
-        media_source: MediaSource | None = None,
+        source_provider: SourceProvider | None = None,
         transcription_engine: TranscriptionEngine | None = None,
         content_preparation: ContentPreparation | None = None,
         storage_factory: Callable[[dict], Storage] = create_storage,
@@ -97,7 +98,7 @@ class Yt2Notion:
             "credit": config.credit,
             "output": config.output,
         }
-        self.media_source = media_source
+        self.source_provider = source_provider
         self.transcription_engine = transcription_engine or create_transcription_engine(
             self.raw_config
         )
@@ -131,15 +132,16 @@ class Yt2Notion:
         try:
             if start_idx <= 0:
                 emit_progress(progress_callback, "download", "started")
-                source = self._media_source(verbose=verbose)
+                provider = self._source_provider(verbose=verbose)
                 try:
-                    acquired = source.acquire(
-                        MediaAcquireRequest(
+                    acquired = acquire_media(
+                        provider,
+                        AcquisitionRequest(
                             url=url,
                             workspace_base_dir=self._workspace_base(workspace_dir),
-                        )
+                        ),
                     )
-                except MediaAcquisitionError as failure:
+                except AcquisitionError as failure:
                     ws = failure.workspace
                     raise failure.cause from failure
                 metadata = acquired.metadata
@@ -292,21 +294,22 @@ class Yt2Notion:
         verbose: bool = False,
     ) -> MediaTranscribeResult:
         """Acquire captions or media and stop after local transcript artifacts."""
-        source = self._media_source(verbose=verbose)
+        provider = self._source_provider(verbose=verbose)
         timer = StageTimer()
         ws: Workspace | None = None
         current_step = "download"
         try:
             with timer.measure("acquire"):
                 try:
-                    acquired = source.acquire(
-                        MediaAcquireRequest(
+                    acquired = acquire_media(
+                        provider,
+                        AcquisitionRequest(
                             url=url,
                             workspace_base_dir=self._workspace_base(workspace_dir),
                             keep_video=keep_video,
-                        )
+                        ),
                     )
-                except MediaAcquisitionError as failure:
+                except AcquisitionError as failure:
                     ws = failure.workspace
                     raise failure.cause from failure
             ws = acquired.workspace
@@ -434,10 +437,10 @@ class Yt2Notion:
         workspace_base = workspace_dir or self.config.workspace.get("base_dir", "./workspace")
         return Path(workspace_base).expanduser()
 
-    def _media_source(self, *, verbose: bool) -> MediaSource:
-        if self.media_source is not None:
-            return self.media_source
-        return create_media_source(self.raw_config, verbose=verbose)
+    def _source_provider(self, *, verbose: bool) -> SourceProvider:
+        if self.source_provider is not None:
+            return self.source_provider
+        return create_source_provider(self.raw_config, verbose=verbose)
 
     def _resume_workspace(
         self,
@@ -478,6 +481,6 @@ def create_yt2notion(config: AppConfig, *, verbose: bool = False) -> Yt2Notion:
     }
     return Yt2Notion(
         config,
-        media_source=create_media_source(raw_config, verbose=verbose),
+        source_provider=create_source_provider(raw_config, verbose=verbose),
         transcription_engine=create_transcription_engine(raw_config),
     )

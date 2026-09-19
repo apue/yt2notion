@@ -3,7 +3,7 @@
 ## 当前任务卡
 
 - 任务：实现 Typed Pipeline 架构
-- 状态：`phase_1_ready_to_commit`
+- 状态：`phase_2_ready_to_commit`
 - 当前 owner：Codex
 - 分支：`codex/typed-pipeline-refactor`
 - PR：未创建（User 明确要求仅本地提交，不 push / PR / merge）
@@ -18,10 +18,11 @@
   - 不改 prompt Markdown 结构，不自动发布，不改 main
   - 不 push、不创建 PR、不 merge、不修改 `main`
 - 起点：branch/HEAD/origin-main 均为 `2849205eac2c4c118866cf9e0b135f0e4af50d1b`；启动时 worktree 无 tracked changes
-- Phase 1：新增 `SegmentSpec` / `TranscriptCue` / `TranscriptSegment` / `TranscriptArtifact` 和严格 JSON codecs；workspace、segmentation、transcription、review、note、subtitle-pack fallback 与 translation experiment 已使用 typed transcript spine；既有 segments/transcripts/reviewed JSON shape 保持；application cast 已删除
-- 验证结果：全量离线测试 `259 passed`；Phase 1 targeted `86 passed`；受影响文件 ruff check/format check 通过；core 搜索仅余 transcribe plan/chunk checkpoint、LLM response 等显式 codec/provider raw dict
-- 最后一次自测命令：`uv run pytest tests/ -q`；Phase 1 targeted pytest；受影响范围 `ruff check` / `ruff format --check`；`git diff --check`
-- 下一步：提交 Phase 1，进入 acquisition split
+- Phase 1（commit `075ef4b`）：新增 `SegmentSpec` / `TranscriptCue` / `TranscriptSegment` / `TranscriptArtifact` 和严格 JSON codecs；workspace、segmentation、transcription、review、note、subtitle-pack fallback 与 translation experiment 已使用 typed transcript spine；既有 segments/transcripts/reviewed JSON shape 保持；application cast 已删除
+- Phase 2：拆分 `SourceRef` 路由、轻量 `SourceProbe`、纯 `plan_acquisition`、`SourceProvider` operation adapter 和 plan executor；当前仅有显式 yt-dlp provider；字幕/webpage/audio/video fallback 由 planner 决定，adapter 保留 cookie、keep-video、workspace artifact 与 CLI verbose 行为；authentication/local-resource 不会被当成字幕缺失
+- 验证结果：全量离线测试 `267 passed, 16 warnings`；acquisition/application/yt-dlp/media-transcribe targeted `30 passed`；`ruff check src/ tests/` 通过；format 已应用并待最终 check；`git diff --check` 通过
+- 最后一次自测命令：`uv run pytest tests/ -q`；targeted acquisition pytest；`uv run ruff check src/ tests/`；`uv run ruff format tests/test_media_transcribe.py`；`git diff --check`
+- 下一步：提交 Phase 2，进入 shared runtime/artifact mechanisms
 
 ## 上一任务卡（已合并至 main）
 

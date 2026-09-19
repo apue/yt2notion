@@ -1,0 +1,77 @@
+"""Pure acquisition planning and plan execution."""
+
+from __future__ import annotations
+
+import hashlib
+
+from yt2notion.media_source.base import (
+    AcquiredMedia,
+    AcquisitionError,
+    AcquisitionIntent,
+    AcquisitionPlan,
+    AcquisitionRequest,
+    SourceOperation,
+    SourceOperationError,
+    SourceProbe,
+    SourceProvider,
+    SourceRef,
+)
+from yt2notion.workspace import Workspace
+
+
+def route_source(locator: str) -> SourceRef:
+    """Route a locator to the only currently supported source provider."""
+    if not locator.strip():
+        raise ValueError("source locator must not be empty")
+    return SourceRef(locator=locator)
+
+
+def plan_acquisition(probe: SourceProbe, intent: AcquisitionIntent) -> AcquisitionPlan:
+    """Create deterministic subtitle/webpage/media fallback policy."""
+    operations: list[SourceOperation] = []
+    if probe.subtitles_available:
+        operations.append("subtitle")
+    operations.append("webpage_transcript")
+    operations.append("video" if intent.keep_video else "audio")
+    return AcquisitionPlan(operations=tuple(operations))
+
+
+def acquire_media(provider: SourceProvider, request: AcquisitionRequest) -> AcquiredMedia:
+    """Probe once and execute the pure acquisition plan until it is satisfied."""
+    source = route_source(request.url)
+    probe = provider.probe(source)
+    workspace_id = probe.metadata.video_id or _stable_workspace_id(
+        probe.metadata.url or request.url
+    )
+    workspace = Workspace(request.workspace_base_dir, workspace_id)
+    try:
+        workspace.discard_acquisition_artifacts()
+        workspace.save_metadata(probe.metadata)
+        plan = plan_acquisition(probe, AcquisitionIntent(keep_video=request.keep_video))
+        unavailable: SourceOperationError | None = None
+        for operation in plan.operations:
+            try:
+                result = provider.execute(operation, probe, workspace)
+            except SourceOperationError as exc:
+                if exc.category != "unavailable":
+                    raise
+                unavailable = exc
+                continue
+            return AcquiredMedia(
+                metadata=probe.metadata,
+                workspace=workspace,
+                audio_path=result.audio_path or workspace.audio_path,
+                subtitle_path=result.subtitle_path or workspace.subtitle_path,
+                subtitle_source=result.subtitle_source or workspace.load_subtitle_source(),
+                video_path=result.video_path,
+            )
+        if unavailable is not None:
+            raise unavailable
+        raise SourceOperationError("plan", "provider", "acquisition plan produced no artifact")
+    except Exception as exc:
+        raise AcquisitionError(workspace, exc) from exc
+
+
+def _stable_workspace_id(value: str) -> str:
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
+    return f"media-{digest}"
