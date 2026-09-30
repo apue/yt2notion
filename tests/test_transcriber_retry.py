@@ -48,26 +48,6 @@ def test_transcribe_retries_connect_error_then_succeeds(tmp_path: Path) -> None:
     assert mock_post.call_count == 2
 
 
-def test_transcribe_retries_5xx_then_succeeds(tmp_path: Path) -> None:
-    audio_file = _make_audio_file(tmp_path)
-    request = _make_request()
-    success_response = httpx.Response(
-        200,
-        request=request,
-        json={"segments": [{"start": 0.0, "end": 1.0, "text": "hello"}]},
-    )
-
-    with patch("yt2notion.transcribe.remote.httpx.post") as mock_post:
-        mock_post.side_effect = [httpx.Response(503, request=request), success_response]
-
-        transcriber = RemoteTranscriber(endpoint="http://localhost:8930")
-        entries = transcriber.transcribe(audio_file)
-
-    assert len(entries) == 1
-    assert entries[0].text == "hello"
-    assert mock_post.call_count == 2
-
-
 def test_transcribe_exhausts_retries_on_connect_error(tmp_path: Path) -> None:
     audio_file = _make_audio_file(tmp_path)
 

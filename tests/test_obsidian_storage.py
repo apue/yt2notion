@@ -57,17 +57,11 @@ def bundle() -> NoteBundle:
     ("title", "expected"),
     [
         ('foo/bar\\baz:qux*"<>|', "foobarbazqux"),
-        ("foo[bar]#baz", "foobarbaz"),
-        ("如何理解 GPT 模型", "如何理解 GPT 模型"),
         (":::", "Untitled"),
     ],
 )
 def test_sanitize_title(title: str, expected: str) -> None:
     assert _sanitize_title(title) == expected
-
-
-def test_sanitize_title_truncates() -> None:
-    assert len(_sanitize_title("A" * 200)) == 100
 
 
 def test_invalid_vault_path(tmp_path: Path) -> None:
@@ -107,17 +101,6 @@ def test_save_bundle_writes_three_linked_notes(
     assert "轻索引内容。" in source_text
     assert "A 版内容。" in guide_text
     assert "B 版内容。" in longform_text
-
-
-def test_save_bundle_uses_metadata_title_for_filename(
-    tmp_path: Path,
-    metadata: VideoMeta,
-    bundle: NoteBundle,
-) -> None:
-    result = Path(ObsidianStorage(str(tmp_path)).save_note_bundle(bundle, metadata))
-
-    assert _sanitize_title(metadata.title) in result.name
-    assert _sanitize_title(bundle.source.title) not in result.name
 
 
 def test_save_bundle_resolves_three_file_conflicts_together(

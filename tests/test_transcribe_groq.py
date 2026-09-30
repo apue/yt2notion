@@ -66,24 +66,6 @@ def test_success_parses_segments(tmp_path, monkeypatch):
     assert result[1].text == "world"
 
 
-def test_empty_segments_returns_empty_list(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path)
-    monkeypatch.setattr(
-        "yt2notion.transcribe.groq.httpx.post",
-        lambda *a, **k: _http_response(200, json_body={"segments": []}),
-    )
-    assert GroqTranscriber(api_key="k").transcribe(audio) == []
-
-
-def test_missing_segments_field_returns_empty(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path)
-    monkeypatch.setattr(
-        "yt2notion.transcribe.groq.httpx.post",
-        lambda *a, **k: _http_response(200, json_body={}),
-    )
-    assert GroqTranscriber(api_key="k").transcribe(audio) == []
-
-
 def test_429_with_retry_after_raises_hourly_limit(tmp_path, monkeypatch):
     audio = _make_audio(tmp_path)
     calls = []
@@ -116,21 +98,6 @@ def test_429_without_hint_defaults_to_hourly_limit(tmp_path, monkeypatch):
     assert exc.value.retry_after_seconds == 3600
 
 
-def test_429_with_invalid_retry_after_defaults_to_hourly_limit(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path)
-    monkeypatch.setattr(
-        "yt2notion.transcribe.groq.httpx.post",
-        lambda *a, **k: _http_response(
-            429,
-            json_body={"error": {"message": "rate limit"}},
-            headers={"retry-after": "not-a-number"},
-        ),
-    )
-    with pytest.raises(TranscriptionHourlyLimitError) as exc:
-        GroqTranscriber(api_key="k").transcribe(audio)
-    assert exc.value.retry_after_seconds == 3600
-
-
 def test_429_daily_limit_message_raises_daily_limit(tmp_path, monkeypatch):
     audio = _make_audio(tmp_path)
     monkeypatch.setattr(
@@ -141,19 +108,6 @@ def test_429_daily_limit_message_raises_daily_limit(tmp_path, monkeypatch):
         ),
     )
     with pytest.raises(TranscriptionDailyLimitError):
-        GroqTranscriber(api_key="k").transcribe(audio)
-
-
-def test_429_today_message_without_daily_phrase_stays_hourly(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path)
-    monkeypatch.setattr(
-        "yt2notion.transcribe.groq.httpx.post",
-        lambda *a, **k: _http_response(
-            429,
-            json_body={"error": {"message": "Rate limit hit today, retry after 60 seconds"}},
-        ),
-    )
-    with pytest.raises(TranscriptionHourlyLimitError):
         GroqTranscriber(api_key="k").transcribe(audio)
 
 
@@ -189,18 +143,6 @@ def test_401_raises_transcription_error_not_subclass(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "yt2notion.transcribe.groq.httpx.post",
         lambda *a, **k: _http_response(401, json_body={"error": "auth"}),
-    )
-    with pytest.raises(TranscriptionError) as exc:
-        GroqTranscriber(api_key="k").transcribe(audio)
-    assert not isinstance(exc.value, TranscriptionQuotaError)
-    assert not isinstance(exc.value, TranscriptionServerError)
-
-
-def test_400_raises_transcription_error(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path)
-    monkeypatch.setattr(
-        "yt2notion.transcribe.groq.httpx.post",
-        lambda *a, **k: _http_response(400, json_body={"error": "bad"}),
     )
     with pytest.raises(TranscriptionError) as exc:
         GroqTranscriber(api_key="k").transcribe(audio)
@@ -277,36 +219,3 @@ def test_multipart_m4a_uses_audio_mp4_mime(tmp_path, monkeypatch):
     payload = captured["file_payload"]
     assert payload[0] == "episode.m4a"
     assert payload[2] == "audio/mp4"
-
-
-def test_multipart_mp3_uses_audio_mpeg_mime(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path, filename="episode.mp3")
-    captured: dict = {}
-
-    def fake_post(url, *, files, data, headers, timeout):
-        captured["file_payload"] = files["file"]
-        return _http_response(200, json_body={"segments": []})
-
-    monkeypatch.setattr("yt2notion.transcribe.groq.httpx.post", fake_post)
-    GroqTranscriber(api_key="k").transcribe(audio)
-
-    payload = captured["file_payload"]
-    assert payload[0] == "episode.mp3"
-    assert payload[2] == "audio/mpeg"
-
-
-def test_multipart_unknown_suffix_omits_or_uses_octet_stream(tmp_path, monkeypatch):
-    audio = _make_audio(tmp_path, filename="episode.foo")
-    captured: dict = {}
-
-    def fake_post(url, *, files, data, headers, timeout):
-        captured["file_payload"] = files["file"]
-        return _http_response(200, json_body={"segments": []})
-
-    monkeypatch.setattr("yt2notion.transcribe.groq.httpx.post", fake_post)
-    GroqTranscriber(api_key="k").transcribe(audio)
-
-    payload = captured["file_payload"]
-    assert payload[0] == "episode.foo"
-    if len(payload) == 3:
-        assert payload[2] == "application/octet-stream"

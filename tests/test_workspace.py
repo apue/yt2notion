@@ -14,13 +14,7 @@ from yt2notion.transcribe.contracts import (
     TranscribeChunkState,
     TranscribeState,
 )
-from yt2notion.workspace import STEPS, Workspace
-
-
-def test_workspace_creation(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert ws.dir == tmp_path / "test123"
-    assert ws.dir.exists()
+from yt2notion.workspace import Workspace
 
 
 def test_metadata_roundtrip(tmp_path):
@@ -84,28 +78,6 @@ def test_step_done(tmp_path):
     assert ws.step_done("download")
 
 
-def test_audio_path(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert ws.audio_path is None
-
-    audio = tmp_path / "source.mp3"
-    audio.write_bytes(b"fake audio")
-    saved = ws.save_audio(audio)
-    assert ws.audio_path == saved
-    assert saved.name == "audio.mp3"
-
-
-def test_video_path(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert ws.video_path is None
-
-    video = tmp_path / "source.mp4"
-    video.write_bytes(b"fake video")
-    saved = ws.save_video(video)
-    assert ws.video_path == saved
-    assert saved.name == "video.mp4"
-
-
 def test_discard_video_artifacts(tmp_path):
     ws = Workspace(tmp_path, "test123")
     (ws.dir / "video.mp4").write_bytes(b"old")
@@ -116,17 +88,6 @@ def test_discard_video_artifacts(tmp_path):
     assert ws.video_path is None
     assert not (ws.dir / "video.mp4").exists()
     assert not (ws.dir / "video.webm").exists()
-
-
-def test_subtitle_path(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert ws.subtitle_path is None
-
-    srt = tmp_path / "source.srt"
-    srt.write_text("1\n00:00:01,000 --> 00:00:02,000\nHi\n")
-    saved = ws.save_subtitles(srt)
-    assert ws.subtitle_path == saved
-    assert saved.name == "subtitles.srt"
 
 
 def test_subtitle_source_roundtrip(tmp_path):
@@ -153,10 +114,6 @@ def test_failure_roundtrip(tmp_path):
     ws.clear_failure()
     assert ws.load_failure() is None
     assert not (tmp_path / "test123" / "failed.json").exists()
-
-
-def test_steps_constant():
-    assert STEPS == ("download", "segment", "transcribe", "review", "summarize")
 
 
 def test_discard_transcribe_artifacts_removes_transcripts_and_chunk_dirs(tmp_path):
@@ -240,15 +197,6 @@ def test_transcribe_plan_state_and_chunk_roundtrip(tmp_path):
             "preferred_backend": "groq",
         }
     ]
-
-
-def test_asr_fallback_marker_roundtrip(tmp_path):
-    ws = Workspace(tmp_path, "test123")
-    assert ws.asr_fallback_used() is False
-
-    ws.mark_asr_fallback_used()
-
-    assert ws.asr_fallback_used() is True
 
 
 def test_note_bundle_roundtrip(tmp_path):

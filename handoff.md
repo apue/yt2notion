@@ -1,6 +1,22 @@
 # handoff.md
 
-## 当前任务卡
+## 当前任务卡（2026-09-30）
+
+- 任务：删减约 20% 最低价值的 Python 测试，同时保持 `src/yt2notion` 行覆盖率下降不超过 2 个百分点
+- 当前 owner：Codex
+- 状态：删减与本地验证完成，待提交和 PR review
+- 分支：`codex/prune-low-value-tests`（从 `origin/main` 创建；起点工作区干净）
+- PR：待创建
+- 约束：只删减冗余测试，不改变产品代码、pipeline 契约、发布行为或远程服务配置；自动验证仅本地离线执行
+- 受影响文件：`tests/`、`handoff.md`；没有修改生产代码或 pipeline 契约
+- 验收标准：以 pytest 实际收集数为分母删减约 20%；按相同命令测得的整体行覆盖率降幅 ≤ 2 个百分点；余下测试通过；ruff 与 diff 检查通过
+- 结果：测试收集数 284 → 227，删除 57 项（20.07%）；`src/yt2notion` 行覆盖率 86.303%（3390/3928）→ 86.074%（3381/3928），下降 0.229 个百分点；227 项全部通过（14 条既有 pysrt 弃用警告）
+- 选择依据：优先删除重复工厂参数、简单属性/导入路径、弱断言和已有集成覆盖的薄包装层测试；逐行覆盖率复核后保留了 Groq 凭据校验、存储工厂、字幕格式分发和 segments JSON 写入等关键路径测试
+- 验证：`uv run pytest tests/ -q --cov=src/yt2notion --cov-context=test --cov-report=term:skip-covered`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`git diff --check` 均通过
+- 最后一次自测命令：`uv run pytest tests/ -q --cov=src/yt2notion --cov-context=test --cov-report=term:skip-covered`
+- 下一步：检查最终 diff，提交并创建 PR；执行本地 code review，不合并
+
+## 上一任务卡（Amp Runner）
 
 - 任务：固定 yt2notion 的 Amp Runner 执行策略并配置 Mac mini checkout
 - 状态：`completed`

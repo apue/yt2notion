@@ -10,7 +10,6 @@ def test_create_obsidian(tmp_path) -> None:
     storage = create_storage(
         {"storage": {"backend": "obsidian", "obsidian": {"vault_path": str(tmp_path)}}}
     )
-
     assert isinstance(storage, ObsidianStorage)
 
 

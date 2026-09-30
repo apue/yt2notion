@@ -58,10 +58,6 @@ class TestSegmentByChapters:
         assert len(segments) > 1
         assert all(s.parent_title == "Very Long Section" for s in segments if s.parent_title)
 
-    def test_empty_entries(self):
-        meta = _make_meta(chapters=[Chapter(title="A", start_seconds=0, end_seconds=100)])
-        assert segment([], meta) == []
-
 
 class TestDescriptionTimestamps:
     def test_parse_hms_format(self):
@@ -76,17 +72,6 @@ class TestDescriptionTimestamps:
         assert result[0].start_seconds == 79
         assert result[1].start_seconds == 2140
         assert result[2].end_seconds == 7200  # last chapter goes to total duration
-
-    def test_parse_ms_format(self):
-        desc = """
-0:00 Introduction
-5:30 Main topic
-12:00 Conclusion
-"""
-        result = _parse_description_timestamps(desc, 900)
-        assert len(result) == 3
-        assert result[0].start_seconds == 0
-        assert result[1].start_seconds == 330
 
     def test_too_few_timestamps(self):
         desc = "Just one 0:00 timestamp here"
@@ -132,8 +117,3 @@ class TestSentenceBoundary:
         idx = _find_sentence_boundary(text)
         assert idx is not None
         assert text[idx - 2] == "."
-
-    def test_no_boundary(self):
-        text = "no punctuation here just words"
-        idx = _find_sentence_boundary(text)
-        assert idx is None

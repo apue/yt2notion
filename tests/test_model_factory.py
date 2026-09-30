@@ -6,16 +6,8 @@ import pytest
 
 from yt2notion.models import create_summarizer
 from yt2notion.models.anthropic_api import AnthropicAPICaller
-from yt2notion.models.codex_cli import CodexCLICaller
 from yt2notion.models.llm import LLMConfigError
 from yt2notion.models.note_composer import NoteComposer
-
-
-def test_create_codex_composer() -> None:
-    composer = create_summarizer({"model": {"backend": "codex_cli", "translate_model": "gpt-5.4"}})
-
-    assert isinstance(composer, NoteComposer)
-    assert isinstance(composer.caller, CodexCLICaller)
 
 
 @patch("yt2notion.models.anthropic_api._anthropic")
