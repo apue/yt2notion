@@ -31,8 +31,3 @@ def test_create_anthropic_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(LLMConfigError, match="API key required"):
         create_summarizer({"model": {"backend": "anthropic_api"}})
-
-
-def test_unknown_backend_raises() -> None:
-    with pytest.raises(LLMConfigError, match="Unknown LLM backend"):
-        create_summarizer({"model": {"backend": "gpt4"}})

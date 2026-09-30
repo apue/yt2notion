@@ -4,17 +4,19 @@
 
 - 任务：删减约 20% 最低价值的 Python 测试，同时保持 `src/yt2notion` 行覆盖率下降不超过 2 个百分点
 - 当前 owner：Codex
-- 状态：删减与本地验证完成，待提交和 PR review
+- 状态：`ready_for_human_review`（本地复核与验证通过）
 - 分支：`codex/prune-low-value-tests`（从 `origin/main` 创建；起点工作区干净）
-- PR：待创建
+- PR：[#38](https://github.com/apue/yt2notion/pull/38)（open；GitHub 未报告 checks）
 - 约束：只删减冗余测试，不改变产品代码、pipeline 契约、发布行为或远程服务配置；自动验证仅本地离线执行
 - 受影响文件：`tests/`、`handoff.md`；没有修改生产代码或 pipeline 契约
 - 验收标准：以 pytest 实际收集数为分母删减约 20%；按相同命令测得的整体行覆盖率降幅 ≤ 2 个百分点；余下测试通过；ruff 与 diff 检查通过
-- 结果：测试收集数 284 → 227，删除 57 项（20.07%）；`src/yt2notion` 行覆盖率 86.303%（3390/3928）→ 86.074%（3381/3928），下降 0.229 个百分点；227 项全部通过（14 条既有 pysrt 弃用警告）
+- 结果：测试收集数 284 → 227，删除 57 项（20.07%）；`src/yt2notion` 行覆盖率 86.303%（3390/3928）→ 86.023%（3379/3928），下降 0.280 个百分点；227 项全部通过（14 条既有 pysrt 弃用警告）
 - 选择依据：优先删除重复工厂参数、简单属性/导入路径、弱断言和已有集成覆盖的薄包装层测试；逐行覆盖率复核后保留了 Groq 凭据校验、存储工厂、字幕格式分发和 segments JSON 写入等关键路径测试
+- review 修复：恢复 RemoteTranscriber HTTP 5xx 后重试成功的独立场景，以及 guide/longform/metadata prompt 输出格式字段检查；改删 4 个更浅的缺失文件/无效 backend 检查，保持测试数不变；User 已明确批准在当前主机完成修复
+- review 状态：本地 Standards / Spec 双轴复核无剩余代码或规格 finding；正式 `/review` 命令在当前会话不可调用
 - 验证：`uv run pytest tests/ -q --cov=src/yt2notion --cov-context=test --cov-report=term:skip-covered`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`git diff --check` 均通过
 - 最后一次自测命令：`uv run pytest tests/ -q --cov=src/yt2notion --cov-context=test --cov-report=term:skip-covered`
-- 下一步：检查最终 diff，提交并创建 PR；执行本地 code review，不合并
+- 下一步：等待 User 审阅 PR 并决定是否合并；不自动合并
 
 ## 上一任务卡（Amp Runner）
 

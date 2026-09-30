@@ -90,26 +90,6 @@ def test_create_fallback_transcriber_uses_env_for_remote_endpoint(
     assert fallback.endpoint == "http://env-asr:8930"
 
 
-def test_create_transcriber_unknown_backend_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown ASR backend"):
-        create_transcriber({"extract": {"asr": {"backend": "unknown"}}})
-
-
-def test_create_fallback_transcriber_unknown_backend_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown ASR backend"):
-        create_fallback_transcriber(
-            {
-                "extract": {
-                    "asr": {
-                        "backend": "remote",
-                        "fallback_backend": "unknown",
-                        "endpoint": "http://localhost:8930",
-                    }
-                }
-            }
-        )
-
-
 def test_create_transcriber_groq_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with pytest.raises(ValueError, match="GROQ API key required"):
