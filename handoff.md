@@ -1,12 +1,12 @@
 # handoff.md
 
-## 当前任务卡（2026-09-30）
+## 当前任务卡（2026-10-01）
 
 - 任务：删减约 20% 最低价值的 Python 测试，同时保持 `src/yt2notion` 行覆盖率下降不超过 2 个百分点
 - 当前 owner：Codex
-- 状态：`ready_for_human_review`（本地复核与验证通过）
+- 状态：`merged`（User 已明确批准合入）
 - 分支：`codex/prune-low-value-tests`（从 `origin/main` 创建；起点工作区干净）
-- PR：[#38](https://github.com/apue/yt2notion/pull/38)（open；GitHub 未报告 checks）
+- PR：[#38](https://github.com/apue/yt2notion/pull/38)（squash merge；GitHub 未报告 checks）
 - 约束：只删减冗余测试，不改变产品代码、pipeline 契约、发布行为或远程服务配置；自动验证仅本地离线执行
 - 受影响文件：`tests/`、`handoff.md`；没有修改生产代码或 pipeline 契约
 - 验收标准：以 pytest 实际收集数为分母删减约 20%；按相同命令测得的整体行覆盖率降幅 ≤ 2 个百分点；余下测试通过；ruff 与 diff 检查通过
@@ -16,7 +16,7 @@
 - review 状态：本地 Standards / Spec 双轴复核无剩余代码或规格 finding；正式 `/review` 命令在当前会话不可调用
 - 验证：`uv run pytest tests/ -q --cov=src/yt2notion --cov-context=test --cov-report=term:skip-covered`；`uv run ruff check src/ tests/`；`uv run ruff format --check src/ tests/`；`git diff --check` 均通过
 - 最后一次自测命令：`uv run pytest tests/ -q --cov=src/yt2notion --cov-context=test --cov-report=term:skip-covered`
-- 下一步：等待 User 审阅 PR 并决定是否合并；不自动合并
+- 下一步：无
 
 ## 上一任务卡（Amp Runner）
 
