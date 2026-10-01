@@ -43,8 +43,9 @@
 
 - 任何需要读取或修改本仓库 checkout、运行命令、执行测试或进行 code review 的任务，优先在 Amp Runner `mac-mini` 上执行。
 - `mac-mini` 上的固定工作目录是 `/Users/yangtian/Developer/agent/yt2notion`。创建 Runner 线程时使用 executor `runner:mac-mini` 和该目录；已经运行在该 Runner 和目录中的线程直接继续，不重复转派。
-- 开始仓库操作前先确认当前 executor。如果当前线程不在 `mac-mini`，且具备创建或转派 Runner 线程的能力，则将完整任务、约束和必要上下文转派过去，并停止在当前线程重复执行。
-- 如果 `mac-mini` 不在线，或当前环境没有创建 Runner 线程的能力，必须在修改文件或运行项目命令前告知 User；未经 User 明确允许，不得静默回退到本地 executor 或 Orb。
+- 开始仓库操作前先确认当前 executor。如果当前线程不在 `mac-mini`、该 Runner 在线且具备创建或转派 Runner 线程的能力，则将完整任务、约束和必要上下文转派过去，并停止在当前线程重复执行。
+- 如果 `mac-mini` 不在线或当前环境没有创建 Runner 线程的能力，默认在当前本地 executor（本地 CLI 或 User 自有 Runner）继续，不需要再次请求 User 确认；在进度更新和 [handoff.md](./handoff.md) 中记录 fallback 原因。
+- Orb 不属于本地 fallback。如果当前线程只在 Orb 中运行且不能转派到任何本地 executor，必须告知 User 并等待切换；未经 User 明确允许，不在 Orb 中继续仓库操作。
 - 纯讨论或不需要访问 checkout 的事实回答可以留在当前线程完成。
 
 默认分工如下：
