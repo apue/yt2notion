@@ -9,7 +9,7 @@
 - 受影响文件：`AGENTS.md`、`.cursorrules`、`CLAUDE.md`、`handoff.md`；仓库外的 `~/.codex/AGENTS.md` 已更新，个人技能库分支 `codex/skill-trigger-cleanup` 已通过 [PR #3](https://github.com/apue/personal-codex-skills/pull/3) 合入，本机安装链接已切换。
 - 验收标准：测试选择有明确边界且不要求每个在线 adapter 都有 E2E；`CLAUDE.md` 不再承载独立规则；本机 Claude Code 能加载 `AGENTS.md`；skill 触发范围不强迫日常任务进入重流程；文本验证通过。
 - 兼容性发现：MacBook Air 的 Claude Code 已从 2.1.114 更新到 2.1.286；Mac mini Runner 的只读检查显示 2.0.27，当前主机无法 SSH 连接。旧版不支持直接读取 `AGENTS.md`，因此保留单行 `@AGENTS.md` 导入，待 Mac mini 升级后才能安全删除此文件。
-- 执行位置：本任务同时修改 MacBook Air 的用户级 Codex 指令与 skills；Mac mini 是另一台主机，无法承接这些本机配置改动，故仓库文档与个人配置在当前主机同一任务分支上完成。Mac mini 只做过版本/状态只读检查，未修改其 checkout。
+- 执行位置：原始实现、仓库文档编辑及用户级 Codex 指令与 skills 更新在 MacBook Air 完成；User 批准后，PR 合并、`main` 快进及 handoff 收尾在 Mac mini 完成。
 - 验证：本机 `claude --version` 为 2.1.286；`CLAUDE.md` 精确为单行 `@AGENTS.md`；仓库 Markdown 本地链接检查、`git diff --check`、个人技能库全部 8 个 skill 的 `quick_validate`、安装链接 dry-run 均通过。此次仅改指令文本和 skill 内容，未运行应用测试。
 - 最后一次自测命令：`python3 scripts/validate_all.py`（个人技能库）；仓库执行本地 Markdown 链接/导入断言和 `git diff --check`。
 - 下一步：两个 PR 均已合入；Mac mini 升级到支持直接读取 `AGENTS.md` 的 Claude Code 版本后，才删除单行 `CLAUDE.md` 兼容入口。
