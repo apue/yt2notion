@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是 `yt2notion` 仓库的协作入口，用来统一 User、Claude Code、Opus、Codex 之间的任务流转方式。任何 agent 开始任务前，先读本文件，再读 [handoff.md](./handoff.md)，最后按需回看 [CLAUDE.md](./CLAUDE.md)、[PROJECT_MAP.md](./PROJECT_MAP.md) 和 [.cursorrules](./.cursorrules)。其中，代码结构、数据契约与 pipeline 事实以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为唯一锚点。
+本文件是 `yt2notion` 仓库的协作入口，用来统一 User、Claude Code、Opus、Codex 之间的任务流转方式。任何 agent 开始任务前，先读本文件，再读 [handoff.md](./handoff.md)，最后按需回看 [PROJECT_MAP.md](./PROJECT_MAP.md) 和 [.cursorrules](./.cursorrules)。其中，代码结构、数据契约与 pipeline 事实以 [PROJECT_MAP.md](./PROJECT_MAP.md) 为唯一锚点。
 
 ## 基础共识
 - 不以维护向后兼容性为目标。对于已经废弃的代码路径，应直接移除，不再通过兼容层、回退机制或迁移方案予以保留。
@@ -16,14 +16,13 @@
 
 1. 用户当前指令
 2. `AGENTS.md`
-3. [CLAUDE.md](./CLAUDE.md)
-4. [PROJECT_MAP.md](./PROJECT_MAP.md)
-5. [.cursorrules](./.cursorrules)
+3. [PROJECT_MAP.md](./PROJECT_MAP.md)
+4. [.cursorrules](./.cursorrules)
 
 如果文档之间有冲突，按下面规则处理：
 
 - 工作流、角色分工、交接格式：以 `AGENTS.md` 为准
-- 项目约束、开发底线、命令约定：以 `CLAUDE.md` 为准
+- 项目约束、开发底线、命令约定：以 `AGENTS.md` 为准
 - 代码结构、数据契约、扩展入口、pipeline 事实：以 `PROJECT_MAP.md` 为准
 - 工具行为、编码风格、执行限制：以 `.cursorrules` 为准
 - 若文档之间对 pipeline 描述不一致，以 `PROJECT_MAP.md` 为准；`.cursorrules` 只作为压缩摘要
@@ -31,8 +30,9 @@
 ## 文档锚定约定（强制）
 
 - `PROJECT_MAP.md` 是唯一事实锚点：步骤顺序、分支逻辑、artifact 契约、config↔code 映射、扩展入口都只在这里定义。
-- `AGENTS.md`、`CLAUDE.md`、`.cursorrules` 只做索引与约束摘要，不重复维护完整 pipeline 事实。
-- 当实现变化影响 pipeline/契约时，必须先更新 `PROJECT_MAP.md`，再同步其余三个文档中的摘要/索引。
+- `AGENTS.md`、`.cursorrules` 只做索引与约束摘要，不重复维护完整 pipeline 事实。
+- `CLAUDE.md` 仅保留 `@AGENTS.md` 导入，以兼容尚未支持直接读取 `AGENTS.md` 的 Claude Code；不要在其中维护第二份规则。
+- 当实现变化影响 pipeline/契约时，必须先更新 `PROJECT_MAP.md`，再同步其余文档中的摘要/索引。
 - 若摘要与锚点冲突，执行和评审一律以 `PROJECT_MAP.md` 为准。
 
 ## 项目概述
@@ -61,7 +61,7 @@
 1. 读取 `AGENTS.md`
 2. 读取 [handoff.md](./handoff.md)
 3. 查看当前 `git status` / `git diff`
-4. 按需补读 [CLAUDE.md](./CLAUDE.md)、[PROJECT_MAP.md](./PROJECT_MAP.md)、[.cursorrules](./.cursorrules)
+4. 按需补读 [PROJECT_MAP.md](./PROJECT_MAP.md)、[.cursorrules](./.cursorrules)
 
 如果 `handoff.md` 为空、过期或与当前任务不一致，接手者要先补齐它，再继续执行。
 
@@ -159,8 +159,17 @@ Codex 执行时应遵守：
 - 不自动发布到 Obsidian
 - 不做无关重构
 - 保持公开函数 type hints、`typing.Protocol` 接口风格、自定义异常约定
+- Python 项目使用 3.11+、uv、pytest 和 ruff；共享 fixture 放在 `tests/conftest.py`
+- `ClaudeCodeCaller` 只将 `claude -p --max-turns 1` 用于文本处理，不允许该 backend 执行 agentic 工具任务
 
-### D. 验证阶段
+### D. 设计与测试选择
+
+- 改动行为前，明确用户可观察的结果、相关模块边界与最可能的失败模式。已知行为或回归问题在可行时先写能失败的针对性检查，再实现；探索性任务可先验证假设，再将发现固化为回归检查。
+- 确定性逻辑优先用快速的模块测试验证公开行为；JSON/codec、配置工厂及 provider adapter 等交界处使用边界契约测试。测试应抓住真实失败，避免锁定内部调用顺序或重复已有断言。
+- 保留少量覆盖关键命令、产物和发布安全的离线产品路径测试。在线 adapter 不必各自拥有完整 E2E；外部协议或关键集成变化时，按风险安排真实服务 smoke test，遵守发布确认及 review 后不调用远程 ASR/LLM 的边界。
+- 以新增的错误探测能力和反馈速度决定测试取舍；测试数量和覆盖率只作辅助证据。
+
+### E. 验证阶段
 
 按任务需要选择最小充分验证：
 
@@ -236,7 +245,7 @@ Codex 执行时应遵守：
 ### 改文档时的约束
 
 - 工作流变了：更新 `AGENTS.md`
-- 开发底线、命令约定、验证门槛变了：更新 [CLAUDE.md](./CLAUDE.md) 和必要的 `.cursorrules`
+- 开发底线、命令约定、验证门槛变了：更新 `AGENTS.md` 和必要的 `.cursorrules`
 - 结构、契约、扩展点、pipeline 事实变了：更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
 - 只有当变更触及 pipeline / 契约 / 扩展点事实时，才要求同步更新 [PROJECT_MAP.md](./PROJECT_MAP.md)
 
@@ -294,7 +303,7 @@ uv run yt2notion transcribe "URL"
 
 默认输出：`workspace/<media-id>/metadata.json`、`transcripts.json`、`transcript.md`；优先使用人工/自动字幕，仅在无可用字幕时下载音频或视频并进入 ASR。`video.*` 与 `audio.mp3` 是按需 artifact。命令不触发 review / summarize / Obsidian 发布；需要机器可读结果和阶段耗时时加 `--json`。
 
-- 项目规则与底线：[CLAUDE.md](./CLAUDE.md)
+- 项目规则与底线：本文件
 - 代码地图与数据契约：[PROJECT_MAP.md](./PROJECT_MAP.md)
 - 工具行为与风格限制：[.cursorrules](./.cursorrules)
 - 当前交接状态：[handoff.md](./handoff.md)

@@ -1,6 +1,20 @@
 # handoff.md
 
-## 当前任务卡（2026-10-01）
+## 当前任务卡（2026-10-01，工程与测试约定）
+
+- 任务：按 User 的模块化、失败模式先行、快速模块/契约测试与少量关键旅程 E2E 偏好，收敛仓库和个人 Codex 指令及重叠 skills；安全迁移仓库 `CLAUDE.md`。
+- 当前 owner：Codex；状态：本地改动与验证完成，待创建 PR。
+- 分支：`codex/agent-testing-guidance`（从干净的 `main` 创建）；PR：待创建；review：待本地文档自查。
+- 约束：不改生产代码、pipeline 契约、prompt 模板、远程服务或 Obsidian 发布行为；保留现有仓库约定中有用的独有规则；`PROJECT_MAP.md` 仍是 pipeline 唯一事实锚点。
+- 受影响文件：`AGENTS.md`、`.cursorrules`、`CLAUDE.md`、`handoff.md`；仓库外的 `~/.codex/AGENTS.md` 已更新，个人技能库分支 `codex/skill-trigger-cleanup` 已提交 `eff0f28`，本机安装链接已切换。
+- 验收标准：测试选择有明确边界且不要求每个在线 adapter 都有 E2E；`CLAUDE.md` 不再承载独立规则；本机 Claude Code 能加载 `AGENTS.md`；skill 触发范围不强迫日常任务进入重流程；文本验证通过。
+- 兼容性发现：MacBook Air 的 Claude Code 已从 2.1.114 更新到 2.1.286；Mac mini Runner 的只读检查显示 2.0.27，当前主机无法 SSH 连接。旧版不支持直接读取 `AGENTS.md`，因此保留单行 `@AGENTS.md` 导入，待 Mac mini 升级后才能安全删除此文件。
+- 执行位置：本任务同时修改 MacBook Air 的用户级 Codex 指令与 skills；Mac mini 是另一台主机，无法承接这些本机配置改动，故仓库文档与个人配置在当前主机同一任务分支上完成。Mac mini 只做过版本/状态只读检查，未修改其 checkout。
+- 验证：本机 `claude --version` 为 2.1.286；`CLAUDE.md` 精确为单行 `@AGENTS.md`；仓库 Markdown 本地链接检查、`git diff --check`、个人技能库全部 8 个 skill 的 `quick_validate`、安装链接 dry-run 均通过。此次仅改指令文本和 skill 内容，未运行应用测试。
+- 最后一次自测命令：`python3 scripts/validate_all.py`（个人技能库）；仓库执行本地 Markdown 链接/导入断言和 `git diff --check`。
+- 下一步：迁移文档与 skills，验证后提交并创建 PR；最终合入由 User 决定。
+
+## 上一任务卡（2026-10-01，测试删减）
 
 - 任务：删减约 20% 最低价值的 Python 测试，同时保持 `src/yt2notion` 行覆盖率下降不超过 2 个百分点
 - 当前 owner：Codex
