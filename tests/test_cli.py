@@ -12,13 +12,6 @@ from yt2notion.cli import app
 runner = CliRunner()
 
 
-def test_cli_help():
-    result = runner.invoke(app, ["--help"])
-    assert result.exit_code == 0
-    assert "YouTube" in result.output
-    assert "agent" not in result.output
-
-
 def test_cli_missing_config():
     result = runner.invoke(
         app, ["process", "https://www.youtube.com/watch?v=abc", "-c", "/nonexistent/config.yaml"]

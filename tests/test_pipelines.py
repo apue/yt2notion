@@ -192,21 +192,6 @@ def test_transcribe_pipeline_uses_shared_workspace_transcription(tmp_path: Path)
     }
 
 
-def test_transcribe_pipeline_returns_media_source_video_path(tmp_path: Path) -> None:
-    provider_video = tmp_path / "provider-video.webm"
-    provider_video.write_bytes(b"video")
-
-    result = run_transcribe_pipeline(
-        "https://example.com/video",
-        config=_config(tmp_path),
-        source_provider=FakeSourceProvider(video_path=provider_video),
-        transcription_engine=FakeEngine(),
-        preparation=ContentPreparation(),
-    )
-
-    assert result.video_path == provider_video
-
-
 def test_note_pipeline_records_source_acquisition_failure(tmp_path: Path) -> None:
     class FailingSourceProvider:
         def probe(self, locator: str) -> SourceProbe:

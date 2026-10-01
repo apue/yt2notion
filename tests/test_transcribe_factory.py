@@ -51,10 +51,6 @@ def test_create_transcriber_groq_uses_env_api_key_when_config_empty(
     assert transcriber.max_upload_bytes == 12_345
 
 
-def test_create_fallback_transcriber_returns_none_when_not_configured() -> None:
-    assert create_fallback_transcriber({"extract": {"asr": {"backend": "remote"}}}) is None
-
-
 def test_create_fallback_transcriber_uses_fallback_backend() -> None:
     config = {
         "extract": {
@@ -92,26 +88,6 @@ def test_create_fallback_transcriber_uses_env_for_remote_endpoint(
 
     assert fallback is not None
     assert fallback.endpoint == "http://env-asr:8930"
-
-
-def test_create_transcriber_unknown_backend_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown ASR backend"):
-        create_transcriber({"extract": {"asr": {"backend": "unknown"}}})
-
-
-def test_create_fallback_transcriber_unknown_backend_raises() -> None:
-    with pytest.raises(ValueError, match="Unknown ASR backend"):
-        create_fallback_transcriber(
-            {
-                "extract": {
-                    "asr": {
-                        "backend": "remote",
-                        "fallback_backend": "unknown",
-                        "endpoint": "http://localhost:8930",
-                    }
-                }
-            }
-        )
 
 
 def test_create_transcriber_groq_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:

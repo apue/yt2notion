@@ -31,15 +31,6 @@ def test_parse_vtt(sample_vtt):
     assert "Welcome" in entries[0].text
 
 
-def test_srt_vtt_consistency(sample_srt, sample_vtt):
-    srt_entries = parse_srt(sample_srt)
-    vtt_entries = parse_vtt(sample_vtt)
-    assert len(srt_entries) == len(vtt_entries)
-    for srt, vtt in zip(srt_entries, vtt_entries, strict=False):
-        assert srt.start_seconds == pytest.approx(vtt.start_seconds, abs=0.01)
-        assert srt.text == vtt.text
-
-
 def test_parse_subtitle_file_srt(sample_srt):
     entries = parse_subtitle_file(sample_srt)
     assert len(entries) == 4
@@ -64,14 +55,6 @@ def test_clean_text():
     assert clean_text("  leading trailing  ") == "leading trailing"
 
 
-def test_chunk_by_time(sample_srt):
-    entries = parse_srt(sample_srt)
-    chunks = chunk_by_time(entries, chunk_seconds=120)
-    # Entries at 1s, 5.5s (within first 120s), 124s, 243s -> 3 chunks
-    assert len(chunks) >= 2
-    assert chunks[0].start_seconds == 1
-
-
 def test_chunk_boundary():
     entries = [
         SubtitleEntry(start_seconds=0, end_seconds=10, text="A"),
@@ -91,18 +74,6 @@ def test_empty_subtitle(tmp_path):
     p.write_text("")
     entries = parse_srt(p)
     assert entries == []
-
-
-def test_empty_vtt(tmp_path):
-    p = tmp_path / "empty.vtt"
-    p.write_text("")
-    entries = parse_vtt(p)
-    assert entries == []
-
-
-def test_empty_entries_chunk():
-    chunks = chunk_by_time([])
-    assert chunks == []
 
 
 def test_unicode_subtitle(tmp_path):

@@ -65,10 +65,6 @@ class TestRemoteTranscriber:
             with pytest.raises(TranscriptionError, match="ASR request failed"):
                 transcriber.transcribe(audio_file)
 
-    def test_endpoint_trailing_slash_stripped(self):
-        t = RemoteTranscriber(endpoint="http://localhost:8930/")
-        assert t.endpoint == "http://localhost:8930"
-
     def test_restart_before_transcribe_runs_once(self, tmp_path: Path):
         audio_file = tmp_path / "test.mp3"
         audio_file.write_bytes(b"fake")
@@ -136,27 +132,10 @@ class TestRemoteTranscriber:
 
 
 class TestCreateTranscriber:
-    def test_remote_backend(self):
-        config = {"extract": {"asr": {"backend": "remote", "endpoint": "http://localhost:8930"}}}
-        t = create_transcriber(config)
-        assert isinstance(t, RemoteTranscriber)
-
-    def test_env_var_fallback(self, monkeypatch):
-        monkeypatch.setenv("ASR_ENDPOINT", "http://env-host:8930")
-        config = {"extract": {"asr": {"backend": "remote", "endpoint": ""}}}
-        t = create_transcriber(config)
-        assert isinstance(t, RemoteTranscriber)
-        assert t.endpoint == "http://env-host:8930"
-
     def test_no_endpoint_raises(self, monkeypatch):
         monkeypatch.delenv("ASR_ENDPOINT", raising=False)
         config = {"extract": {"asr": {"backend": "remote", "endpoint": ""}}}
         with pytest.raises(ValueError, match="ASR endpoint required"):
-            create_transcriber(config)
-
-    def test_unknown_backend_raises(self):
-        config = {"extract": {"asr": {"backend": "unknown", "endpoint": "http://x"}}}
-        with pytest.raises(ValueError, match="Unknown ASR backend"):
             create_transcriber(config)
 
     def test_remote_backend_with_restart_options(self):

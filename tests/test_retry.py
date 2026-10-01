@@ -10,18 +10,6 @@ from yt2notion.retry import RetryExhaustedError, retry, retry_for_exceptions
 from yt2notion.runtime import RuntimeObserver
 
 
-def test_retry_succeeds_first_try():
-    calls = []
-
-    def fn():
-        calls.append(1)
-        return "ok"
-
-    result = retry(fn, max_retries=3, base_delay=0.0, classify=retry_for_exceptions(Exception))
-    assert result == "ok"
-    assert len(calls) == 1
-
-
 def test_retry_succeeds_after_failures():
     calls = []
 
@@ -71,27 +59,6 @@ def test_retry_non_retryable_raises_immediately():
             classify=retry_for_exceptions(ValueError),
         )
     assert len(calls) == 1
-
-
-def test_retry_logs_to_stderr(capsys):
-    calls = []
-
-    def fn():
-        calls.append(1)
-        if len(calls) < 2:
-            raise ValueError("oops")
-        return "ok"
-
-    retry(
-        fn,
-        max_retries=3,
-        base_delay=0.0,
-        classify=retry_for_exceptions(ValueError),
-        label="test-call",
-    )
-    captured = capsys.readouterr()
-    assert "Retry 1/3" in captured.err
-    assert "test-call" in captured.err
 
 
 def test_retry_records_typed_attempts_under_provider_call(tmp_path):

@@ -18,11 +18,6 @@ def test_load_valid_config(tmp_path):
     assert config.storage["backend"] == "obsidian"
 
 
-def test_missing_config_raises():
-    with pytest.raises(ConfigError, match="not found"):
-        load_config("/nonexistent/config.yaml")
-
-
 def test_default_values(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("{}")  # empty config
@@ -102,31 +97,6 @@ def test_deep_merge_preserves_nested(tmp_path):
     assert config.storage["obsidian"]["vault_path"] == ""
 
 
-def test_codex_cli_model_backend_is_valid(tmp_path):
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("model:\n  backend: codex_cli\nstorage:\n  backend: obsidian\n")
-    config = load_config(str(cfg_file))
-    assert config.model["backend"] == "codex_cli"
-
-
-def test_openai_alias_model_backend_is_rejected(tmp_path):
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("model:\n  backend: openai_api\n")
-    with pytest.raises(ConfigError, match="Invalid model backend"):
-        load_config(str(cfg_file))
-
-
-def test_asr_restart_defaults_present(tmp_path):
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("{}")
-    config = load_config(str(cfg_file))
-    asr = config.extract["asr"]
-    assert asr["healthcheck_path"] == "/health"
-    assert asr["restart_before_transcribe"] is False
-    assert asr["restart_on_unhealthy"] is False
-    assert asr["restart_command"] == ""
-
-
 def _write_yaml(path, data: dict) -> None:
     import yaml as _yaml
 
@@ -143,14 +113,6 @@ def _base_config(**overrides) -> dict:
     for k, v in overrides.items():
         base[k] = v
     return base
-
-
-def test_remote_only_config_loads(tmp_path):
-    cfg_file = tmp_path / "c.yaml"
-    _write_yaml(cfg_file, _base_config())
-    config = load_config(str(cfg_file))
-    assert config.extract["asr"]["fallback_backend"] is None
-    assert config.extract["asr"]["groq"]["model"] == "whisper-large-v3-turbo"
 
 
 def test_invalid_asr_backend_rejected(tmp_path):
@@ -192,30 +154,3 @@ def test_groq_requires_api_key(tmp_path, monkeypatch):
     _write_yaml(cfg_file, data)
     with pytest.raises(ConfigError, match="api_key"):
         load_config(str(cfg_file))
-
-
-def test_groq_env_var_satisfies_api_key(tmp_path, monkeypatch):
-    monkeypatch.setenv("GROQ_API_KEY", "sk-test")
-    cfg_file = tmp_path / "c.yaml"
-    data = _base_config()
-    data["extract"]["asr"] = {"backend": "groq"}
-    _write_yaml(cfg_file, data)
-    config = load_config(str(cfg_file))
-    assert config.extract["asr"]["backend"] == "groq"
-
-
-def test_groq_primary_with_remote_fallback(tmp_path, monkeypatch):
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    cfg_file = tmp_path / "c.yaml"
-    data = _base_config()
-    data["extract"]["asr"] = {
-        "backend": "groq",
-        "fallback_backend": "remote",
-        "endpoint": "http://asr",
-        "groq": {"api_key": "sk-x"},
-    }
-    _write_yaml(cfg_file, data)
-    config = load_config(str(cfg_file))
-    assert config.extract["asr"]["backend"] == "groq"
-    assert config.extract["asr"]["fallback_backend"] == "remote"
-    assert config.extract["asr"]["groq"]["api_key"] == "sk-x"

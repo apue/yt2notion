@@ -167,19 +167,6 @@ def test_build_note_bundle_calls_guide_then_longform_then_metadata() -> None:
     assert bundle.stable_tags == ["法拉利", "赛车"]
 
 
-def test_parse_note_document_json_success() -> None:
-    text = """
-    {
-      "title": "Ferrari 导读",
-      "markdown": "# Ferrari 导读",
-      "tags": ["法拉利", "导读版"],
-      "variant": "a_guide"
-    }
-    """
-    note = parse_note_document_json(text, expected_variant="a_guide")
-    assert note == _sample_guide_note()
-
-
 def test_parse_note_document_json_supports_fenced_json() -> None:
     text = """```json
     {

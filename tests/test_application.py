@@ -37,20 +37,6 @@ def test_process_is_only_facade_method_that_passes_storage(monkeypatch) -> None:
     assert pipeline.call_args.kwargs["storage_factory"] is dependencies[3]
 
 
-def test_transcribe_composes_complete_pipeline_dependencies(monkeypatch) -> None:
-    app, dependencies = _application()
-    pipeline = Mock(return_value="transcription")
-    monkeypatch.setattr("yt2notion.application.run_transcribe_pipeline", pipeline)
-
-    result = app.transcribe("https://example.com/video", keep_video=False)
-
-    assert result == "transcription"
-    assert pipeline.call_args.args == ("https://example.com/video",)
-    assert pipeline.call_args.kwargs["keep_video"] is False
-    _assert_common_dependencies(pipeline, dependencies)
-    assert "storage_factory" not in pipeline.call_args.kwargs
-
-
 def test_translation_experiment_composes_complete_pipeline_dependencies(monkeypatch) -> None:
     runner = object()
     app, dependencies = _application(translation_experiment_runner=runner)

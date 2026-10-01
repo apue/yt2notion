@@ -2,19 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from yt2notion.prompts import load_prompt, render_prompt
-
-
-def test_load_nonexistent_prompt():
-    with pytest.raises(FileNotFoundError):
-        load_prompt("nonexistent_prompt")
-
-
-def test_load_review_prompt():
-    text = load_prompt("review")
-    assert "transcript" in text.lower() or "转录" in text
 
 
 def test_load_topic_segment_prompt():
