@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "yt2notion 当前项目架构",
+    "subtitle": "本地 CLI · 四条产品流 · 共享能力 · 显式发布边界",
+    "output": "docs/diagrams/current-architecture.architecture.html"
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "URL + 命令", "pos": [40, 92], "size": [120, 64] },
+    { "id": "cli", "type": "frontend", "label": "CLI", "sublabel": "cli.py · Typer", "pos": [260, 92], "size": [140, 64] },
+    { "id": "application", "type": "backend", "label": "Yt2Notion", "sublabel": "application.py · 依赖组装", "pos": [500, 92], "size": [170, 64] },
+    { "id": "transcribe_flow", "type": "backend", "label": "transcribe", "sublabel": "获取并产出转录", "pos": [140, 290], "size": [170, 68] },
+    { "id": "translation_flow", "type": "backend", "label": "translation-experiment", "sublabel": "本地盲测 A / B", "pos": [370, 290], "size": [190, 68] },
+    { "id": "subtitle_flow", "type": "backend", "label": "subtitle-pack", "sublabel": "双语 cue 字幕包", "pos": [620, 290], "size": [170, 68] },
+    { "id": "notes_flow", "type": "backend", "label": "prepare / process", "sublabel": "source / A / B 笔记", "pos": [850, 290], "size": [180, 68], "tag": "仅 process 发布" },
+    { "id": "acquisition", "type": "backend", "label": "Acquisition", "sublabel": "probe · plan · fallback", "pos": [140, 490], "size": [170, 68] },
+    { "id": "transcription", "type": "backend", "label": "TranscriptionEngine", "sublabel": "字幕优先 · 可恢复 ASR", "pos": [370, 490], "size": [190, 68] },
+    { "id": "content", "type": "backend", "label": "内容处理", "sublabel": "segment / review / notes", "pos": [620, 490], "size": [170, 68] },
+    { "id": "workspace", "type": "database", "label": "Workspace + Runtime", "sublabel": "typed JSON · checkpoint · profile", "pos": [850, 490], "size": [180, 68] },
+    { "id": "media", "type": "external", "label": "媒体来源", "sublabel": "yt-dlp / YouTube / Podcast", "pos": [140, 690], "size": [170, 68] },
+    { "id": "asr", "type": "external", "label": "ASR providers", "sublabel": "Groq / Remote", "pos": [370, 690], "size": [190, 68] },
+    { "id": "llm", "type": "external", "label": "LLM providers", "sublabel": "Codex / Claude / Anthropic", "pos": [620, 690], "size": [170, 68] },
+    { "id": "obsidian", "type": "external", "label": "Obsidian vault", "sublabel": "Storage adapter", "pos": [1140, 290], "size": [170, 68] },
+    { "id": "extension", "type": "frontend", "label": "浏览器插件", "sublabel": "手动导入字幕包 JSON", "pos": [870, 690], "size": [180, 68] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "四条产品流 / pipelines", "wraps": ["transcribe_flow", "translation_flow", "subtitle_flow", "notes_flow"] },
+    { "kind": "region", "label": "共享能力与本地状态", "wraps": ["acquisition", "transcription", "content", "workspace"] }
+  ],
+  "connections": [
+    { "from": "user", "to": "cli", "label": "命令", "variant": "emphasis" },
+    { "from": "cli", "to": "application", "variant": "emphasis" },
+    { "from": "application", "to": "transcribe_flow", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "application", "to": "translation_flow", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "application", "to": "subtitle_flow", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "application", "to": "notes_flow", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "transcribe_flow", "to": "acquisition", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "from": "translation_flow", "to": "transcription", "fromSide": "bottom", "toSide": "top" },
+    { "from": "subtitle_flow", "to": "transcription", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "notes_flow", "to": "workspace", "fromSide": "bottom", "toSide": "top" },
+    { "from": "notes_flow", "to": "content", "fromSide": "bottom", "toSide": "top", "route": "orthogonal-v" },
+    { "from": "acquisition", "to": "media", "label": "SourceProvider", "fromSide": "bottom", "toSide": "top", "labelAt": [225, 623] },
+    { "from": "transcription", "to": "asr", "label": "Transcriber", "fromSide": "bottom", "toSide": "top", "labelAt": [465, 623] },
+    { "from": "content", "to": "llm", "label": "LLMCaller", "fromSide": "bottom", "toSide": "top", "labelAt": [705, 623] },
+    { "from": "notes_flow", "to": "obsidian", "label": "仅显式 process", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "from": "workspace", "to": "extension", "label": "手动导入", "variant": "dashed", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "产品流", "items": ["五个 CLI 命令进入四条产品流", "prepare 与 process 共用笔记准备", "实验与字幕包只写本地产物"] },
+    { "dot": "emerald", "title": "共享边界", "items": ["获取、转录和 typed transcript 供多条流复用", "翻译实验、字幕包与笔记均经 LLMCaller", "RuntimeObserver / checkpoint 与 Workspace 管理运行状态"] },
+    { "dot": "rose", "title": "发布安全", "items": ["只有显式 process 注入 Storage", "浏览器插件仅消费手动导入的字幕包"] }
+  ]
+}

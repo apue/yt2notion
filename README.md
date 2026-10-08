@@ -79,9 +79,10 @@ parsing are provider-independent.
 - Watch URLs carrying playlist parameters are always treated as one video.
 - Request errors such as `400/401/403` fail directly.
 
-See [PROJECT_MAP.md](PROJECT_MAP.md) for pipeline and artifact contracts, and
-[docs/operations/asr-service.md](docs/operations/asr-service.md) for remote ASR
-operations.
+See [PROJECT_MAP.md](PROJECT_MAP.md) for pipeline and artifact contracts,
+[the current architecture diagram](docs/diagrams/README.md) for a visual
+overview, and [docs/operations/asr-service.md](docs/operations/asr-service.md)
+for remote ASR operations.
 
 ## Development
 
