@@ -1,5 +1,18 @@
 # handoff.md
 
+## 当前任务卡（2026-10-08，当前项目架构图）
+
+- 任务：根据当前代码与 `PROJECT_MAP.md` 完成可维护的项目架构总览图，覆盖 CLI、四条产品流、共享能力、外部 adapter、workspace、浏览器插件和仅显式 `process` 可发布的边界。
+- 当前 owner：Codex；状态：`pr_open`。
+- 分支：`codex/current-architecture-diagram`；PR：[#42](https://github.com/apue/yt2notion/pull/42)；review：本地文档与图形自查完成，待 User 审阅。
+- 约束：纯文档与图规格改动；不修改运行时、数据契约、prompt 模板、外部服务或 Obsidian 内容；以 `PROJECT_MAP.md` 为 pipeline 事实锚点。
+- 受影响文件：`docs/diagrams/` 的架构图源规格与索引、`README.md` 的入口，以及本交接记录。
+- 验收标准：图与当前入口、模块职责和发布边界一致；Archify 渲染与输出检查通过；HTML 本地可打开；文档链接、diff 和 Markdown 自查通过。
+- 执行位置：当前为 MacBook Air，本环境无创建 Amp Runner 线程的能力，按仓库 fallback 规则在本地执行。
+- 验证：Archify 架构 renderer 与输出检查通过；Playwright 打开本地 HTML 后已检查截图中的分组、箭头、标签与说明；JSON 可解析、本地 Markdown 链接有效、`git diff --check` 通过。纯文档与图规格改动，未运行应用测试。
+- 最后一次自测命令：`node /Users/yangtian/.codex/skills/archify/scripts/check-render-output.mjs docs/diagrams/current-architecture.architecture.html`；`git diff --check`。
+- 下一步：等待 User 审阅 PR 并决定是否合并 `main`。
+
 ## 当前任务卡（2026-10-01，工程与测试约定）
 
 - 任务：按 User 的模块化、失败模式先行、快速模块/契约测试与少量关键旅程 E2E 偏好，收敛仓库和个人 Codex 指令及重叠 skills；安全迁移仓库 `CLAUDE.md`。
